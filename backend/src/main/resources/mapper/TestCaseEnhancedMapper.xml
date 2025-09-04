@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cn.nolaurene.cms.dal.enhance.mapper.TestCaseEnhancedMapper">
+
+    <resultMap id="CaseTestCaseResultMap" type="cn.nolaurene.cms.dal.entity.CaseTestCaseDO">
+        <id property="id" column="id"/>
+        <result property="parentUid" column="parent_uid"/>
+        <result property="depth" column="depth"/>
+        <result property="uid" column="uid"/>
+        <result property="gmtCreate" column="gmt_create"/>
+        <result property="gmtModified" column="gmt_modified"/>
+        <result property="name" column="name"/>
+        <result property="bizExtension" column="biz_extension"/>
+        <result property="extension" column="extension"/>
+        <result property="tags" column="tags"/>
+        <result property="isDeleted" column="is_deleted"/>
+        <result property="sortOrder" column="sort_order"/>
+    </resultMap>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO case_test_case (uid, name, tags, extension, parent_uid, depth, project_id, sort_order)
+        VALUES
+        <foreach collection="caseTestCaseList" item="item" separator=",">
+            (#{item.uid}, #{item.name}, #{item.tags}, #{item.extension}, #{item.parentUid}, #{item.depth}, #{item.projectId}, #{item.sortOrder})
+        </foreach>
+    </insert>
+
+    <select id="selectAllByRootId" resultMap="CaseTestCaseResultMap">
+        WITH RECURSIVE case_tree AS (
+            SELECT id, parent_id, depth, uid, gmt_create, gmt_modified, name, biz_extension, extension, tags, is_deleted
+            FROM case_test_case
+            WHERE id = #{rootId} AND is_deleted = 0
+
+            UNION ALL
+
+            SELECT c.id, c.parent_id, c.depth, c.uid, c.gmt_create, c.gmt_modified, c.name, c.biz_extension, c.extension, c.tags, c.is_deleted
+            FROM case_test_case c
+                     INNER JOIN case_tree ct ON c.parent_id = ct.id
+            WHERE c.is_deleted = 0
+        )
+        SELECT * FROM case_tree;
+    </select>
+
+    <update id="batchUpdate" parameterType="java.util.List">
+        UPDATE case_test_case a
+        JOIN (
+            <foreach collection="list" item="item" separator="UNION">
+                SELECT
+                    #{item.id} as id,
+                    #{item.uid} as uid,
+                    #{item.parentUid} as parent_uid,
+                    #{item.depth} as depth,
+                    #{item.gmtCreate} as gmt_create,
+                    #{item.gmtModified} as gmt_modified,
+                    #{item.name} as name,
+                    #{item.bizExtension} as biz_extension,
+                    #{item.extension} as extension,
+                    #{item.tags} as tags,
+                    #{item.projectId} as project_id,
+                    #{item.isDeleted} as is_deleted
+            </foreach>
+        ) b USING (id)
+        SET
+            a.parent_uid = b.parent_uid,
+            a.depth = b.depth,
+            a.gmt_modified = now(),
+            a.name = b.name,
+            a.biz_extension = b.biz_extension,
+            a.extension = b.extension,
+            a.tags = b.tags,
+            a.project_id = b.project_id,
+            a.is_deleted = b.is_deleted
+    </update>
+
+
+</mapper>

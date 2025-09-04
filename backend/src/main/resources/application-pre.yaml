@@ -1,0 +1,13 @@
+server:
+  port: 7002
+
+maintenance:
+  env: pre
+
+springdoc:
+  show-actuator: true
+  #  show-springfox: false
+  api-docs:
+    enabled: true
+  packages-to-scan: cn.nolaurene.cms.controller
+  paths-to-match: /**

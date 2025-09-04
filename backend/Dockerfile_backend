@@ -1,0 +1,68 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set hostname to sandbox
+ENV HOSTNAME=sandbox
+
+ENV JAR_VERSION=0.0.1-SNAPSHOT
+
+# 重新安装 ca-certificates 包
+# RUN apt install --reinstall ca-certificates
+
+RUN mv /etc/apt/sources.list /etc/apt/sources.list.bak
+# 替换 APT 源为清华大学镜像
+RUN echo '# 默认注释了源码镜像以提高 apt update 速度，如有需要可自行取消注释' > /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy main restricted universe multiverse' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy-updates main restricted universe multiverse' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy-backports main restricted universe multiverse' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy-security main restricted universe multiverse' >> /etc/apt/sources.list
+
+RUN apt-get update && apt-get install -y \
+    sudo \
+    bc \
+    curl \
+    wget \
+    gnupg \
+    software-properties-common \
+    xvfb \
+    x11vnc \
+    libx11-xcb1 libxkbcommon0 x11-apps x11-utils \
+    fonts-liberation libgl1 libglib2.0-0 libsm6 \
+    libxrender1 libxcomposite1 libasound2 libxdamage1 \
+    imagemagick xterm \
+    ffmpeg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# install openjdk 11
+RUN apt-get update && \
+    apt-get install -y openjdk-11-jre openjdk-11-jdk && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Chinese fonts and language support
+RUN apt-get update && apt-get install -y \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    language-pack-zh-hans \
+    locales \
+    && locale-gen zh_CN.UTF-8 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set default locale
+ENV LANG=zh_CN.UTF-8 \
+    LANGUAGE=zh_CN:zh \
+    LC_ALL=zh_CN.UTF-8
+
+# Set working directory
+WORKDIR /app
+
+COPY target/case-management-backend-${JAR_VERSION}.jar .
+
+EXPOSE 7001 5005
+
+# Use supervisor to start all services
+CMD ["bash", "/app/backend_configs/backend_start.sh"]

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cn.nolaurene.cms.dal.enhance.mapper.SalesRecordEnhanceMapper">
+
+    <resultMap id="SalesRecordWithClientDTOResultMap" type="cn.nolaurene.cms.dal.enhance.entity.SalesRecordWithClientDTO">
+        <id property="id" column="id" />
+        <result property="description" column="description" />
+        <result property="amount" column="amount" />
+        <result property="image" column="image" />
+        <result property="creator" column="creator" />
+        <result property="creatorName" column="creator_name" />
+        <result property="clientId" column="client_id" />
+        <result property="clientName" column="client_name" />
+        <result property="modifier" column="modifier" />
+        <result property="modifierName" column="modifier_name" />
+        <result property="gmtCreate" column="gmt_create" />
+        <result property="gmtModified" column="gmt_modified" />
+        <result property="isDeleted" column="is_deleted" />
+    </resultMap>
+
+    <select id="selectSalesRecordWithClient" resultMap="SalesRecordWithClientDTOResultMap">
+        SELECT
+            sr.id,
+            sr.description,
+            sr.amount,
+            sr.image,
+            sr.creator,
+            sr.creator_name,
+            sr.client_id,
+            c.name as client_name,
+            sr.modifier,
+            sr.modifier_name,
+            sr.gmt_create,
+            sr.gmt_modified,
+            sr.is_deleted
+        FROM
+            sales_record sr
+            LEFT JOIN
+            clients c ON sr.client_id = c.id
+        <where>
+            <if test="creator != null and creator != ''">
+                AND sr.creator = #{creator}
+            </if>
+            <if test="startTime != null and endTime != null">
+                AND sr.gmt_create BETWEEN #{startTime} AND #{endTime}
+            </if>
+            <if test="isDeleted != null">
+                AND sr.is_deleted = #{isDeleted}
+            </if>
+            <if test="clientId != null">
+                AND c.id = #{clientId}
+            </if>
+        </where>
+    </select>
+
+</mapper>

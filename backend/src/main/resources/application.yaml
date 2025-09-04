@@ -1,0 +1,43 @@
+spring:
+  thymeleaf:
+    enabled: false
+  application:
+    name: case-management-backend
+  # DataSource Config
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0。1:3306/cms?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+  # session 失效时间
+  session:
+    timeout: 86400
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+#  mvc:
+#    pathmatch:
+#      matching-strategy: ant_path_matcher
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+server:
+  port: 7001
+
+maintenance:
+  env: prod
+
+image:
+  path-prefix: /root/asset_images
+  host: http://asset.nolaurence.cn
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  show-actuator: true
+#  show-springfox: false
+  api-docs:
+    enabled: false
+
+# disable thymeleaf autoconfig
+

@@ -1,0 +1,110 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set hostname to sandbox
+ENV HOSTNAME=sandbox
+
+ENV JAR_VERSION=0.0.1-SNAPSHOT
+
+# 重新安装 ca-certificates 包
+# RUN apt install --reinstall ca-certificates
+
+RUN mv /etc/apt/sources.list /etc/apt/sources.list.bak
+# 替换 APT 源为清华大学镜像
+RUN echo '# 默认注释了源码镜像以提高 apt update 速度，如有需要可自行取消注释' > /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy main restricted universe multiverse' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy-updates main restricted universe multiverse' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy-backports main restricted universe multiverse' >> /etc/apt/sources.list && \
+    echo 'deb http://mirrors.aliyun.com/ubuntu/ jammy-security main restricted universe multiverse' >> /etc/apt/sources.list
+
+# Update and install basic tools and playwright deps
+RUN apt-get update && apt-get install -y \
+    sudo \
+    bc \
+    curl \
+    wget \
+    gnupg \
+    software-properties-common \
+    xvfb \
+    x11vnc \
+    libx11-xcb1 libxkbcommon0 x11-apps x11-utils \
+    fonts-liberation libgl1 libglib2.0-0 libsm6 \
+    libxrender1 libxcomposite1 libasound2 libxdamage1 \
+    imagemagick xterm \
+    ffmpeg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create user ubuntu and grant sudo privileges
+RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
+    echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu
+
+# Install Python 3.10.12
+#RUN add-apt-repository ppa:deadsnakes/ppa && \
+#    apt-get update && \
+#    apt-get install -y python3.10 python3.10-venv python3.10-dev python3-pip && \
+#    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+#    apt-get clean && \
+#    rm -rf /var/lib/apt/lists/* \
+
+# install openjdk 11
+RUN apt-get update && \
+    apt-get install -y openjdk-11-jre openjdk-11-jdk && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+## Install Node.js 20.18.0
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+#
+# Install Google Chrome
+RUN add-apt-repository ppa:xtradeb/apps -y && \
+    apt-get update && \
+    apt-get install -y chromium  --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Chinese fonts and language support
+RUN apt-get update && apt-get install -y \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    language-pack-zh-hans \
+    locales \
+    && locale-gen zh_CN.UTF-8 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set default locale
+ENV LANG=zh_CN.UTF-8 \
+    LANGUAGE=zh_CN:zh \
+    LC_ALL=zh_CN.UTF-8
+
+# Set working directory
+WORKDIR /app
+
+## Copy project files (copy dependency files first to leverage cache)
+#COPY requirements.txt .
+#
+## Install Python dependencies
+#RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy remaining project files
+#
+COPY target/case-management-backend-${JAR_VERSION}.jar .
+
+
+# Expose ports
+EXPOSE 7002 7500 9222 5900 5901 5005
+
+ENV UVI_ARGS=""
+ENV CHROME_ARGS=""
+
+# Use supervisor to start all services
+CMD ["bash", "/app/worker_configs/worker_start.sh"]

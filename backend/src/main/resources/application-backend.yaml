@@ -1,0 +1,37 @@
+maintenance:
+  env: backend
+server:
+  port: 7001
+  address: 0.0.0.0
+
+springdoc:
+  api-docs:
+    enabled: true
+  devtools:
+    restart:
+      exclude: cn/nolaurene/cms/common/sandbox/backend/model/**
+
+sandbox:
+  backend:
+    max-loop: 30
+    sse-timeout-ms: 1200000
+    max-threads: 10
+    worker-url: http://worker:7500
+    worker-stream-url: http://worker:7002
+    worker-ops-url: http://worker:7002
+    sse-endpoint: /sse
+  worker:
+    #    baseDirectory: /app
+    logDir: /app/logs
+    stream-interval: 33
+    stream-dir: stream-log
+    mcp-port: 7500
+
+llm-client:
+  silicon-flow:
+    #    endpoint: http://192.168.49.240:1234/v1
+    endpoint: https://api.siliconflow.cn/v1
+    api-key: 122222
+logging:
+  level:
+    io.modelcontextprotocol: debug
