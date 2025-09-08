@@ -31,13 +31,45 @@ image:
   path-prefix: /root/asset_images
   host: http://asset.nolaurence.cn
 
+#springdoc:
+#  swagger-ui:
+#    path: /swagger-ui.html
+#  show-actuator: true
+##  show-springfox: false
+#  api-docs:
+#    enabled: false
+
 springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
   show-actuator: true
-#  show-springfox: false
   api-docs:
-    enabled: false
+    enabled: true
+  devtools:
+    restart:
+      exclude: cn/nolaurene/cms/common/sandbox/backend/model/**
+
+sandbox:
+  backend:
+    max-loop: 30
+    sse-timeout-ms: 1200000
+    max-threads: 10
+    worker-url: http://worker:7500
+    worker-stream-url: http://worker:7002
+    worker-ops-url: http://worker:7002
+    sse-endpoint: /sse
+  worker:
+    #    baseDirectory: /app
+    logDir: /app/logs
+    stream-interval: 33
+    stream-dir: stream-log
+    mcp-port: 7500
+
+llm-client:
+  silicon-flow:
+    endpoint: http://192.168.49.248:1234/v1
+    api-key: 122222
+logging:
+  level:
+    io.modelcontextprotocol: debug
 
 # disable thymeleaf autoconfig
 
