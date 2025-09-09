@@ -105,6 +105,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
           <button
             className={styles.newTaskButton}
             type="button"
+            onClick={() => navigate('/')}
           >
             <Plus size={24} color={'var(--icon-primary)'}/>
             新建任务
