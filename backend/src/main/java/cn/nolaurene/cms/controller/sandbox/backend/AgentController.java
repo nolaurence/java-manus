@@ -6,6 +6,9 @@ import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
 import cn.nolaurene.cms.exception.BusinessException;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.common.dto.ConversationRequest;
+import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
@@ -77,6 +80,9 @@ public class AgentController {
     private McpHeartbeatService mcpHeartbeatService;
 
     private ThreadPoolExecutor executor;
+
+    @Resource
+    private ConversationHistoryService conversationHistoryService;
 
     @PostConstruct
     public void initThreadPool() {
@@ -152,6 +158,27 @@ public class AgentController {
             }
             try {
                 assert agentSession != null;
+                // configure persistence context for this chat
+                try {
+                    agentSession.setConversationPersistence(
+                            conversationHistoryService,
+                            request.getUserId() != null ? request.getUserId() : "anonymous",
+                            (request.getSessionId() != null && !request.getSessionId().isEmpty()) ? request.getSessionId() : agentId
+                    );
+                } catch (Exception ignore) {}
+
+                // persist user message if present
+                try {
+                    if (request.getMessage() != null && !request.getMessage().isEmpty()) {
+                        ConversationRequest saveReq = new ConversationRequest();
+                        saveReq.setUserId(request.getUserId() != null ? request.getUserId() : "anonymous");
+                        saveReq.setSessionId(request.getSessionId() != null && !request.getSessionId().isEmpty() ? request.getSessionId() : agentId);
+                        saveReq.setMessageType(ConversationHistoryDO.MessageType.USER);
+                        saveReq.setContent(request.getMessage());
+                        saveReq.setMetadata(null);
+                        conversationHistoryService.saveConversation(saveReq);
+                    }
+                } catch (Exception ignore) {}
                 agentSession.reactFlow(request.getMessage(), sseEmitter);
             } catch (Exception e) {
                 sseEmitter.completeWithError(e);

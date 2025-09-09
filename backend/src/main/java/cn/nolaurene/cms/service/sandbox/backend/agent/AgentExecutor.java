@@ -15,6 +15,9 @@ import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
 import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.common.dto.ConversationRequest;
+import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONPath;
@@ -74,12 +77,42 @@ public class AgentExecutor {
     // 持有当前的 SseEmitter 引用，用于后台模式下可能需要的错误通知或最终完成
     private volatile SseEmitter currentSseEmitter = null;
 
+    // --- Persistence context ---
+    private ConversationHistoryService conversationHistoryService;
+    private String conversationUserId = "anonymous";
+    private String conversationSessionId = null; // fallback to agentId if null
+
     public AgentExecutor(ToolRegistry tools, LlmClient llm, String systemPrompt, Agent agent) {
         this.tools = tools;
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
         memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
+    }
+
+    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
+        this.conversationHistoryService = service;
+        if (userId != null && !userId.isEmpty()) {
+            this.conversationUserId = userId;
+        }
+        this.conversationSessionId = (sessionId != null && !sessionId.isEmpty()) ? sessionId : this.agent.getAgentId();
+    }
+
+    private void persistAssistantMessage(String content) {
+        if (conversationHistoryService == null) {
+            return;
+        }
+        try {
+            ConversationRequest req = new ConversationRequest();
+            req.setUserId(conversationUserId);
+            req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
+            req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            req.setContent(content);
+            req.setMetadata(null);
+            conversationHistoryService.saveConversation(req);
+        } catch (Exception e) {
+            log.warn("failed to persist assistant message", e);
+        }
     }
 
     public void planAct(String input, SseEmitter emitter) {
@@ -116,6 +149,8 @@ public class AgentExecutor {
                         syncRespondThought(DONE_SIGNAL, emitter);
                         syncRespondContent(rawPlan, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
+                        // persist assistant plan content
+                        persistAssistantMessage(rawPlan);
                         plan = ReActParser.parsePlan(rawPlan);
                         if (null == plan) {
                             log.error("[PLAN ACT] Failed to parse plan for round {}, skipping to next round.", round);
@@ -194,6 +229,8 @@ public class AgentExecutor {
                         syncRespondThought(DONE_SIGNAL, emitter);
                         syncRespondContent(conclusion, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
+                        // persist assistant final content for conclusion
+                        persistAssistantMessage(conclusion);
                         agentStatus = AgentStatus.IDLE;
                         round = MAX_ROUNDS + 1;  // 跳出for循环
                         break;
@@ -381,6 +418,8 @@ public class AgentExecutor {
                 messageEvent.setTimestamp(System.currentTimeMillis());
                 log.info("round: {}, content: {}", round, content);
                 asyncResponse(messageEvent, sseEmitter);
+                // persist assistant final content
+                persistAssistantMessage(content.toString());
             }
 
             resource.getInputStream().close();
@@ -451,6 +490,8 @@ public class AgentExecutor {
                 } catch (Exception e) {
                     log.error("Failed to parse tool calls from content in round {}", round, e);
                 }
+                // persist assistant final content (non-stream)
+                persistAssistantMessage(content);
             }
 
             // 4. 处理工具调用 (非流式)
