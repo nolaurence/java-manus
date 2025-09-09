@@ -1,6 +1,9 @@
 import React, {useState, useEffect} from 'react';
 import {useStyles} from '@/assets/panel';
 import {PanelLeft, Plus, Search} from 'lucide-react';
+import {useNavigate} from 'react-router';
+import {currentUser} from '@/services/api/login';
+import {fetchUserSessions, type SessionSummary} from '@/services/api/sandbox';
 
 
 interface PanelProps {
@@ -13,9 +16,33 @@ interface PanelProps {
 
 const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpen, fixed = false, setFixed}) => {
   const {styles} = useStyles();
+  const navigate = useNavigate();
 
   // const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'全部' | '收藏' | '已定时'>('全部');
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        setLoading(true);
+        const loginInfo = await currentUser();
+        // @ts-ignore
+        const user = loginInfo?.data;
+        const userId = (user?.account || user?.userid?.toString?.() || '').toString();
+        if (!userId) {
+          setSessions([]);
+          return;
+        }
+        const list = await fetchUserSessions(userId);
+        setSessions(list || []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSessions();
+  }, []);
 
   return (
     <div
@@ -120,42 +147,39 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
         {/* Chat List */}
         <div className="flex flex-col flex-1 min-h-0 overflow-auto pb-5 overflow-x-hidden hide-scroll-bar">
           <div className="px-1">
-            <div
-              className="group flex h-14 cursor-pointer items-center gap-2 rounded-[10px] px-2 transition-colors hover:bg-[var(--fill-tsp-gray-main)]">
-              <div className="relative">
-                <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center relative bg-[var(--fill-tsp-white-dark)]">
-                  <div
-                    className="relative overflow-hidden h-4 w-4 object-cover brightness-0 opacity-75 dark:opacity-100 dark:brightness-100">
-                    <img
-                      alt="今天余杭天气怎么样"
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      src="https://files.manuscdn.com/assets/icon/session/cloud-star.svg"
-                    />
+            {loading && (
+              <div className="text-center text-xs text-[var(--text-tertiary)] py-2">加载中...</div>
+            )}
+            {!loading && sessions.map((s) => (
+              <div key={s.sessionId}
+                   className="group flex h-14 cursor-pointer items-center gap-2 rounded-[10px] px-2 transition-colors hover:bg-[var(--fill-tsp-gray-main)]"
+                   onClick={() => navigate(`/chat?sessionId=${encodeURIComponent(s.sessionId)}`)}>
+                <div className="relative">
+                  <div className="h-8 w-8 rounded-full flex items-center justify-center relative bg-[var(--fill-tsp-white-dark)]">
+                    <div className="relative overflow-hidden h-4 w-4 object-cover brightness-0 opacity-75 dark:opacity-100 dark:brightness-100">
+                      <img alt={s.lastMessage || s.sessionId}
+                           className="w-full h-full object-cover"
+                           referrerPolicy="no-referrer"
+                           src="https://files.manuscdn.com/assets/icon/session/cloud-star.svg"/>
+                    </div>
+                  </div>
+                </div>
+                <div className="min-w-20 flex-1">
+                  <div className="flex items-center gap-1 overflow-x-hidden">
+                    <span className="truncate text-sm font-medium text-[var(--text-primary)] flex-1 min-w-0"
+                          title={s.lastMessage || s.sessionId}>
+                      {s.lastMessage || s.sessionId}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 h-[18px] relative">
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]"
+                          title={s.sessionId}>
+                      {s.sessionId}
+                    </span>
                   </div>
                 </div>
               </div>
-              <div className="min-w-20 flex-1 transition-opacity opacity-0">
-                <div className="flex items-center gap-1 overflow-x-hidden">
-                  <span
-                    className="truncate text-sm font-medium text-[var(--text-primary)] flex-1 min-w-0"
-                    title="今天余杭天气怎么样"
-                  >
-                    今天余杭天气怎么样
-                  </span>
-                  <span className="text-[var(--text-tertiary)] text-xs whitespace-nowrap">23:13</span>
-                </div>
-                <div className="flex items-center gap-2 h-[18px] relative">
-                  <span
-                    className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]"
-                    title="正在查询余杭今天的天气信息，请稍候..."
-                  >
-                    正在查询余杭今天的天气信息，请稍候...
-                  </span>
-                </div>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 

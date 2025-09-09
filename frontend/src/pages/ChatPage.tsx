@@ -3,7 +3,7 @@ import ChatBox from '@/components/ChatBox';
 import ChatMessage from '@/components/ChatMessage';
 import SimpleBar, {type ScrollableContentRef} from '@/components/SimpleBar';
 import ToolPanel from '@/components/ToolPanel';
-import {chatWithAgent} from '@/services/api/sandbox';
+import {chatWithAgent, fetchSessionMessages, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
 // @ts-ignore
 import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft} from 'lucide-react';
@@ -319,21 +319,43 @@ const ChatComponent: React.FC = () => {
     }
   };
 
-  // 初始化聊天
+  // 初始化：如果带 sessionId，则加载历史；否则按原逻辑
   useEffect(() => {
-    let agentId = params?.agentId as string;
-    if (!agentId) {
-      agentId = localStorage.getItem('agentId') || '';
-    }
-    if (agentId) {
-      const message = localStorage.getItem('firstMessage') || '';
-
-      if (message) {
-        sendMessage(message);
-      } else {
-        sendMessage();
+    const init = async () => {
+      const query = new URLSearchParams(window.location.search);
+      const sessionId = query.get('sessionId');
+      if (sessionId) {
+        try {
+          const history: ConversationMessage[] = await fetchSessionMessages(sessionId);
+          const mapped: Message[] = history.map((m) => ({
+            type: m.messageType === 'USER' ? 'user' : 'assistant',
+            content: {
+              content: m.content,
+              timestamp: new Date(m.createdTime).getTime(),
+            } as MessageContent,
+          }));
+          setMessages(mapped);
+          setTitle('History');
+          return;
+        } catch (e) {
+          console.error('load history failed', e);
+        }
       }
-    }
+
+      let aid = params?.agentId as string;
+      if (!aid) {
+        aid = localStorage.getItem('agentId') || '';
+      }
+      if (aid) {
+        const msg = localStorage.getItem('firstMessage') || '';
+        if (msg) {
+          sendMessage(msg);
+        } else {
+          sendMessage();
+        }
+      }
+    };
+    init();
   }, []);
 
 
