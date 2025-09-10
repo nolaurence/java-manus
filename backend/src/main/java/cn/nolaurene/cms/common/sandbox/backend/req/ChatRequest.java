@@ -12,6 +12,10 @@ public class ChatRequest {
 
     private Long timestamp;
 
+    private String userId;
+
+    private String sessionId;
+
 //    public ChatRequest(String rawJSONString) {
 //        ChatRequest chatRequest = JSON.parseObject(rawJSONString, ChatRequest.class);
 //        this.message = chatRequest.getMessage();

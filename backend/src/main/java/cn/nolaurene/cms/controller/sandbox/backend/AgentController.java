@@ -8,6 +8,7 @@ import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
 import cn.nolaurene.cms.exception.BusinessException;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -77,6 +78,9 @@ public class AgentController {
     private McpHeartbeatService mcpHeartbeatService;
 
     private ThreadPoolExecutor executor;
+
+    @Resource
+    private ConversationHistoryService conversationHistoryService;
 
     @PostConstruct
     public void initThreadPool() {
