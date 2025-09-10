@@ -34,7 +34,7 @@ public class SiliconFlowClient implements LlmClient {
     private final String endpoint;
     private final String apiKey;
     private final String textChatPath = "/chat/completions";
-    private static final String DEFAULT_MODEL = "Qwen/Qwen3-30B-A3B";
+    private static final String DEFAULT_MODEL = "Qwen3-235B-A22B-Instruct-2507-AWQ";
 
     public SiliconFlowClient(String endpoint, String apiKey) {
         if (StringUtils.isBlank(endpoint) || StringUtils.isBlank(apiKey)) {
