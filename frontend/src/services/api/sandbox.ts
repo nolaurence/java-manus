@@ -39,6 +39,50 @@ export interface Agent {
   message: string;
 }
 
+// ===================== Conversations =====================
+export interface SessionSummary {
+  sessionId: string;
+  userId: string;
+  messageCount: number;
+  lastMessageTime?: string;
+  lastMessage?: string;
+}
+
+export interface ConversationMessage {
+  id: number;
+  userId: string;
+  sessionId: string;
+  messageType: 'USER' | 'ASSISTANT';
+  content: string;
+  metadata?: string;
+  createdTime: string;
+  updatedTime?: string;
+}
+
+export async function fetchUserSessions(userId: string): Promise<SessionSummary[]> {
+  const res = await request<API.Response<SessionSummary[]>>(`/conversations/sessions`, {
+    method: 'GET',
+    params: { userId },
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to fetch sessions');
+  }
+  // @ts-ignore
+  return res.data || [];
+}
+
+export async function fetchSessionMessages(sessionId: string): Promise<ConversationMessage[]> {
+  const res = await request<API.Response<ConversationMessage[]>>(`/conversations/messages`, {
+    method: 'GET',
+    params: { sessionId },
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to fetch messages');
+  }
+  // @ts-ignore
+  return res.data || [];
+}
+
 /**
  * Create Agent
  */

@@ -6,6 +6,7 @@ import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
 import cn.nolaurene.cms.service.sandbox.backend.llm.SiliconFlowClient;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -302,5 +303,10 @@ public class AgentSession {
     // --- 新增：Getter for connection status (可选) ---
     public boolean isFrontendConnected() {
         return frontendConnected.get();
+    }
+
+    // configure conversation persistence context for downstream executor
+    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
+        this.executor.setConversationPersistence(service, userId, sessionId);
     }
 }
