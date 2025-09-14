@@ -144,13 +144,14 @@ public class AgentExecutor {
                             agentStatus = AgentStatus.IDLE;
                             continue; // 跳过当前轮次
                         }
+                        String thought = ReActParser.parseThinking(rawPlan);
                         syncRespondThought(START_SIGNAL, emitter);
-                        syncRespondThought(ReActParser.parseThinking(rawPlan), emitter);
+                        syncRespondThought(thought, emitter);
                         syncRespondThought(DONE_SIGNAL, emitter);
                         syncRespondContent(rawPlan, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
                         // persist assistant plan content
-                        persistAssistantMessage(rawPlan);
+                        persistAssistantMessage("**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan);
                         plan = ReActParser.parsePlan(rawPlan);
                         if (null == plan) {
                             log.error("[PLAN ACT] Failed to parse plan for round {}, skipping to next round.", round);
@@ -770,6 +771,13 @@ public class AgentExecutor {
             // 后台模式：仅记录日志
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
+    }
+
+    private void syncRespondNonStreamContent(String content, SseEmitter emitter) {
+        syncRespondThought(START_SIGNAL, emitter);
+        syncRespondThought(DONE_SIGNAL, emitter);
+        syncRespondContent(content, emitter);
+        syncRespondContent(DONE_SIGNAL, emitter);
     }
 
     private void syncRespondContent(String content, SseEmitter sseEmitter) {
