@@ -11,6 +11,7 @@ import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
