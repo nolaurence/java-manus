@@ -21,7 +21,7 @@ const ErrorShowTypeMap: { [key: string]: ErrorShowType } = {
 
 // 从环境变量中读取配置
 // const API_BASE_URL = window.location.hostname === 'localhost' ? "https://manus.proxy.nolaurence.cn" : window.location.origin;
-const API_BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.246:7001" : window.location.origin;
+const API_BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.250:7001" : window.location.origin;
 const ALLOW_CORS = window.location.hostname === 'localhost';
 
 // 创建 axios 实例

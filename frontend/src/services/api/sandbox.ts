@@ -6,7 +6,7 @@ import { message } from 'antd';
 import type {SSEEvent} from '@/types/sseEvent';
 
 // const BASE_URL = window.location.hostname === 'localhost' ? "https://manus.proxy.nolaurence.cn" : window.location.origin;
-const BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.246:7001" : window.location.origin;
+const BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.250:7001" : window.location.origin;
 
 // streaming related apis
 // export async function startStream(streamId: string) {
