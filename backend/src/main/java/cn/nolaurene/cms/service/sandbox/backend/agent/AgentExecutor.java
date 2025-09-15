@@ -629,7 +629,6 @@ public class AgentExecutor {
 
                     if (mcpToolNames.contains(toolName)) {
                         messageType = AssistantMessageType.BROWSER;
-                        reportStep(StepEventStatus.running, "execute mcp tool: " + toolName, sseEmitterOpt);
                         // 模拟延迟 (可选)
                         try { Thread.sleep(200L); } catch (InterruptedException ignored) {}
 
@@ -665,13 +664,10 @@ public class AgentExecutor {
 
                         if (lastException != null) {
                             observation = "Tool call error after retries: " + lastException.getMessage();
-                            reportStep(StepEventStatus.failed, observation, sseEmitterOpt);
                         } else if (null == callToolResult || (null != callToolResult.getIsError() && callToolResult.getIsError())) {
                             observation = "Tool call error: " + JSON.toJSONString(callToolResult != null ? callToolResult.getContent() : "Unknown error");
-                            reportStep(StepEventStatus.failed, observation, sseEmitterOpt);
                         } else {
                             observation = JSON.toJSONString(callToolResult.getContent());
-                            reportStep(StepEventStatus.completed, observation, sseEmitterOpt);
                         }
 
                     } else if (toolNames.contains(toolName)) {
@@ -695,13 +691,11 @@ public class AgentExecutor {
                             log.error("Error executing tool: {}", toolName, e);
                             observation = "Tool execution error: " + e.getMessage();
                         }
-                        reportStep(StepEventStatus.completed, observation, sseEmitterOpt);
 
                     } else {
                         String errorMsg = "Unknown tool: " + toolName;
                         log.warn(errorMsg);
                         observation = errorMsg;
-                        reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
                     }
                     log.info("add observation to memory: {}", observation);
                     memory.add(new ChatMessage(ChatMessage.Role.assistant, "Observation: " + observation));
