@@ -187,7 +187,7 @@ public class AgentExecutor {
                         String observation = executeTools(round, toolCallsFromAI, emitter);
                         currentStep.setResult(observation);
                         currentStep.setStatus(StepEventStatus.completed.getCode());
-                        reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);
+                        reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);  // 这里应该没问题
                         syncRespondPlan(plan, emitter);
 
                         agentStatus = AgentStatus.UPDATING;
@@ -623,8 +623,6 @@ public class AgentExecutor {
                     }
 
                     log.info("round: {}, tool call: {}, input: {}", round, toolName, JSON.toJSONString(toolInput));
-
-                    reportStep(StepEventStatus.pending, "wait to execute tool: " + toolName, sseEmitterOpt);
 
                     String observation = "Observation not set";
                     AssistantMessageType messageType = AssistantMessageType.SHELL; // Default
