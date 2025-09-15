@@ -177,20 +177,21 @@ const ChatComponent: React.FC = () => {
   const handleToolEvent = (toolData: ToolEventData) => {
     const lastStep = getLastStep();
     if (lastStep?.status === 'running') {
-      // 添加到步骤工具列表
-      const updatedMessages = messages.map(msg => {
-        if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
-          return {
-            ...msg,
-            content: {
-              ...msg.content,
-              tools: [...((msg.content as StepContent).tools || []), toolData],
-            },
-          };
-        }
-        return msg;
-      });
-      setMessages(updatedMessages);
+      setMessages(prevMsgs => {
+        // 添加到步骤工具列表
+        return prevMsgs.map(msg => {
+          if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
+            return {
+              ...msg,
+              content: {
+                ...msg.content,
+                tools: [...((msg.content as StepContent).tools || []), toolData],
+              },
+            };
+          }
+          return msg;
+        });
+      })
     } else {
       // 新增工具消息
       setMessages(prev => [
@@ -215,34 +216,42 @@ const ChatComponent: React.FC = () => {
   const handleStepEvent = (stepData: StepEventData) => {
     // const lastStep = getLastStep();
     if (stepData.status === 'running') {
-      const messagesCopy = [...messages];
-      messagesCopy.push({
-        type: 'step',
-        content: {
-          ...stepData,
-          tools: [],
-        } as StepContent,
+      setMessages(prevMsgs => {
+        return [
+          ...prevMsgs,
+          {
+            type: 'step',
+            content: {
+              ...stepData,
+              tools: [],
+            } as StepContent,
+          }
+        ]
       });
-      setMessages(messagesCopy);
     } else if (stepData.status === 'completed') {
       // 找到最后一个 type 为 'step' 的消息，修改其 status 字段
-      const lastStepIndex = [...messages]
-        .map((msg, idx) => ({msg, idx}))
-        .filter(({msg}) => msg.type === 'step')
-        .pop()?.idx;
+      setMessages(prevMessages => {
+        // 找到最后一个 step 类型消息的索引
+        const lastStepIndex = prevMessages.findLastIndex(msg => msg.type === 'step');
 
-      if (lastStepIndex !== undefined) {
-        const messagesCopy = [...messages];
-        const stepMsg = messagesCopy[lastStepIndex];
-        messagesCopy[lastStepIndex] = {
-          ...stepMsg,
-          content: {
-            ...stepMsg.content,
-            status: stepData.status,
-          } as StepContent,
-        };
-        setMessages(messagesCopy);
-      }
+        // 如果没找到，直接返回原数组
+        if (lastStepIndex === -1) return prevMessages;
+
+        // 创建新的消息数组和更新的消息对象
+        return prevMessages.map((msg, index) => {
+          if (index === lastStepIndex) {
+            // 返回新的消息对象，而不是修改原对象
+            return {
+              ...msg,
+              content: {
+                ...msg.content,
+                status: stepData.status
+              } as StepContent
+            };
+          }
+          return msg;
+        });
+      });
     } else if (stepData.status === 'failed') {
       setIsLoading(false);
     }
