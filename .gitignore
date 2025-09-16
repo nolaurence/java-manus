@@ -34,3 +34,5 @@ build/
 image/
 
 ### 本地配置文件 ###
+/backend/src/main/resources/static/
+/backend/logs/
