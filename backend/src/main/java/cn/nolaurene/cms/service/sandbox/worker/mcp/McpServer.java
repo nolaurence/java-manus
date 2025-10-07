@@ -82,6 +82,7 @@ public class McpServer {
 
             ProcessBuilder pb = new ProcessBuilder(
                     "npx", "@playwright/mcp@" + PLAYWRIGHT_MCP_VERSION,
+                    "--allowed-hosts", "*",
                     "--browser", "chrome",
                     "--caps", "pdf",
                     "--cdp-endpoint", "http://127.0.0.1:8222",
