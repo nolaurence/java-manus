@@ -58,6 +58,7 @@ sandbox:
     sse-endpoint: /sse
   worker:
     #    baseDirectory: /app
+    playwright-mcp-version: 0.0.39
     logDir: /app/logs
     stream-interval: 33
     stream-dir: stream-log

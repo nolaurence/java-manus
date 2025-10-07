@@ -40,6 +40,9 @@ public class McpServer {
     @Value("${sandbox.worker.mcp-port}")
     private String MCP_SERVER_PORT;
 
+    @Value("${sandbox.worker.playwright-mcp-version}")
+    private String PLAYWRIGHT_MCP_VERSION;
+
     private McpSyncServer server;
 
     @Resource
@@ -78,7 +81,7 @@ public class McpServer {
             new File(mcpLogDir).mkdirs();
 
             ProcessBuilder pb = new ProcessBuilder(
-                    "npx", "@playwright/mcp@latest",
+                    "npx", "@playwright/mcp@" + PLAYWRIGHT_MCP_VERSION,
                     "--browser", "chrome",
                     "--caps", "pdf",
                     "--cdp-endpoint", "http://127.0.0.1:8222",
