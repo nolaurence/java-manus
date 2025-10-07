@@ -81,7 +81,7 @@
         SELECT DISTINCT session_id
         FROM conversation_history
         WHERE user_id = #{userId} AND is_deleted = FALSE
-        ORDER BY MAX(gmt_create) DESC
+        ORDER BY gmt_create DESC
     </select>
 
     <!-- 根据用户ID和消息类型查询对话历史 -->
