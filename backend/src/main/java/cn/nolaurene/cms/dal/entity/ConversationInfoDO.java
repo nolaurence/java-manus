@@ -18,7 +18,7 @@ public class ConversationInfoDO {
     /**
      * 会话ID
      */
-    @Column("session_id")
+    @Column(value = "session_id", id = true)
     private String sessionId;
 
     /**
