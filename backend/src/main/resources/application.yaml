@@ -57,7 +57,8 @@ sandbox:
     worker-ops-url: http://worker:7002
     sse-endpoint: /sse
   worker:
-    playwright-mcp-version: 0.0.41
+    #    baseDirectory: /app
+    playwright-mcp-version: 0.0.39
     logDir: /app/logs
     stream-interval: 33
     stream-dir: stream-log
