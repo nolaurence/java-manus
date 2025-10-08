@@ -27,10 +27,6 @@ server:
 maintenance:
   env: prod
 
-image:
-  path-prefix: /root/asset_images
-  host: http://asset.nolaurence.cn
-
 #springdoc:
 #  swagger-ui:
 #    path: /swagger-ui.html
@@ -66,7 +62,7 @@ sandbox:
 
 llm-client:
   silicon-flow:
-    endpoint: http://192.168.49.253:8080/v1
+    endpoint: http://192.168.49.247:8080/v1
     api-key: 122222
 logging:
   level:

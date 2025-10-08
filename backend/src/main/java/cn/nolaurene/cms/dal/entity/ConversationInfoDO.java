@@ -28,6 +28,12 @@ public class ConversationInfoDO {
     private String title;
 
     /**
+     * 对话状态
+     */
+    @Column("status")
+    private String status;
+
+    /**
      * 创建时间
      */
     @Column("gmt_create")

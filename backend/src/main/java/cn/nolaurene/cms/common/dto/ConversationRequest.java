@@ -1,5 +1,6 @@
 package cn.nolaurene.cms.common.dto;
 
+import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO.MessageType;
 import lombok.AllArgsConstructor;
@@ -25,6 +26,9 @@ public class ConversationRequest {
 
     @NotNull(message = "消息类型不能为空")
     private MessageType messageType;
+
+    @NotNull(message = "事件类型不能为空")
+    private SSEEventType eventType;
 
     @NotBlank(message = "消息内容不能为空")
     private String content;

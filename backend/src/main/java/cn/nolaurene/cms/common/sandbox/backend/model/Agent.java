@@ -18,6 +18,7 @@ import java.util.List;
  */
 @Data
 public class Agent {
+    private String userId;
 
     private String agentId;
 

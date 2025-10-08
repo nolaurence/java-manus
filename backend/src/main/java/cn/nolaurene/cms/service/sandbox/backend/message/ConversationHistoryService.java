@@ -4,18 +4,28 @@ import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.dto.PageInfo;
 import cn.nolaurene.cms.common.dto.SessionSummary;
+import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
+import cn.nolaurene.cms.common.sandbox.backend.model.data.*;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.enhance.mapper.ConversationHistoryMapper;
+import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
 import cn.nolaurene.cms.dal.mapper.ConversationHistoryTkMapper;
+import cn.nolaurene.cms.dal.mapper.ConversationInfoMapper;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import io.mybatis.mapper.example.Example;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.ibatis.session.RowBounds;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.transaction.Transactional;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -31,6 +41,9 @@ public class ConversationHistoryService {
     @Resource
     private ConversationHistoryTkMapper conversationHistoryTkMapper;
 
+    @Resource
+    private ConversationInfoMapper conversationInfoMapper;
+
     /**
      * 保存对话历史
      */
@@ -43,13 +56,77 @@ public class ConversationHistoryService {
                 .userId(request.getUserId())
                 .sessionId(request.getSessionId())
                 .messageType(request.getMessageType())
+                .eventType(request.getEventType().getType())
                 .content(request.getContent())
                 .metadata(request.getMetadata())
                 .isDeleted(false)
                 .build();
 
-        conversationHistoryMapper.insert(conversation);
+        conversationHistoryTkMapper.insertSelective(conversation);
         return convertToResponse(conversation);
+    }
+
+    public void updateLastPlan(String sessionId, Plan plan) {
+        Example<ConversationHistoryDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getEventType, SSEEventType.PLAN.getType());
+
+        example.orderByDesc(ConversationHistoryDO::getGmtCreate);
+
+        List<ConversationHistoryDO> planMessageList = conversationHistoryTkMapper.selectByExample(example);
+        if (CollectionUtils.isEmpty(planMessageList)) {
+            return;
+        }
+
+        // filter some fields in plan object
+        Plan newPlan = new Plan(plan.getMessage(), plan.getGoal(), plan.getTitle(), new ArrayList<>(plan.getSteps()));
+        newPlan.getSteps().forEach(step -> {
+            step.setResult(null);
+            step.setError(null);
+        });
+
+        ConversationHistoryDO planMessage = planMessageList.get(0);
+        ConversationHistoryDO newDataObject = new ConversationHistoryDO();
+        newDataObject.setId(planMessage.getId());
+        newDataObject.setContent(JSON.toJSONString(plan));
+        conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
+    }
+
+    public void addStep(String userId, String sessionId, String stepDescription) {
+        ConversationHistoryDO conversation = ConversationHistoryDO.builder()
+                .userId(StringUtils.isNoneBlank(userId) ? userId : "anonymous")
+                .sessionId(sessionId)
+                .messageType(ConversationHistoryDO.MessageType.ASSISTANT)
+                .eventType(SSEEventType.STEP.getType())
+                .content(stepDescription)
+                .isDeleted(false)
+                .build();
+
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("stepStatus", StepEventStatus.running.getCode());
+        conversation.setMetadata(jsonObject.toString());
+        conversationHistoryTkMapper.insertSelective(conversation);
+    }
+
+    public void updateLastStepStatus(String sessionId, String status) {
+        Example<ConversationHistoryDO> example = new Example<>();
+        example.createCriteria().andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getEventType, SSEEventType.STEP.getType())
+                .andEqualTo(ConversationHistoryDO::getIsDeleted, false);
+        example.orderByDesc(ConversationHistoryDO::getGmtModified);
+        List<ConversationHistoryDO> stepMessageList = conversationHistoryTkMapper.selectByExample(example);
+        if (CollectionUtils.isEmpty(stepMessageList)) {
+            return;
+        }
+        ConversationHistoryDO stepMessage = stepMessageList.get(0);
+        ConversationHistoryDO newDataObject = new ConversationHistoryDO();
+        newDataObject.setId(stepMessage.getId());
+
+        JSONObject metaData = JSON.parseObject(stepMessage.getMetadata());
+        metaData.put("stepStatus", status);
+        newDataObject.setMetadata(metaData.toString());
+        conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
     }
 
     /**
@@ -229,18 +306,81 @@ public class ConversationHistoryService {
     }
 
     /**
+     * upsert conversation info
+     */
+    @Transactional
+    public void upsertConversationInfo(ConversationInfoDO conversationInfo) {
+        log.debug("upsert conversation info: {}", conversationInfo);
+        Optional<ConversationInfoDO> conversationInfoDO = conversationInfoMapper.selectByPrimaryKey(conversationInfo.getSessionId());
+        if (conversationInfoDO.isPresent() && conversationInfoDO.get().getGmtDeleted() == null) {
+            ConversationInfoDO dataObject = conversationInfoDO.get();
+
+            ConversationInfoDO newDataObject = new ConversationInfoDO();
+            newDataObject.setSessionId(dataObject.getSessionId());
+            newDataObject.setTitle(conversationInfo.getTitle());
+            newDataObject.setStatus(conversationInfo.getStatus());
+            newDataObject.setGmtModified(new Date());
+
+            conversationInfoMapper.updateByPrimaryKeySelective(newDataObject);
+        }
+
+        ConversationInfoDO newDataObject = new ConversationInfoDO();
+        newDataObject.setSessionId(conversationInfo.getSessionId());
+        newDataObject.setTitle(conversationInfo.getTitle());
+        newDataObject.setStatus(conversationInfo.getStatus());
+        newDataObject.setGmtCreate(new Date());
+        newDataObject.setGmtModified(new Date());
+        conversationInfoMapper.insertSelective(newDataObject);
+    }
+
+    /**
      * 转换为响应DTO
      */
     private ConversationResponse convertToResponse(ConversationHistoryDO conversation) {
-        return ConversationResponse.builder()
+        ConversationResponse response = ConversationResponse.builder()
                 .id(conversation.getId())
                 .userId(conversation.getUserId())
                 .sessionId(conversation.getSessionId())
                 .messageType(conversation.getMessageType())
-                .content(conversation.getContent())
                 .metadata(conversation.getMetadata())
                 .createdTime(conversation.getGmtCreate())
                 .updatedTime(conversation.getGmtModified())
                 .build();
+        // process content
+        switch(SSEEventType.fromType(conversation.getEventType())) {
+            case MESSAGE:
+                MessageEventData messageEventData = new MessageEventData();
+                messageEventData.setContent(conversation.getContent());
+                response.setContent(messageEventData);
+                break;
+            case PLAN:
+                Plan plan = JSON.parseObject(conversation.getContent(), Plan.class);
+                PlanEventData planEventData = new PlanEventData();
+                planEventData.setId(String.valueOf(System.currentTimeMillis()));
+                planEventData.setTitle(plan.getTitle());
+                planEventData.setGoal(plan.getGoal());
+                planEventData.setStatus("created");
+                planEventData.setSteps(plan.getSteps().stream().map(step -> {
+                    StepEventData stepData = new StepEventData();
+                    stepData.setDescription(step.getDescription());
+                    stepData.setStatus(step.getStatus());
+                    stepData.setTimestamp(System.currentTimeMillis());
+                    return stepData;
+                }).collect(Collectors.toList()));
+                response.setContent(planEventData);
+                break;
+            case STEP:
+                Step step = JSON.parseObject(conversation.getContent(), Step.class);
+                StepEventData stepEventData = new StepEventData();
+                stepEventData.setTimestamp(System.currentTimeMillis());
+                stepEventData.setStatus(JSON.parseObject(conversation.getMetadata()).getString("stepStatus"));
+                stepEventData.setDescription(conversation.getContent());
+                response.setContent(stepEventData);
+                break;
+            case TOOL:
+                ToolEventData toolEventData = JSON.parseObject(conversation.getContent(), ToolEventData.class);
+                response.setContent(toolEventData);
+        }
+        return response;
     }
 }

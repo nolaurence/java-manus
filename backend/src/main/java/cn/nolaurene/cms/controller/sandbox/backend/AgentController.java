@@ -5,7 +5,9 @@ import cn.nolaurene.cms.common.sandbox.Response;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
+import cn.nolaurene.cms.common.vo.User;
 import cn.nolaurene.cms.exception.BusinessException;
+import cn.nolaurene.cms.service.UserLoginService;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
@@ -29,6 +31,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.HashMap;
@@ -85,6 +88,9 @@ public class AgentController {
     @Resource
     private ConversationHistoryService conversationHistoryService;
 
+    @Resource
+    private UserLoginService userLoginService;
+
     @PostConstruct
     public void initThreadPool() {
         executor = new ThreadPoolExecutor(
@@ -101,12 +107,14 @@ public class AgentController {
      * @return AgentInfo
      */
     @PostMapping("/")
-    public Response<AgentInfo> createAgent() {
+    public Response<AgentInfo> createAgent(HttpServletRequest httpServletRequest) {
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
         String agentId = UUID.randomUUID().toString().replace("-", "");
 
         // 重试三次
         for (int i = 0; i < MAX_RETRIES; i++) {
             Agent agent = new Agent();
+            agent.setUserId(null != currentUserInfo ? currentUserInfo.getUserid().toString() : "anonymous");
             agent.setAgentId(agentId);
             agent.setMaxLoop(maxLoop);
             agent.setStatus("CREATED");
