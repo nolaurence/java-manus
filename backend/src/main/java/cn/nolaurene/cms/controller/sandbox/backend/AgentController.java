@@ -150,10 +150,13 @@ public class AgentController {
     }
 
     @PostMapping("/{agentId}/chat")
-    public SseEmitter chat(@PathVariable String agentId, @RequestBody ChatRequest request, HttpServletResponse httpServletResponse) {
+    public SseEmitter chat(@PathVariable String agentId, @RequestBody ChatRequest request, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
         // 让浏览器知道这是一个SSE流
         SseEmitter sseEmitter = new SseEmitter(sseTimeout);
         httpServletResponse.setContentType("text/event-stream");
+
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        String userId = null != currentUserInfo ? currentUserInfo.getUserid().toString() : "anonymous";
 
         executor.submit(() -> {
             AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
@@ -164,9 +167,13 @@ public class AgentController {
             }
             if (null == agentSession) {
                 sseEmitter.completeWithError(new BusinessException("session not found for agentId: " + agentId));
+                return;
             }
+
+            // add userId in agentSession
+            agentSession.getAgent().setUserId(userId);
+
             try {
-                assert agentSession != null;
                 // configure persistence context for this chat
                 try {
                     agentSession.setConversationPersistence(

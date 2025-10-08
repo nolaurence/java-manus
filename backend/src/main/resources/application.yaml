@@ -23,6 +23,10 @@ mybatis:
   mapper-locations: classpath:mapper/*.xml
 server:
   port: 7001
+  servlet:
+    session:
+      cookie:
+        same-site: lax  # 允许本地开发是带cookie测试
 
 maintenance:
   env: prod
