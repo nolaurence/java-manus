@@ -332,6 +332,16 @@ const ChatComponent: React.FC = () => {
         try {
           // TODO: 重写下渲染逻辑
           const history: ConversationMessage[] = await fetchSessionMessages(agentId);
+          if (history.length === 0) {
+            // send first message for new chat
+            const msg = localStorage.getItem('firstMessage') || '';
+            if (msg) {
+              sendMessage(msg);
+            } else {
+              sendMessage();
+            }
+            return;
+          }
           const mapped: Message[] = history.map((m) => ({
             type: m.messageType === 'USER' ? 'user' : 'assistant',
             content: {
@@ -347,10 +357,7 @@ const ChatComponent: React.FC = () => {
         }
       }
 
-      let aid = params?.agentId as string;
-      if (!aid) {
-        aid = localStorage.getItem('agentId') || '';
-      }
+      const aid = localStorage.getItem('agentId') || '';
       if (aid) {
         const msg = localStorage.getItem('firstMessage') || '';
         if (msg) {
