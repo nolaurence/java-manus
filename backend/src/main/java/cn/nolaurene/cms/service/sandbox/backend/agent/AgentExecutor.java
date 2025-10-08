@@ -90,8 +90,8 @@ public class AgentExecutor {
         memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
     }
 
-    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
-        this.conversationHistoryService = service;
+    public void setConversationPersistence(ConversationHistoryService conversationHistoryService, String userId, String sessionId) {
+        this.conversationHistoryService = conversationHistoryService;
         if (userId != null && !userId.isEmpty()) {
             this.conversationUserId = userId;
         }

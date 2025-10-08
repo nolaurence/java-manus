@@ -6,7 +6,9 @@ import cn.nolaurene.cms.common.dto.PageInfo;
 import cn.nolaurene.cms.common.dto.SessionSummary;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.enhance.mapper.ConversationHistoryMapper;
+import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
 import cn.nolaurene.cms.dal.mapper.ConversationHistoryTkMapper;
+import cn.nolaurene.cms.dal.mapper.ConversationInfoMapper;
 import io.mybatis.mapper.example.Example;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import javax.transaction.Transactional;
 import java.time.LocalDateTime;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -30,6 +33,9 @@ public class ConversationHistoryService {
 
     @Resource
     private ConversationHistoryTkMapper conversationHistoryTkMapper;
+
+    @Resource
+    private ConversationInfoMapper conversationInfoMapper;
 
     /**
      * 保存对话历史
@@ -226,6 +232,34 @@ public class ConversationHistoryService {
                 .stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * upsert conversation info
+     */
+    @Transactional
+    public void upsertConversationInfo(ConversationInfoDO conversationInfo) {
+        log.debug("upsert conversation info: {}", conversationInfo);
+        Optional<ConversationInfoDO> conversationInfoDO = conversationInfoMapper.selectByPrimaryKey(conversationInfo.getSessionId());
+        if (conversationInfoDO.isPresent() && conversationInfoDO.get().getGmtDeleted() == null) {
+            ConversationInfoDO dataObject = conversationInfoDO.get();
+
+            ConversationInfoDO newDataObject = new ConversationInfoDO();
+            newDataObject.setSessionId(dataObject.getSessionId());
+            newDataObject.setTitle(conversationInfo.getTitle());
+            newDataObject.setStatus(conversationInfo.getStatus());
+            newDataObject.setGmtModified(new Date());
+
+            conversationInfoMapper.updateByPrimaryKeySelective(newDataObject);
+        }
+
+        ConversationInfoDO newDataObject = new ConversationInfoDO();
+        newDataObject.setSessionId(conversationInfo.getSessionId());
+        newDataObject.setTitle(conversationInfo.getTitle());
+        newDataObject.setStatus(conversationInfo.getStatus());
+        newDataObject.setGmtCreate(new Date());
+        newDataObject.setGmtModified(new Date());
+        conversationInfoMapper.insertSelective(newDataObject);
     }
 
     /**
