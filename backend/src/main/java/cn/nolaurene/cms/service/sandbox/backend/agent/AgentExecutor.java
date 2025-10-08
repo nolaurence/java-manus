@@ -98,7 +98,7 @@ public class AgentExecutor {
         this.conversationSessionId = (sessionId != null && !sessionId.isEmpty()) ? sessionId : this.agent.getAgentId();
     }
 
-    private void persistAssistantMessage(String content) {
+    private void saveAssistantMessage(String content, SSEEventType eventType) {
         if (conversationHistoryService == null) {
             return;
         }
@@ -107,6 +107,7 @@ public class AgentExecutor {
             req.setUserId(conversationUserId);
             req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
             req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            req.setEventType(eventType);
             req.setContent(content);
             req.setMetadata(null);
             conversationHistoryService.saveConversation(req);
@@ -151,7 +152,7 @@ public class AgentExecutor {
                         syncRespondContent(rawPlan, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
                         // persist assistant plan content
-                        persistAssistantMessage("**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan);
+                        saveAssistantMessage("**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan, SSEEventType.MESSAGE);
                         plan = ReActParser.parsePlan(rawPlan);
                         if (null == plan) {
                             log.error("[PLAN ACT] Failed to parse plan for round {}, skipping to next round.", round);
@@ -161,6 +162,7 @@ public class AgentExecutor {
                         // 规划出的step全部置为pending
                         plan.getSteps().forEach(step -> step.setStatus(StepEventStatus.pending.getCode()));
                         syncRespondPlan(plan, emitter);
+                        saveAssistantMessage(JSON.toJSONString(plan), SSEEventType.PLAN);
 
                         agentStatus = AgentStatus.EXECUTING;
                         break;
@@ -179,6 +181,7 @@ public class AgentExecutor {
 
                         reportStep(StepEventStatus.running, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
+                        conversationHistoryService.updateLastPlan(agent.getAgentId(), JSON.toJSONString(plan));
 
                         String executionCommand = agent.getExecutor().executeStep(llm, memory.getHistory(), plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
                         List<ToolCall> toolCallsFromAI = ReActParser.parseToolCallsFromContent(executionCommand);
@@ -189,6 +192,7 @@ public class AgentExecutor {
                         currentStep.setStatus(StepEventStatus.completed.getCode());
                         reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);  // 这里应该没问题
                         syncRespondPlan(plan, emitter);
+                        conversationHistoryService.updateLastPlan(agent.getAgentId(), JSON.toJSONString(plan));
 
                         agentStatus = AgentStatus.UPDATING;
                         break;
@@ -218,6 +222,7 @@ public class AgentExecutor {
                         log.info("[PLAN ACT] Updated global steps for round {}: {}", round, JSON.toJSONString(plan.getSteps()));
 
                         syncRespondPlan(plan, emitter);
+                        conversationHistoryService.updateLastPlan(agent.getAgentId(), JSON.toJSONString(plan));
 
                         // update 后继续执行
                         agentStatus = AgentStatus.EXECUTING;
@@ -231,7 +236,7 @@ public class AgentExecutor {
                         syncRespondContent(conclusion, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
                         // persist assistant final content for conclusion
-                        persistAssistantMessage(conclusion);
+                        saveAssistantMessage(conclusion, SSEEventType.MESSAGE);
                         agentStatus = AgentStatus.IDLE;
                         round = MAX_ROUNDS + 1;  // 跳出for循环
                         break;
@@ -420,7 +425,7 @@ public class AgentExecutor {
                 log.info("round: {}, content: {}", round, content);
                 asyncResponse(messageEvent, sseEmitter);
                 // persist assistant final content
-                persistAssistantMessage(content.toString());
+                saveAssistantMessage(content.toString(), SSEEventType.MESSAGE);
             }
 
             resource.getInputStream().close();
@@ -492,7 +497,7 @@ public class AgentExecutor {
                     log.error("Failed to parse tool calls from content in round {}", round, e);
                 }
                 // persist assistant final content (non-stream)
-                persistAssistantMessage(content);
+                saveAssistantMessage(content, SSEEventType.MESSAGE);
             }
 
             // 4. 处理工具调用 (非流式)
@@ -672,7 +677,6 @@ public class AgentExecutor {
 
                     } else if (toolNames.contains(toolName)) {
                         Tool tool = tools.get(toolName);
-                        reportStep(StepEventStatus.running, "execute tool: " + toolName, sseEmitterOpt);
                         // 模拟延迟 (可选)
                         try { Thread.sleep(200L); } catch (InterruptedException ignored) {}
 
@@ -905,6 +909,19 @@ public class AgentExecutor {
             data.setDescription(description);
             logSseEvent(SSEEventType.STEP.getType(), data); // 后台记录
         }
+
+        // save step info to database
+        switch(status) {
+            case running:
+                conversationHistoryService.addStep(agent.getUserId(), agent.getAgentId(), description);
+                break;
+            case completed:
+                conversationHistoryService.updateLastStepStatus(agent.getAgentId(), StepEventStatus.completed.getCode());
+                break;
+            case failed:
+                conversationHistoryService.updateLastStepStatus(agent.getAgentId(), StepEventStatus.failed.getCode());
+                break;
+        }
     }
 
     // --- 新增：统一的工具报告方法 ---
@@ -930,6 +947,7 @@ public class AgentExecutor {
             // 后台模式：仅记录日志
             logSseEvent(SSEEventType.TOOL.getType(), toolEventData);
         }
+        saveAssistantMessage(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
     }
 
     // --- 新增：后台模式下的日志记录 ---

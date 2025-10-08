@@ -4,14 +4,20 @@ import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.dto.PageInfo;
 import cn.nolaurene.cms.common.dto.SessionSummary;
+import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
+import cn.nolaurene.cms.common.sandbox.backend.model.data.StepEventStatus;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.enhance.mapper.ConversationHistoryMapper;
 import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
 import cn.nolaurene.cms.dal.mapper.ConversationHistoryTkMapper;
 import cn.nolaurene.cms.dal.mapper.ConversationInfoMapper;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import io.mybatis.mapper.example.Example;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.ibatis.session.RowBounds;
 import org.springframework.stereotype.Service;
 
@@ -49,13 +55,69 @@ public class ConversationHistoryService {
                 .userId(request.getUserId())
                 .sessionId(request.getSessionId())
                 .messageType(request.getMessageType())
+                .eventType(request.getEventType().getType())
                 .content(request.getContent())
                 .metadata(request.getMetadata())
                 .isDeleted(false)
                 .build();
 
-        conversationHistoryMapper.insert(conversation);
+        conversationHistoryTkMapper.insertSelective(conversation);
         return convertToResponse(conversation);
+    }
+
+    public void updateLastPlan(String sessionId, String plan) {
+        Example<ConversationHistoryDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getEventType, SSEEventType.PLAN.getType());
+
+        example.orderByDesc(ConversationHistoryDO::getGmtCreate);
+
+        List<ConversationHistoryDO> planMessageList = conversationHistoryTkMapper.selectByExample(example);
+        if (CollectionUtils.isEmpty(planMessageList)) {
+            return;
+        }
+        ConversationHistoryDO planMessage = planMessageList.get(0);
+        ConversationHistoryDO newDataObject = new ConversationHistoryDO();
+        newDataObject.setId(planMessage.getId());
+        newDataObject.setContent(plan);
+        conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
+    }
+
+    public void addStep(String userId, String sessionId, String stepDescription) {
+        ConversationHistoryDO conversation = ConversationHistoryDO.builder()
+                .userId(StringUtils.isNoneBlank(userId) ? userId : "anonymous")
+                .sessionId(sessionId)
+                .messageType(ConversationHistoryDO.MessageType.ASSISTANT)
+                .eventType(SSEEventType.STEP.getType())
+                .content(stepDescription)
+                .isDeleted(false)
+                .build();
+
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("stepStatus", StepEventStatus.running.getCode());
+        conversation.setMetadata(jsonObject.toString());
+        conversationHistoryTkMapper.insertSelective(conversation);
+    }
+
+    public void updateLastStepStatus(String sessionId, String status) {
+        Example<ConversationHistoryDO> example = new Example<>();
+        example.createCriteria().andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getEventType, SSEEventType.STEP.getType())
+                .andEqualTo(ConversationHistoryDO::getIsDeleted, false);
+        example.orderByDesc(ConversationHistoryDO::getGmtModified);
+        List<ConversationHistoryDO> stepMessageList = conversationHistoryTkMapper.selectByExample(example);
+        if (CollectionUtils.isEmpty(stepMessageList)) {
+            return;
+        }
+        ConversationHistoryDO stepMessage = stepMessageList.get(0);
+        ConversationHistoryDO newDataObject = new ConversationHistoryDO();
+        newDataObject.setId(stepMessage.getId());
+
+        JSONObject metaData = JSON.parseObject(stepMessage.getMetadata());
+        metaData.put("stepStatus", status);
+        newDataObject.setMetadata(metaData.toString());
+        conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
     }
 
     /**
