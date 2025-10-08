@@ -30,7 +30,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
         const loginInfo = await currentUser();
         // @ts-ignore
         const user = loginInfo?.data;
-        const userId = (user?.account || user?.userid?.toString?.() || '').toString();
+        const userId = (user?.userid?.toString?.() || '').toString();
         if (!userId) {
           setSessions([]);
           return;
@@ -154,7 +154,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
             {!loading && sessions.map((s) => (
               <div key={s.sessionId}
                    className="group flex h-14 cursor-pointer items-center gap-2 rounded-[10px] px-2 transition-colors hover:bg-[var(--fill-tsp-gray-main)]"
-                   onClick={() => navigate(`/chat?sessionId=${encodeURIComponent(s.sessionId)}`)}>
+                   onClick={() => navigate(`/chat/${encodeURIComponent(s.sessionId)}`)}>
                 <div className="relative">
                   <div className="h-8 w-8 rounded-full flex items-center justify-center relative bg-[var(--fill-tsp-white-dark)]">
                     <div className="relative overflow-hidden h-4 w-4 object-cover brightness-0 opacity-75 dark:opacity-100 dark:brightness-100">

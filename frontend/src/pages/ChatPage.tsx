@@ -22,9 +22,6 @@ import LoginModal from '@/components/LoginModal';
 
 const ChatComponent: React.FC = () => {
 
-  // const urlParams = useParams();
-  // const agentId = urlParams.agentId as string;
-
   const historyPanelWidth = 300;
 
   const {styles} = useStyles();
@@ -331,11 +328,10 @@ const ChatComponent: React.FC = () => {
   // 初始化：如果带 sessionId，则加载历史；否则按原逻辑
   useEffect(() => {
     const init = async () => {
-      const query = new URLSearchParams(window.location.search);
-      const sessionId = query.get('sessionId');
-      if (sessionId) {
+      if (agentId) {
         try {
-          const history: ConversationMessage[] = await fetchSessionMessages(sessionId);
+          // TODO: 重写下渲染逻辑
+          const history: ConversationMessage[] = await fetchSessionMessages(agentId);
           const mapped: Message[] = history.map((m) => ({
             type: m.messageType === 'USER' ? 'user' : 'assistant',
             content: {
