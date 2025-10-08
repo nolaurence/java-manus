@@ -194,7 +194,12 @@ public class ConversationHistoryService {
      */
     public List<ConversationResponse> getSessionConversations(String sessionId) {
         log.debug("获取会话对话历史: sessionId={}", sessionId);
-        return conversationHistoryMapper.selectBySessionId(sessionId)
+        Example<ConversationHistoryDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getIsDeleted, false);
+        example.orderBy(ConversationHistoryDO::getGmtModified, Example.Order.ASC);
+        return conversationHistoryTkMapper.selectByExample(example)
                 .stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
