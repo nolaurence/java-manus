@@ -27,10 +27,6 @@ server:
 maintenance:
   env: prod
 
-image:
-  path-prefix: /root/asset_images
-  host: http://asset.nolaurence.cn
-
 #springdoc:
 #  swagger-ui:
 #    path: /swagger-ui.html
