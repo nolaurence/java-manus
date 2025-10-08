@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import javax.transaction.Transactional;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
@@ -65,7 +66,7 @@ public class ConversationHistoryService {
         return convertToResponse(conversation);
     }
 
-    public void updateLastPlan(String sessionId, String plan) {
+    public void updateLastPlan(String sessionId, Plan plan) {
         Example<ConversationHistoryDO> example = new Example<>();
         example.createCriteria()
                 .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
@@ -77,10 +78,18 @@ public class ConversationHistoryService {
         if (CollectionUtils.isEmpty(planMessageList)) {
             return;
         }
+
+        // filter some fields in plan object
+        Plan newPlan = new Plan(plan.getMessage(), plan.getGoal(), plan.getTitle(), new ArrayList<>(plan.getSteps()));
+        newPlan.getSteps().forEach(step -> {
+            step.setResult(null);
+            step.setError(null);
+        });
+
         ConversationHistoryDO planMessage = planMessageList.get(0);
         ConversationHistoryDO newDataObject = new ConversationHistoryDO();
         newDataObject.setId(planMessage.getId());
-        newDataObject.setContent(plan);
+        newDataObject.setContent(JSON.toJSONString(plan));
         conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
     }
 

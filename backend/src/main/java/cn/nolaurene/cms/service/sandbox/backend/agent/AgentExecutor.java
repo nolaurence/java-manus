@@ -181,7 +181,7 @@ public class AgentExecutor {
 
                         reportStep(StepEventStatus.running, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
-                        conversationHistoryService.updateLastPlan(agent.getAgentId(), JSON.toJSONString(plan));
+                        conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
                         String executionCommand = agent.getExecutor().executeStep(llm, memory.getHistory(), plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
                         List<ToolCall> toolCallsFromAI = ReActParser.parseToolCallsFromContent(executionCommand);
@@ -192,7 +192,7 @@ public class AgentExecutor {
                         currentStep.setStatus(StepEventStatus.completed.getCode());
                         reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);  // 这里应该没问题
                         syncRespondPlan(plan, emitter);
-                        conversationHistoryService.updateLastPlan(agent.getAgentId(), JSON.toJSONString(plan));
+                        conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
                         agentStatus = AgentStatus.UPDATING;
                         break;
@@ -222,7 +222,7 @@ public class AgentExecutor {
                         log.info("[PLAN ACT] Updated global steps for round {}: {}", round, JSON.toJSONString(plan.getSteps()));
 
                         syncRespondPlan(plan, emitter);
-                        conversationHistoryService.updateLastPlan(agent.getAgentId(), JSON.toJSONString(plan));
+                        conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
                         // update 后继续执行
                         agentStatus = AgentStatus.EXECUTING;
