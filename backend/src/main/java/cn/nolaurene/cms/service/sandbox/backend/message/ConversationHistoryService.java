@@ -375,7 +375,6 @@ public class ConversationHistoryService {
                 response.setContent(planEventData);
                 break;
             case STEP:
-                Step step = JSON.parseObject(conversation.getContent(), Step.class);
                 StepEventData stepEventData = new StepEventData();
                 stepEventData.setTimestamp(System.currentTimeMillis());
                 stepEventData.setStatus(JSON.parseObject(conversation.getMetadata()).getString("stepStatus"));
