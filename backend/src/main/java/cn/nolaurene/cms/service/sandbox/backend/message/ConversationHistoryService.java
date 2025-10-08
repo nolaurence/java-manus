@@ -5,7 +5,7 @@ import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.dto.PageInfo;
 import cn.nolaurene.cms.common.dto.SessionSummary;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
-import cn.nolaurene.cms.common.sandbox.backend.model.data.StepEventStatus;
+import cn.nolaurene.cms.common.sandbox.backend.model.data.*;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.enhance.mapper.ConversationHistoryMapper;
 import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
@@ -328,15 +328,50 @@ public class ConversationHistoryService {
      * 转换为响应DTO
      */
     private ConversationResponse convertToResponse(ConversationHistoryDO conversation) {
-        return ConversationResponse.builder()
+        ConversationResponse response = ConversationResponse.builder()
                 .id(conversation.getId())
                 .userId(conversation.getUserId())
                 .sessionId(conversation.getSessionId())
                 .messageType(conversation.getMessageType())
-                .content(conversation.getContent())
                 .metadata(conversation.getMetadata())
                 .createdTime(conversation.getGmtCreate())
                 .updatedTime(conversation.getGmtModified())
                 .build();
+        // process content
+        switch(SSEEventType.fromType(conversation.getEventType())) {
+            case MESSAGE:
+                MessageEventData messageEventData = new MessageEventData();
+                messageEventData.setContent(conversation.getContent());
+                response.setContent(messageEventData);
+                break;
+            case PLAN:
+                Plan plan = JSON.parseObject(conversation.getContent(), Plan.class);
+                PlanEventData planEventData = new PlanEventData();
+                planEventData.setId(String.valueOf(System.currentTimeMillis()));
+                planEventData.setTitle(plan.getTitle());
+                planEventData.setGoal(plan.getGoal());
+                planEventData.setStatus("created");
+                planEventData.setSteps(plan.getSteps().stream().map(step -> {
+                    StepEventData stepData = new StepEventData();
+                    stepData.setDescription(step.getDescription());
+                    stepData.setStatus(step.getStatus());
+                    stepData.setTimestamp(System.currentTimeMillis());
+                    return stepData;
+                }).collect(Collectors.toList()));
+                response.setContent(planEventData);
+                break;
+            case STEP:
+                Step step = JSON.parseObject(conversation.getContent(), Step.class);
+                StepEventData stepEventData = new StepEventData();
+                stepEventData.setTimestamp(System.currentTimeMillis());
+                stepEventData.setStatus(JSON.parseObject(conversation.getMetadata()).getString("stepStatus"));
+                stepEventData.setDescription(conversation.getContent());
+                response.setContent(stepEventData);
+                break;
+            case TOOL:
+                ToolEventData toolEventData = JSON.parseObject(conversation.getContent(), ToolEventData.class);
+                response.setContent(toolEventData);
+        }
+        return response;
     }
 }

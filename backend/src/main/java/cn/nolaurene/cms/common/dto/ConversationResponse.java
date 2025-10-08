@@ -19,7 +19,7 @@ public class ConversationResponse {
     private String userId;
     private String sessionId;
     private MessageType messageType;
-    private String content;
+    private Object content;
     private String metadata;
     private LocalDateTime createdTime;
     private LocalDateTime updatedTime;

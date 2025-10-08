@@ -21,4 +21,13 @@ public enum SSEEventType {
     public String getType() {
         return type;
     }
+
+    public static SSEEventType fromType(String type) {
+        for (SSEEventType value : values()) {
+            if (value.getType().equals(type)) {
+                return value;
+            }
+        }
+        return null;
+    }
 }
