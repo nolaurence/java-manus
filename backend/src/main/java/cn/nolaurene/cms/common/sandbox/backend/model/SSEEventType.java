@@ -4,6 +4,7 @@ import lombok.Getter;
 
 @Getter
 public enum SSEEventType {
+    UNKNOWN("unknown"),
     TOOL("tool"),
     STEP("step"),
     MESSAGE("message"),
@@ -18,16 +19,12 @@ public enum SSEEventType {
         this.type = type;
     }
 
-    public String getType() {
-        return type;
-    }
-
     public static SSEEventType fromType(String type) {
         for (SSEEventType value : values()) {
             if (value.getType().equals(type)) {
                 return value;
             }
         }
-        return null;
+        return UNKNOWN;
     }
 }

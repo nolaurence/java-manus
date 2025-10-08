@@ -380,6 +380,12 @@ public class ConversationHistoryService {
             case TOOL:
                 ToolEventData toolEventData = JSON.parseObject(conversation.getContent(), ToolEventData.class);
                 response.setContent(toolEventData);
+                break;
+            case UNKNOWN:
+                log.error("[ConversationHistoryService#convertToResponse] unknow message type");
+                break;
+            default:
+                log.error("[ConversationHistoryService#convertToResponse] Unimplemented type conversion: {}", conversation.getEventType());
         }
         return response;
     }
