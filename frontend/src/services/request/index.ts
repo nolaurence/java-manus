@@ -22,12 +22,11 @@ const ErrorShowTypeMap: { [key: string]: ErrorShowType } = {
 // 从环境变量中读取配置
 // const API_BASE_URL = window.location.hostname === 'localhost' ? "https://manus.proxy.nolaurence.cn" : window.location.origin;
 const API_BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.250:7001" : window.location.origin;
-const ALLOW_CORS = window.location.hostname === 'localhost';
 
 // 创建 axios 实例
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL, // 你的 API 基础 URL
-  withCredentials: ALLOW_CORS, // 是否允许跨域携带 cookie
+  withCredentials: true, // 跨域时始终携带 cookie（需配合后端 CORS）
   timeout: 10000, // 请求超时时间
 });
 
