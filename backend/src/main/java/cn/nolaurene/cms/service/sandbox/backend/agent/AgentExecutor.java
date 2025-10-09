@@ -82,12 +82,12 @@ public class AgentExecutor {
     private String conversationUserId = "anonymous";
     private String conversationSessionId = null; // fallback to agentId if null
 
-    public AgentExecutor(ToolRegistry tools, LlmClient llm, String systemPrompt, Agent agent) {
+    public AgentExecutor(ToolRegistry tools, LlmClient llm, Agent agent) {
         this.tools = tools;
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
-        memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
+//        memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
     }
 
     public void setConversationPersistence(ConversationHistoryService conversationHistoryService, String userId, String sessionId) {

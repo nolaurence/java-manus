@@ -81,10 +81,10 @@ public class AgentSession {
         agent.setXmlToolsInfo(agent.getMcpTools().stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n")));
         agent.setTools(listToolsResult.getTools().stream().map(this::convertToOpenaiFunction).collect(Collectors.toList()));
 
-        String systemPrompt = renderSystemPrompt(agent);
+//        String systemPrompt = renderSystemPrompt(agent);
         ToolRegistry registry = new ToolRegistry();
         registry.register(new CalculatorTool());
-        this.executor = new AgentExecutor(registry, llmClient, systemPrompt, agent);
+        this.executor = new AgentExecutor(registry, llmClient, agent);
     }
 
     /**
@@ -230,29 +230,6 @@ public class AgentSession {
         client.initialize();
 
         return client;
-    }
-
-    /**
-     * render system prompt
-     * @return rendered prompt string
-     */
-    private String renderSystemPrompt(Agent agent) {
-        try {
-            ClassPathResource resource = new ClassPathResource("j2template/prompt.jinja");
-            InputStream inputStream = resource.getInputStream();
-            String template = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-
-            Map<String, Object> context = new HashMap<>();
-
-            // add tools
-            String availableTools = agent.getMcpTools().stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n"));
-            context.put("availableTools", availableTools);
-
-            return PromptRenderer.render(template, context); // 确保 PromptRenderer 可访问
-        } catch (IOException e) {
-            log.error("Failed to render system prompt", e);
-            return "System prompt rendering failed."; // 返回错误信息而不是空字符串可能更好
-        }
     }
 
     private JSONObject convertToOpenaiFunction(McpSchema.Tool mcpTool) {
