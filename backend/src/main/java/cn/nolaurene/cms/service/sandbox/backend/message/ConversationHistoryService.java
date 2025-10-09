@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import javax.transaction.Transactional;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Date;
@@ -352,12 +353,14 @@ public class ConversationHistoryService {
                 .createdTime(conversation.getGmtCreate())
                 .updatedTime(conversation.getGmtModified())
                 .build();
+
         // process content
+        long messageTimeStamp = conversation.getGmtCreate().atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
         switch(SSEEventType.fromType(conversation.getEventType())) {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
                 messageEventData.setContent(conversation.getContent());
-                messageEventData.setTimestamp(conversation.getGmtCreate().getLong(ChronoField.MILLI_OF_SECOND));
+                messageEventData.setTimestamp(messageTimeStamp);
                 response.setContent(messageEventData);
                 response.setEventType(SSEEventType.MESSAGE);
                 break;
@@ -372,7 +375,6 @@ public class ConversationHistoryService {
                     StepEventData stepData = new StepEventData();
                     stepData.setDescription(step.getDescription());
                     stepData.setStatus(step.getStatus());
-                    stepData.setTimestamp(System.currentTimeMillis());
                     return stepData;
                 }).collect(Collectors.toList()));
                 response.setContent(planEventData);
@@ -380,7 +382,7 @@ public class ConversationHistoryService {
                 break;
             case STEP:
                 StepEventData stepEventData = new StepEventData();
-                stepEventData.setTimestamp(System.currentTimeMillis());
+                stepEventData.setTimestamp(messageTimeStamp);
                 stepEventData.setStatus(JSON.parseObject(conversation.getMetadata()).getString("stepStatus"));
                 stepEventData.setDescription(conversation.getContent());
                 response.setContent(stepEventData);
@@ -388,6 +390,7 @@ public class ConversationHistoryService {
                 break;
             case TOOL:
                 ToolEventData toolEventData = JSON.parseObject(conversation.getContent(), ToolEventData.class);
+                toolEventData.setTimestamp(messageTimeStamp);
                 response.setContent(toolEventData);
                 response.setEventType(SSEEventType.TOOL);
                 break;
