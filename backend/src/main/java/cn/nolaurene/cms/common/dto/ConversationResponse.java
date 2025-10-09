@@ -1,5 +1,6 @@
 package cn.nolaurene.cms.common.dto;
 
+import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO.MessageType;
 import lombok.AllArgsConstructor;
@@ -19,6 +20,7 @@ public class ConversationResponse {
     private String userId;
     private String sessionId;
     private MessageType messageType;
+    private SSEEventType eventType;
     private Object content;
     private String metadata;
     private LocalDateTime createdTime;

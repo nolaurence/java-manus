@@ -357,6 +357,7 @@ public class ConversationHistoryService {
                 MessageEventData messageEventData = new MessageEventData();
                 messageEventData.setContent(conversation.getContent());
                 response.setContent(messageEventData);
+                response.setEventType(SSEEventType.MESSAGE);
                 break;
             case PLAN:
                 Plan plan = JSON.parseObject(conversation.getContent(), Plan.class);
@@ -373,6 +374,7 @@ public class ConversationHistoryService {
                     return stepData;
                 }).collect(Collectors.toList()));
                 response.setContent(planEventData);
+                response.setEventType(SSEEventType.PLAN);
                 break;
             case STEP:
                 StepEventData stepEventData = new StepEventData();
@@ -380,10 +382,12 @@ public class ConversationHistoryService {
                 stepEventData.setStatus(JSON.parseObject(conversation.getMetadata()).getString("stepStatus"));
                 stepEventData.setDescription(conversation.getContent());
                 response.setContent(stepEventData);
+                response.setEventType(SSEEventType.STEP);
                 break;
             case TOOL:
                 ToolEventData toolEventData = JSON.parseObject(conversation.getContent(), ToolEventData.class);
                 response.setContent(toolEventData);
+                response.setEventType(SSEEventType.TOOL);
                 break;
             case UNKNOWN:
                 log.error("[ConversationHistoryService#convertToResponse] unknow message type");
