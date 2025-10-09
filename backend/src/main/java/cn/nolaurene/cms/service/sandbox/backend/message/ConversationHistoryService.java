@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import javax.transaction.Transactional;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -356,6 +357,7 @@ public class ConversationHistoryService {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
                 messageEventData.setContent(conversation.getContent());
+                messageEventData.setTimestamp(conversation.getGmtCreate().getLong(ChronoField.MILLI_OF_SECOND));
                 response.setContent(messageEventData);
                 response.setEventType(SSEEventType.MESSAGE);
                 break;
