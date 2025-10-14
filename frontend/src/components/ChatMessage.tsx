@@ -43,6 +43,11 @@ const ChatMessage: React.FC<{
     return DOMPurify.sanitize(html);
   };
 
+  if (!message.content) {
+    console.log(`POINT: null content of type: ${message.type}`);
+    return (<p>1</p>);
+  }
+
   // 用户消息渲染
   if (message.type === 'user') {
     return (
@@ -161,7 +166,7 @@ const ChatMessage: React.FC<{
               isExpanded ? 'max-h-[100000px] opacity-100' : 'max-h-0 opacity-0'
             }`}
           >
-            {content.tools.map((tool, index) => (
+            {content?.tools?.map((tool, index) => (
               <ToolUse
                 key={index}
                 // @ts-ignore

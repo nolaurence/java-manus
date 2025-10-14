@@ -19,6 +19,7 @@ import Panel from '@/components/Panel';
 import { Button, message as antdMessage } from 'antd';
 import ScrollableFeed from 'react-scrollable-feed';
 import LoginModal from '@/components/LoginModal';
+import dayjs from 'dayjs';
 
 const ChatComponent: React.FC = () => {
 
@@ -342,13 +343,35 @@ const ChatComponent: React.FC = () => {
             }
             return;
           }
-          const mapped: Message[] = history.map((m) => ({
-            type: m.messageType === 'USER' ? 'user' : 'assistant',
-            content: {
-              content: m.content,
-              timestamp: new Date(m.createdTime).getTime(),
-            } as MessageContent,
-          }));
+          const mapped: Message[] = history?.map((m) => {
+            if (m.eventType === 'MESSAGE') {
+              return {
+                type: m.messageType === 'USER' ? 'user' : 'assistant',
+                content: m.content as MessageContent,
+              };
+            } else if (m.eventType === 'PLAN') {
+              // @ts-ignore
+              return {
+                type: 'plan',
+                content: m.content as PlanEventData
+              };
+            } else if (m.eventType === 'TOOL') {
+              return {
+                type: 'tool',
+                content: m.content as ToolContent,
+              };
+            } else if (m.eventType === 'STEP') {
+              return {
+                type: 'step',
+                content: m.content as StepContent,
+              };
+            }
+            return {
+              type: 'assistant',
+              content: m.content as MessageContent,
+            };
+          });
+          console.log('mapped message',  mapped);
           setMessages(mapped);
           setTitle('History');
           return;

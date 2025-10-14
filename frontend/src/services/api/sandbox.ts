@@ -53,6 +53,7 @@ export interface ConversationMessage {
   userId: string;
   sessionId: string;
   messageType: 'USER' | 'ASSISTANT';
+  eventType: 'MESSAGE' | 'TOOL' | 'STEP' | 'PLAN' | 'ERROR' | 'DONE' | 'TITLE';
   content: object;
   metadata?: string;
   createdTime: string;

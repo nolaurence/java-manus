@@ -1,4 +1,4 @@
-export type MessageType = "user" | "assistant" | "tool" | "step";
+export type MessageType = "user" | "assistant" | "tool" | "step" | "plan";
 
 export interface Message {
   type: MessageType;
