@@ -78,7 +78,7 @@ const ChatComponent: React.FC = () => {
   }, [messages]);
 
   // 处理滚动事件
-  const handleScroll = useCallback(() => {
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const isBottom = simpleBarRef.current?.isScrolledToBottom(10) ?? false;
     setFollow(isBottom);
   }, []);
@@ -503,7 +503,7 @@ const ChatComponent: React.FC = () => {
                     {/* 消息列表 */}
                     <SimpleBar ref={simpleBarRef} onScroll={handleScroll}>
                       {messages.map((message, index) => (
-                        <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
+                        <ChatMessage key={index} message={message} onToolClick={handleToolClick} />
                       ))}
 
                       {/* 加载指示器 loading indicator */}
@@ -511,10 +511,10 @@ const ChatComponent: React.FC = () => {
                         <div className={styles.loadingIndicatorContainer}>
                           <span>Thinking</span>
                           <span className={styles.animateBounceDotContainer}>
-                        <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                      </span>
+                            <span className={styles.loadingDot} style={{ animationDelay: '0ms' }} />
+                            <span className={styles.loadingDot} style={{ animationDelay: '200ms' }} />
+                            <span className={styles.loadingDot} style={{ animationDelay: '400ms' }} />
+                          </span>
                         </div>
                       )}
                     </SimpleBar>

@@ -215,7 +215,10 @@ export type ScrollableContentRef = {
 const ScrollableContent = forwardRef<ScrollableContentRef, ScrollableContentProps>(
   ({ children, onScroll }, ref) => {
     const { styles } = useStyles();
+    // 外层容器引用（非实际滚动元素）
     const contentWrapperRef = useRef<HTMLDivElement>(null);
+    // 实际滚动元素引用（.simplebar-content-wrapper）
+    const scrollableRef = useRef<HTMLDivElement>(null);
 
     // real scroll element's reference
     const scrollableRef = useRef<HTMLDivElement>(null);
