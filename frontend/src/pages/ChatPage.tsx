@@ -501,7 +501,7 @@ const ChatComponent: React.FC = () => {
                     </div>
 
                     {/* 消息列表 */}
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
                       <ScrollableFeed>
                         {messages.map((message, index) => (
                           <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
