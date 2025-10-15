@@ -501,23 +501,26 @@ const ChatComponent: React.FC = () => {
                     </div>
 
                     {/* 消息列表 */}
-                    <SimpleBar ref={simpleBarRef} onScroll={handleScroll}>
-                      {messages.map((message, index) => (
-                        <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
-                      ))}
+                    <div className="flex-grow overflow-hidden" >
+                      <SimpleBar ref={simpleBarRef} onScroll={handleScroll} className="h-full">
+                        {messages.map((message, index) => (
+                          <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
+                        ))}
 
-                      {/* 加载指示器 loading indicator */}
-                      {isLoading && (
-                        <div className={styles.loadingIndicatorContainer}>
-                          <span>Thinking</span>
-                          <span className={styles.animateBounceDotContainer}>
-                        <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                      </span>
-                        </div>
-                      )}
-                    </SimpleBar>
+                        {/* 加载指示器 loading indicator */}
+                        {isLoading && (
+                          <div className={styles.loadingIndicatorContainer}>
+                            <span>Thinking</span>
+                            <span className={styles.animateBounceDotContainer}>
+                          <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
+                        </span>
+                          </div>
+                        )}
+                      </SimpleBar>
+                    </div>
+                    
 
                     {/* 底部输入区域 */}
                     <div className={styles.inputArea}>
