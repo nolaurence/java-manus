@@ -453,6 +453,7 @@ const ChatComponent: React.FC = () => {
           height: '100%',
           backgroundImage: 'linear-gradient(180deg, #F3F3F3 0%, #EDEDED 100%)',
           overflowX: 'hidden' as const,
+          overflowY: 'hidden' as const,
           marginLeft: panelFixed ? historyPanelWidth : 0,
         }}>
           <div
