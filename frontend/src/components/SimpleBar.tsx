@@ -217,24 +217,21 @@ const ScrollableContent = forwardRef<ScrollableContentRef, ScrollableContentProp
     const { styles } = useStyles();
     const contentWrapperRef = useRef<HTMLDivElement>(null);
 
-    // real scroll element's reference
-    const scrollableRef = useRef<HTMLDivElement>(null);
-
     const scrollToBottom = () => {
-      if (scrollableRef.current) {
-        scrollableRef.current.scrollTop = scrollableRef.current.scrollHeight;
+      if (contentWrapperRef.current) {
+        contentWrapperRef.current.scrollTop = contentWrapperRef.current.scrollHeight;
       }
     };
 
     const isScrolledToBottom = (threshold = 10) => {
-      if (!scrollableRef.current) return false;
-      const { scrollTop, scrollHeight, clientHeight } = scrollableRef.current;
+      if (!contentWrapperRef.current) return false;
+      const { scrollTop, scrollHeight, clientHeight } = contentWrapperRef.current;
       return scrollHeight - scrollTop - clientHeight <= threshold;
     };
 
     const canScroll = () => {
-      if (!scrollableRef.current) return false;
-      return scrollableRef.current.scrollHeight > scrollableRef.current.clientHeight;
+      if (!contentWrapperRef.current) return false;
+      return contentWrapperRef.current.scrollHeight > contentWrapperRef.current.clientHeight;
     };
 
     // 暴露方法给父组件
@@ -254,6 +251,7 @@ const ScrollableContent = forwardRef<ScrollableContentRef, ScrollableContentProp
           ref={contentWrapperRef}
           className="simplebar-scrollable-y"
           style={{ '--simplebar-scrollbar-width': '6px' } as React.CSSProperties}
+          onScroll={handleScroll}
         >
           <div className="simplebar-wrapper" style={{ margin: 0 }}>
             <div className="simplebar-height-auto-observer-wrapper">
@@ -262,13 +260,11 @@ const ScrollableContent = forwardRef<ScrollableContentRef, ScrollableContentProp
             <div className="simplebar-mask">
               <div className="simplebar-offset" style={{ right: '0px', bottom: '0px' }}>
                 <div
-                  ref={scrollableRef}
                   className="simplebar-content-wrapper"
                   tabIndex={0}
                   role="region"
                   aria-label="scrollable content"
                   style={{ height: '100%', overflow: 'hidden scroll' }}
-                  onScroll={handleScroll}
                 >
                   <div className="simplebar-content" style={{ padding: '0px' }}>
                     {children}

@@ -17,7 +17,7 @@ import type {MessageEventData, StepEventData, ToolEventData, PlanEventData} from
 import {useStyles} from '@/assets/chatPageStyle';
 import Panel from '@/components/Panel';
 import { Button, message as antdMessage } from 'antd';
-// import ScrollableFeed from 'react-scrollable-feed';
+import ScrollableFeed from 'react-scrollable-feed';
 import LoginModal from '@/components/LoginModal';
 import dayjs from 'dayjs';
 
@@ -501,7 +501,7 @@ const ChatComponent: React.FC = () => {
                     </div>
 
                     {/* 消息列表 */}
-                    <SimpleBar ref={simpleBarRef} onScroll={handleScroll}>
+                    <ScrollableFeed>
                       {messages.map((message, index) => (
                         <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
                       ))}
@@ -517,7 +517,7 @@ const ChatComponent: React.FC = () => {
                       </span>
                         </div>
                       )}
-                    </SimpleBar>
+                    </ScrollableFeed>
 
                     {/* 底部输入区域 */}
                     <div className={styles.inputArea}>
