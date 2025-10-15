@@ -501,23 +501,26 @@ const ChatComponent: React.FC = () => {
                     </div>
 
                     {/* 消息列表 */}
-                    <ScrollableFeed>
-                      {messages.map((message, index) => (
-                        <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
-                      ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                      <ScrollableFeed>
+                        {messages.map((message, index) => (
+                          <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
+                        ))}
 
-                      {/* 加载指示器 loading indicator */}
-                      {isLoading && (
-                        <div className={styles.loadingIndicatorContainer}>
-                          <span>Thinking</span>
-                          <span className={styles.animateBounceDotContainer}>
-                        <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                      </span>
-                        </div>
-                      )}
-                    </ScrollableFeed>
+                        {/* 加载指示器 loading indicator */}
+                        {isLoading && (
+                          <div className={styles.loadingIndicatorContainer}>
+                            <span>Thinking</span>
+                            <span className={styles.animateBounceDotContainer}>
+                          <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
+                        </span>
+                          </div>
+                        )}
+                      </ScrollableFeed>
+                    </div>
+                    
 
                     {/* 底部输入区域 */}
                     <div className={styles.inputArea}>
