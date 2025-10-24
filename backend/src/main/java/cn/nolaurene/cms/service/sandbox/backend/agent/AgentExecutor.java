@@ -28,6 +28,9 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
@@ -45,9 +48,11 @@ import java.util.stream.Collectors;
 /**
  * @author nolau
  * @date 2025/6/24
- * @description
+ * @description Agent 执行器，由 Spring 管理的原型组件
  */
 @Slf4j
+@Component
+@Scope("prototype")
 public class AgentExecutor {
 
     private final int MAX_ROUNDS;
@@ -82,7 +87,23 @@ public class AgentExecutor {
     private String conversationUserId = "anonymous";
     private String conversationSessionId = null; // fallback to agentId if null
 
-    public AgentExecutor(ToolRegistry tools, LlmClient llm, Agent agent) {
+    /**
+     * Spring 构造函数注入
+     * 注意：由于是原型 Bean，每次创建时都会调用此构造函数
+     */
+    public AgentExecutor() {
+        // 空构造函数，由 Spring 管理依赖注入
+        this.MAX_ROUNDS = 30; // 默认值，会在 initialize 方法中覆盖
+    }
+
+    /**
+     * 初始化方法，在 Spring 创建实例后调用
+     * 
+     * @param tools 工具注册表
+     * @param llm LLM 客户端
+     * @param agent Agent 配置
+     */
+    public void initialize(ToolRegistry tools, LlmClient llm, Agent agent) {
         this.tools = tools;
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();
