@@ -2,14 +2,16 @@ package cn.nolaurene.cms.service.sandbox.backend;
 
 
 import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
+import org.springframework.stereotype.Component;
 
 import java.util.*;
 
 /**
  * @author nolau
  * @date 2025/6/24
- * @description
+ * @description 工具注册表，由 Spring 管理的单例组件
  */
+@Component
 public class ToolRegistry {
 
     private final Map<String, Tool> tools = new HashMap<>();
