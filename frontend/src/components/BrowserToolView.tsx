@@ -6,91 +6,21 @@ import { useParams } from 'umi';
 import Hls from 'hls.js';
 import { message } from 'antd';
 import { startStream, stopStream } from '@/services/api/sandbox';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 
 interface BrowserToolViewProps {
   agentId: string;
   toolContent: ToolContent
 }
 
-// @ts-ignore
-const useStyles = createStyles((utils) => {
-  const css = utils.css;
-  return {
-   header: css`
-     height: 36px;
-     display: flex;
-     align-items: center;
-     padding: 0 12px;
-     width: 100%;
-     background: var(--background-gray-main);
-     border-bottom: 1px solid var(--border-main);
-     border-top-left-radius: 12px;
-     border-top-right-radius: 12px;
-     box-shadow: inset 0 1px 0 0 #FFFFFF;
-   `,
-   headerDark: css`
-     flex: 1;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-   `,
-   headerContent: css`
-     flex: 1;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-   `,
-   title: css`
-     max-width: 250px;
-     overflow: hidden;
-     text-overflow: ellipsis;
-     white-space: nowrap;
-     color: var(--text-tertiary);
-     font-size: 14px;
-     font-weight: 500;
-     text-align: center;
-   `,
-   main: css`
-     flex: 1px;
-     min-height: 0;
-     width: 100%;
-     overflow-y: auto;
-   `,
-   container: css`
-     padding: 0;
-     display: flex;
-     flex-direction: column;
-     position: relative;
-     height: 100%;
-   `,
-   vncWrapper: css`
-     width: 100%;
-     height: 100%;
-     object-fit: cover;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-     background: var(--fill-white);
-     position: relative;
-   `,
-   vncInner: css`
-     width: 100%;
-     height: 100%;
-   `,
-   vncContainer: css`
-     display: flex;
-     width: 100%;
-     height: 100%;
-     overflow: auto;
-     background: rgb(40, 40, 40);
-   `,
-  };
-})
-
 const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent }) => {
   const params = useParams();
   // const agentId = params.agentId;
-  const { styles } = useStyles();
   const vncContainer = useRef(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -162,26 +92,35 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className={styles.header}>
-        <div className={styles.headerContent}>
-          <div className={styles.title}>
+      <div className="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
             {toolContent?.args?.url || 'Browser'}
           </div>
         </div>
       </div>
-      <div className={styles.main}>
-        <div className={styles.container}>
-          <div className={styles.vncWrapper}>
-            <div className={styles.vncInner}>
-              <video
-                ref={videoRef}
-                style={{ width: '100%', height: 'auto' }}
-                autoPlay={true}
-                controls={true}
-                muted={true}
-              />
-              {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
-            </div>
+      <div className="flex-1 min-h-0 w-full overflow-y-auto">
+        <div className="px-0 py-0 flex flex-col relative h-full">
+          <div className="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
+            <Tabs defaultValue="stream" className="w-full">
+              <TabsList>
+                <TabsTrigger value="stream">串流</TabsTrigger>
+                <TabsTrigger value="vnc">VNC</TabsTrigger>
+              </TabsList>
+              <TabsContent value="stream">
+                <div className="w-full h-full">
+                  <video
+                    ref={videoRef}
+                    style={{ width: '100%', height: 'auto' }}
+                    autoPlay={true}
+                    controls={true}
+                    muted={true}
+                  />
+                  {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
+                </div>
+              </TabsContent>
+              <TabsContent value="vnc">VNC Zone</TabsContent>
+            </Tabs>
           </div>
         </div>
       </div>
