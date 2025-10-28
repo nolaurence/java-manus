@@ -6,12 +6,7 @@ import { useParams } from 'umi';
 import Hls from 'hls.js';
 import { message } from 'antd';
 import { startStream, stopStream } from '@/services/api/sandbox';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs } from 'antd';
 
 interface BrowserToolViewProps {
   agentId: string;
@@ -101,28 +96,30 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
       </div>
       <div className="flex-1 min-h-0 w-full overflow-y-auto">
         <div className="px-0 py-0 flex flex-col relative h-full">
-          
-            <Tabs defaultValue="stream" className="w-full">
-              <TabsList className="bg-[oklch(97% 0 0)]">
-                <TabsTrigger value="stream">串流</TabsTrigger>
-                <TabsTrigger value="vnc">VNC</TabsTrigger>
-              </TabsList>
-              <div className="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
-                <TabsContent value="stream">
-                  <div className="w-full h-full">
-                    <video
-                      ref={videoRef}
-                      style={{ width: '100%', height: 'auto' }}
-                      autoPlay={true}
-                      controls={true}
-                      muted={true}
-                    />
-                    {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
-                  </div>
-                </TabsContent>
-                <TabsContent value="vnc">VNC Zone</TabsContent>
-              </div>
-            </Tabs>
+            <Tabs defaultActiveKey="1" items={[
+                {
+                  key: '1',
+                  label: 'Stream',
+                  children: (
+                    <div className="w-full h-full">
+                      <video
+                        ref={videoRef}
+                        style={{ width: '100%', height: 'auto' }}
+                        autoPlay={true}
+                        controls={true}
+                        muted={true}
+                      />
+                      {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
+                    </div>
+                  ),
+                },
+                {
+                  key: '2',
+                  label: 'VNC',
+                  children: 'VNC',
+                },
+              ]} 
+            />
         </div>
       </div>
     </div>
