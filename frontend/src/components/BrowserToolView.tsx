@@ -120,7 +120,6 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
                   children: (
                     <VncViewer
                       sessionId={realStreamId}
-                      vncPassword={toolContent?.args?.vncPassword || ''}
                     />
                   ),
                 },
