@@ -7,6 +7,7 @@ import Hls from 'hls.js';
 import { message } from 'antd';
 import { startStream, stopStream } from '@/services/api/sandbox';
 import { Tabs } from 'antd';
+import VncViewer from '@/components/VncViewewr';
 
 interface BrowserToolViewProps {
   agentId: string;
@@ -116,7 +117,12 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
                 {
                   key: '2',
                   label: 'VNC',
-                  children: 'VNC',
+                  children: (
+                    <VncViewer
+                      sessionId={realStreamId}
+                      vncPassword={toolContent?.args?.vncPassword || ''}
+                    />
+                  ),
                 },
               ]} 
             />
