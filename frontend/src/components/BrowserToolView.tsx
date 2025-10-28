@@ -103,7 +103,7 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
         <div className="px-0 py-0 flex flex-col relative h-full">
           
             <Tabs defaultValue="stream" className="w-full">
-              <TabsList className="bg-[oklch(55.6%_0_0)]">
+              <TabsList className="bg-[oklch(97% 0 0)]">
                 <TabsTrigger value="stream">串流</TabsTrigger>
                 <TabsTrigger value="vnc">VNC</TabsTrigger>
               </TabsList>
