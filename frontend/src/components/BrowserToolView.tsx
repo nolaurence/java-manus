@@ -101,27 +101,28 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
       </div>
       <div className="flex-1 min-h-0 w-full overflow-y-auto">
         <div className="px-0 py-0 flex flex-col relative h-full">
-          <div className="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
+          
             <Tabs defaultValue="stream" className="w-full">
-              <TabsList>
+              <TabsList className="bg-[oklch(55.6%_0_0)]">
                 <TabsTrigger value="stream">串流</TabsTrigger>
                 <TabsTrigger value="vnc">VNC</TabsTrigger>
               </TabsList>
-              <TabsContent value="stream">
-                <div className="w-full h-full">
-                  <video
-                    ref={videoRef}
-                    style={{ width: '100%', height: 'auto' }}
-                    autoPlay={true}
-                    controls={true}
-                    muted={true}
-                  />
-                  {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
-                </div>
-              </TabsContent>
-              <TabsContent value="vnc">VNC Zone</TabsContent>
+              <div className="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
+                <TabsContent value="stream">
+                  <div className="w-full h-full">
+                    <video
+                      ref={videoRef}
+                      style={{ width: '100%', height: 'auto' }}
+                      autoPlay={true}
+                      controls={true}
+                      muted={true}
+                    />
+                    {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
+                  </div>
+                </TabsContent>
+                <TabsContent value="vnc">VNC Zone</TabsContent>
+              </div>
             </Tabs>
-          </div>
         </div>
       </div>
     </div>
