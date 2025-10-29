@@ -59,8 +59,8 @@ services:
 #      - /app/.venv  # Avoid overwriting virtual environment
     ports:
       #- "9222:9222"
-      - "5902:5900"
-      #- "5901:5901"
+      - "5902:5902"
+      - "5900:5900"
       - "7002:7002"
       - "7500:7500"
       - "5006:5005"

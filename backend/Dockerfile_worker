@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     xvfb \
     x11vnc \
+    websockify \
     libx11-xcb1 libxkbcommon0 x11-apps x11-utils \
     fonts-liberation libgl1 libglib2.0-0 libsm6 \
     libxrender1 libxcomposite1 libasound2 libxdamage1 \

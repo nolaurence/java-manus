@@ -21,7 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class VncWebSocketHandler extends AbstractWebSocketHandler {
     
-    private static final String SANDBOX_HOST = "http://worker";
+    private static final String SANDBOX_HOST = "worker";
 
     private static final int VNC_PORT = 5902;
 
