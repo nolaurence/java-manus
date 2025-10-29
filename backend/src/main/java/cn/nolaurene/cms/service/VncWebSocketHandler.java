@@ -27,7 +27,7 @@ public class VncWebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        System.out.println("Frontend connected via WebSocket");
+        log.info("[VncWebSocketHandler#afterConnectionEstablished] Frontend connected via WebSocket");
 
         // 创建到沙箱 x11vnc 的 TCP 连接
         SocketChannel vncChannel = SocketChannel.open();
@@ -39,6 +39,7 @@ public class VncWebSocketHandler extends AbstractWebSocketHandler {
 
         // 启动一个线程从 VNC 读取数据并转发给前端
         startVncToWebSocketForwarder(session, vncChannel);
+        log.info("[VncWebSocketHandler#afterConnectionEstablished] start to proxy websocket stream");
     }
 
     @Override
@@ -52,6 +53,7 @@ public class VncWebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        log.info("[VncWebSocketHandler#afterConnectionClosed] Frontend disconnected");
         System.out.println("Frontend disconnected: " + status);
         SocketChannel vncChannel = (SocketChannel) session.getAttributes().get("vncChannel");
         if (vncChannel != null) {
@@ -65,7 +67,7 @@ public class VncWebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
-        System.err.println("WebSocket error: " + exception.getMessage());
+        log.error("[VncWebSocketHandler#handleTransportError] WebSocket error", exception);
         session.close(CloseStatus.SERVER_ERROR);
     }
 
