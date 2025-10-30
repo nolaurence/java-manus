@@ -177,8 +177,8 @@ public class VncWebSocketHandler extends BinaryWebSocketHandler {
     private String extractSessionId(String path) {
         // 路径格式: /{session_id}/vnc
         String[] parts = path.split("/");
-        if (parts.length >= 3 && !parts[1].isEmpty()) {
-            return parts[1];
+        if (parts.length >= 3 && !parts[2].isEmpty()) {
+            return parts[2];
         }
         throw new IllegalArgumentException("Invalid path: " + path);
     }
