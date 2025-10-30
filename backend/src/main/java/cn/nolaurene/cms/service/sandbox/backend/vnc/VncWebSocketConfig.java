@@ -19,7 +19,7 @@ public class VncWebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(vncWebSocketHandler, "/vnc/{session_id}")
+        registry.addHandler(vncWebSocketHandler, "/{session_id}/vnc")
                 .setAllowedOrigins("*");
     }
 }
