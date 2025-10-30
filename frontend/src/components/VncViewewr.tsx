@@ -25,13 +25,6 @@ const VncViewer: FC<VncViewerProps> = ({
 
   return (
     <VncScreen
-      rfbOptions={{
-        // @ts-ignore
-        credentials: { password: '' },
-        shared: true,
-        repeaterID: '',
-        wsProtocols: ['binary'],
-      }}
       url={wsUrl}
       scaleViewport
       background="#000000"
