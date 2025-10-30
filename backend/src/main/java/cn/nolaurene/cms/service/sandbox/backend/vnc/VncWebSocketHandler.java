@@ -96,9 +96,11 @@ public class VncWebSocketHandler implements WebSocketHandler {
                 }
             };
 
-            // 建立到 worker 的连接，增加超时设置
+            // 建立到 worker 的连接，增加超时设置和缓冲区大小
+            // 对于1280x720分辨率的VNC画面，设置缓冲区为2MB以确保能处理完整的帧数据
             client.setUserProperties(Map.of(
-                "org.apache.tomcat.websocket.IO_TIMEOUT_MS", "300000"
+                "org.apache.tomcat.websocket.IO_TIMEOUT_MS", "300000",
+                "org.apache.tomcat.websocket.RECEIVE_BUFFER_SIZE", "2097152" // 设置为2MB (2*1024*1024)
             ));
             client.doHandshake(workerHandler, workerVncUrl).get(10, TimeUnit.SECONDS);
             frontendSessions.put(sessionId, frontendSession);
