@@ -74,7 +74,7 @@ public class VncWebSocketHandler extends BinaryWebSocketHandler {
         } else {
             log.warn("Could not find session ID for browser session");
         }
-        // 移除了 super.handleBinaryMessage 调用，避免重复处理
+        super.handleBinaryMessage(browserSession, message);
     }
 
     @Override
@@ -129,27 +129,16 @@ public class VncWebSocketHandler extends BinaryWebSocketHandler {
             }
         };
 
+        // 设置子协议为 "binary"（可选，取决于沙箱是否要求）
+        List<String> subProtocols = Collections.singletonList("binary");
+
         try {
-            WebSocketHttpHeaders webSocketHttpHeaders = new WebSocketHttpHeaders();
-            webSocketHttpHeaders.setSecWebSocketProtocol("binary");
             ListenableFuture<WebSocketSession> future = webSocketClient.doHandshake(
                     sandboxHandler,
-                    webSocketHttpHeaders,
+                    new WebSocketHttpHeaders(),
                     URI.create(sandboxUrl)
             );
-
-            // 添加回调处理连接结果
-            future.addCallback(
-                result -> log.info("【CALLBACK】Successfully connected to sandbox for session: {}", sessionId),
-                failure -> {
-                    log.error("【CALLBACK】Failed to connect to sandbox for session: {}", sessionId, failure);
-                    try {
-                        if (browserSession.isOpen()) {
-                            browserSession.close(CloseStatus.SERVER_ERROR.withReason("Sandbox unreachable"));
-                        }
-                    } catch (IOException ignored) {}
-                }
-            );
+            // 可添加超时处理
         } catch (Exception e) {
             log.error("Failed to connect to sandbox: {}", sandboxUrl, e);
             try {
