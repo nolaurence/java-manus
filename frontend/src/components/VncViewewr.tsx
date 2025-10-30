@@ -21,7 +21,7 @@ const VncViewer: FC<VncViewerProps> = ({
   const sessionIdFromUrl = String(params.agentId);
   
   const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsUrl = `${wsProtocol}://${vncHost}/vnc?sessionId=${encodeURIComponent(sessionId ? sessionId : sessionIdFromUrl)}`;
+  const wsUrl = `${wsProtocol}://${vncHost}/vnc/${encodeURIComponent(sessionId ? sessionId : sessionIdFromUrl)}`;
 
   return (
     <VncScreen
