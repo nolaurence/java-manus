@@ -28,9 +28,16 @@ const VncViewer: FC<VncViewerProps> = ({
       url={wsUrl}
       scaleViewport
       background="#000000"
+      rfbOptions={{
+        shared: true,
+        // @ts-ignore
+        credentials: {
+          password: '',
+        },
+      }}
       style={{
         width: '100%',
-        height: '100%',
+        height: 500,
         border: '1px solid #ccc',
         position: 'relative',
         overflow: 'hidden',
