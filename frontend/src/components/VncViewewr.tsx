@@ -19,7 +19,7 @@ const VncViewer: FC<VncViewerProps> = ({
   }
   const params = useParams();
   const sessionIdFromUrl = String(params.agentId);
-
+  
   const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const wsUrl = `${wsProtocol}://${vncHost}/vnc/${encodeURIComponent(sessionId ? sessionId : sessionIdFromUrl)}`;
 
@@ -32,7 +32,7 @@ const VncViewer: FC<VncViewerProps> = ({
         repeaterID: '',
         wsProtocols: ['binary'],
       }}
-      url={`ws://192.168.49.247:5902/vnc/${encodeURIComponent(sessionId ? sessionId : sessionIdFromUrl)}`}
+      url={wsUrl}
       scaleViewport
       background="#000000"
       style={{
