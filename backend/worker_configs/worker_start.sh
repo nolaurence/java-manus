@@ -47,10 +47,10 @@ sleep 2
 echo "Xvfb started"
 
 # 启动x11VNC 方便调试
-x11vnc -display :1 -nopw -forever -shared &
+x11vnc -display :1 -nopw -shared -listen 0.0.0.0 -xkb -forever -rfbport 5900 &
 
 # 启动websockify
-websockify 5902 localhost:5900 &
+websockify 0.0.0.0:5902 localhost:5900 &
 
 # 安装 playwright-mcp
 npm i @playwright/mcp -g
