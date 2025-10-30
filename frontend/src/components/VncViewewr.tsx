@@ -1,6 +1,7 @@
 // src/components/VncViewer.tsx
 import React, { FC } from 'react';
 import { VncScreen } from 'react-vnc';
+import { useParams } from 'umi';
 
 interface VncViewerProps {
   sessionId: string;
@@ -16,8 +17,11 @@ const VncViewer: FC<VncViewerProps> = ({
   } else {
     vncHost = window.location.host;
   }
+  const params = useParams();
+  const sessionIdFromUrl = String(params.agentId);
+  
   const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsUrl = `${wsProtocol}://${vncHost}/vnc?sessionId=${encodeURIComponent(sessionId)}`;
+  const wsUrl = `${wsProtocol}://${vncHost}/vnc?sessionId=${encodeURIComponent(sessionId ? sessionId : sessionIdFromUrl)}`;
 
   return (
     <VncScreen
