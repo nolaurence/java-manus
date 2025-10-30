@@ -1,7 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import type {ToolContent} from '@/types/message';
-import { getVNCUrl } from '@/services/api/sandbox';
-import { createStyles } from 'antd-style';
 import { useParams } from 'umi';
 import Hls from 'hls.js';
 import { message } from 'antd';

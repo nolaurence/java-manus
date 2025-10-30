@@ -55,6 +55,7 @@ sandbox:
     worker-url: http://worker:7500
     worker-stream-url: http://worker:7002
     worker-ops-url: http://worker:7002
+    worker-vnc-url: ws://worker:5902
     sse-endpoint: /sse
   worker:
     #    baseDirectory: /app
