@@ -46,7 +46,7 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
       // construct stream url
       let streamUrl = '';
       if (window.location.hostname === 'localhost') {
-        streamUrl = `http://192.168.49.250:7001/proxy/stream/${effectiveStreamId}.m3u8`;
+        streamUrl = `http://192.168.49.247:7001/proxy/stream/${effectiveStreamId}.m3u8`;
       } else {
         streamUrl = window.location.origin + `/proxy/stream/${effectiveStreamId}.m3u8`;
       }

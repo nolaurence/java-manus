@@ -171,7 +171,6 @@ const Home: React.FC = () => {
             <div className={styles.chatBoxInner}>
               <div className={styles.chatBoxHead} />
               <ChatBox
-                rows={2}
                 modelValue={message}
                 onUpdateModelValue={(e) => setMessage(e)}
                 onSubmit={handleSubmit}

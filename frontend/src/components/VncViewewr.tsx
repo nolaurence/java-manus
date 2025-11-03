@@ -13,7 +13,7 @@ const VncViewer: FC<VncViewerProps> = ({
   // 自动判断 ws/wss
   let vncHost = '';
   if (window.location.hostname === 'localhost') {
-    vncHost = `192.168.49.250:7001`;
+    vncHost = `192.168.49.247:7001`;
   } else {
     vncHost = window.location.host;
   }
