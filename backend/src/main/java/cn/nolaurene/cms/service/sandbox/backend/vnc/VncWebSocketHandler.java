@@ -135,6 +135,7 @@ public class VncWebSocketHandler implements WebSocketHandler {
             }
         } else {
             log.warn("Worker VNC 连接不可用: sessionId={}", sessionId);
+            closeConnections(sessionId); // 确保清理无效连接
         }
     }
 

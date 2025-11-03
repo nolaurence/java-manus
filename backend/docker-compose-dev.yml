@@ -1,24 +1,4 @@
 services:
-#  frontend-dev:
-#    build:
-#      context: ./frontend
-#      dockerfile: Dockerfile
-#      target: build-stage  # Use build stage image instead of production image
-#    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]  # Start in development mode and listen on all network interfaces
-#    volumes:
-#      - ./frontend:/app  # Mount source code directory
-#      - /app/node_modules  # Avoid overwriting container's node_modules
-#    ports:
-#      - "5173:5173"  # Vite default development port
-#    environment:
-#      - NODE_ENV=development
-#      - VITE_API_URL=http://127.0.0.1:8000
-#    depends_on:
-#      - backend
-#    restart: unless-stopped
-#    networks:
-#      - manus-network
-#
   backend:
     build:
       context: ./
