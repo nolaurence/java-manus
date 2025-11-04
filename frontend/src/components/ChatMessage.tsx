@@ -95,7 +95,11 @@ const ChatMessage: React.FC<{
   // 工具调用渲染
   if (message.type === 'tool') {
     // @ts-ignore
-    return <ToolUse tool={asToolContent()} onClick={() => onToolClick(asToolContent())} />;
+    return (
+      <div className="ml-6" >
+        <ToolUse tool={asToolContent()} onClick={() => onToolClick(asToolContent())} />
+      </div>
+    );
   }
 
   // 步骤消息渲染
@@ -103,7 +107,7 @@ const ChatMessage: React.FC<{
     const content = asStepContent();
 
     return (
-      <div className="flex flex-col">
+      <div className="flex flex-col my-2">
         <div
           className="text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]"
           data-event-id="HNtP7XOMUOhPemItd2EkK2"

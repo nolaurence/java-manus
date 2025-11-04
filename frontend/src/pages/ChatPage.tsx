@@ -450,11 +450,14 @@ const ChatComponent: React.FC = () => {
         <Panel panelWidth={historyPanelWidth} isOpen={panelOpen} fixed={panelFixed} setIsOpen={setPanelOpen} setFixed={setPanelFixed}/>
       </div>
 
-      <div className="absolute top-0 left-0 h-screen bg-[var(--background-gray-main)]" style={{
-        marginLeft: panelFixed ? historyPanelWidth : 0,
-        width: panelFixed ? `calc(100% - ${historyPanelWidth}px)` : 'calc(100%-24px)',
-      }}>
-        <div className={`flex h-screen bg-[var(--background-gray-main)]`}  >
+      <div
+        className="absolute top-0 left-0 h-screen w-screen bg-[var(--background-gray-main)]"
+        style={{
+          marginLeft: panelFixed ? historyPanelWidth : 0,
+          width: panelFixed ? `calc(100%-${historyPanelWidth}px)` : 'calc(100%-24px)',
+        }}
+      >
+        <div className={`flex h-screen`}  >
           <div className={`flex flex-col h-full transition-all duration-300 ${toolPanelShow ? 'w-[calc(100%-768px)]' : 'w-full'}`}>
 
             {/*header*/}

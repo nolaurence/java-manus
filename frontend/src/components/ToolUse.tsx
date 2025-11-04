@@ -28,7 +28,7 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ tool, onClick }) => {
   if (!toolInfo) return null;
 
   return (
-    <div className="flex items-center group gap-2">
+    <div className="flex items-center group gap-2 my-2">
       <div className="flex-1 min-w-0">
         <div
           onClick={handleClick}
