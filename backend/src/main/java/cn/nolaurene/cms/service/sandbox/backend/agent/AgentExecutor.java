@@ -106,30 +106,13 @@ public class AgentExecutor {
         this.conversationSessionId = (sessionId != null && !sessionId.isEmpty()) ? sessionId : this.agent.getAgentId();
     }
 
-    private void saveAssistantMessage(String content, SSEEventType eventType) {
-        if (conversationHistoryService == null) {
-            return;
-        }
-        try {
-            ConversationRequest req = new ConversationRequest();
-            req.setUserId(conversationUserId);
-            req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
-            req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
-            req.setEventType(eventType);
-            req.setContent(content);
-            req.setMetadata(null);
-            conversationHistoryService.saveConversation(req);
-        } catch (Exception e) {
-            log.warn("failed to persist assistant message", e);
-        }
-    }
-
     public void planAct(String input, SseEmitter emitter) {
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
 
         // 设置连接监听器
         setupSseEmitterListeners(emitter);
+        saveUserMessage(input);
         memory.add(new ChatMessage(ChatMessage.Role.user, input));
 
         AgentStatus agentStatus = AgentStatus.IDLE;
@@ -1025,6 +1008,41 @@ public class AgentExecutor {
             }
         }
         return null;
+    }
+
+    private void saveUserMessage(String content) {
+        if (conversationHistoryService == null) {
+            return;
+        }
+        try {
+            ConversationRequest req = new ConversationRequest();
+            req.setUserId(conversationUserId);
+            req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
+            req.setEventType(SSEEventType.MESSAGE);
+            req.setContent(content);
+            req.setMetadata(null);
+            conversationHistoryService.saveConversation(req);
+        } catch (Exception e) {
+            log.warn("failed to persist assistant message", e);
+        }
+    }
+
+    private void saveAssistantMessage(String content, SSEEventType eventType) {
+        if (conversationHistoryService == null) {
+            return;
+        }
+        try {
+            ConversationRequest req = new ConversationRequest();
+            req.setUserId(conversationUserId);
+            req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
+            req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            req.setEventType(eventType);
+            req.setContent(content);
+            req.setMetadata(null);
+            conversationHistoryService.saveConversation(req);
+        } catch (Exception e) {
+            log.warn("failed to persist assistant message", e);
+        }
     }
 
     public static void main(String[] args) {
