@@ -20,6 +20,7 @@ import { Button, message as antdMessage } from 'antd';
 import ScrollableFeed from 'react-scrollable-feed';
 import LoginModal from '@/components/LoginModal';
 import dayjs from 'dayjs';
+import { attachToolsToSteps, mapToFrontendMessage } from '@/utils/message';
 
 const ChatComponent: React.FC = () => {
 
@@ -343,36 +344,12 @@ const ChatComponent: React.FC = () => {
             }
             return;
           }
-          const mapped: Message[] = history?.map((m) => {
-            if (m.eventType === 'MESSAGE') {
-              return {
-                type: m.messageType === 'USER' ? 'user' : 'assistant',
-                content: m.content as MessageContent,
-              };
-            } else if (m.eventType === 'PLAN') {
-              // @ts-ignore
-              return {
-                type: 'plan',
-                content: m.content as PlanEventData
-              };
-            } else if (m.eventType === 'TOOL') {
-              return {
-                type: 'tool',
-                content: m.content as ToolContent,
-              };
-            } else if (m.eventType === 'STEP') {
-              return {
-                type: 'step',
-                content: m.content as StepContent,
-              };
-            }
-            return {
-              type: 'assistant',
-              content: m.content as MessageContent,
-            };
-          });
-          console.log('mapped message',  mapped);
-          setMessages(mapped);
+
+          const mapped: Message[] = mapToFrontendMessage(history);
+          const attachedMessages: Message[] = attachToolsToSteps(mapped, history);
+
+          console.log('mapped message',  attachedMessages);
+          setMessages(attachedMessages);
           setTitle('History');
           return;
         } catch (e) {
