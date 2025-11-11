@@ -113,6 +113,9 @@ public class AgentController {
     @PostMapping("/")
     public Response<AgentInfo> createAgent(HttpServletRequest httpServletRequest) {
         User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        if (null == currentUserInfo) {
+            return Response.error("未登录", null);
+        }
         String agentId = UUID.randomUUID().toString().replace("-", "");
 
         // 重试三次
@@ -125,13 +128,6 @@ public class AgentController {
             agent.setMessage("Creating agent session...");
             agent.setLlmEndpoint(siliconFlowEndpoint);
             agent.setLlmApiKey(siliconFlowApiKey);
-
-            // 请求worker /worker/mcp/start/${agentId} 创建mcpserver
-//            boolean isMcpServerCreated = startMcpServer(agentId);
-//            if (!isMcpServerCreated) {
-//                log.error("Failed to start MCP server for agent: {}", agentId);
-//                return Response.error("Failed to create mcp server", null);
-//            }
 
             AgentSession agentSession = agentSessionFactory.createAgentSession(agent, workerUrl, sseEndpoint);
 
@@ -154,12 +150,15 @@ public class AgentController {
 
     @PostMapping("/{agentId}/chat")
     public SseEmitter chat(@PathVariable String agentId, @RequestBody ChatRequest request, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        if (null == currentUserInfo) {
+            throw new BusinessException("未登录", null);
+        }
+        String userId = currentUserInfo.getUserid().toString();
+
         // 让浏览器知道这是一个SSE流
         SseEmitter sseEmitter = new SseEmitter(sseTimeout);
         httpServletResponse.setContentType("text/event-stream");
-
-        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
-        String userId = null != currentUserInfo ? currentUserInfo.getUserid().toString() : "anonymous";
 
         executor.submit(() -> {
             AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
@@ -187,17 +186,6 @@ public class AgentController {
                 } catch (Exception ignore) {}
 
                 // persist user message if present
-                try {
-                    if (request.getMessage() != null && !request.getMessage().isEmpty()) {
-                        ConversationRequest saveReq = new ConversationRequest();
-                        saveReq.setUserId(request.getUserId() != null ? request.getUserId() : "anonymous");
-                        saveReq.setSessionId(request.getSessionId() != null && !request.getSessionId().isEmpty() ? request.getSessionId() : agentId);
-                        saveReq.setMessageType(ConversationHistoryDO.MessageType.USER);
-                        saveReq.setContent(request.getMessage());
-                        saveReq.setMetadata(null);
-                        conversationHistoryService.saveConversation(saveReq);
-                    }
-                } catch (Exception ignore) {}
                 agentSession.reactFlow(request.getMessage(), sseEmitter);
             } catch (Exception e) {
                 sseEmitter.completeWithError(e);
