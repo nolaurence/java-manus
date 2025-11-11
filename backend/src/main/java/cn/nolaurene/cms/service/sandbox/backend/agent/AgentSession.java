@@ -18,7 +18,10 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Scope;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -36,19 +39,21 @@ import java.util.concurrent.CompletableFuture; // 用于异步执行
 /**
  * @author nolau
  * @date 2025/6/24
- * @description Agent Session 管理 AgentExecutor 的生命周期和前端连接状态
+ * @description Agent Session 管理 AgentExecutor 的生命周期和前端连接状态，由 Spring 管理的原型组件
  */
 @Slf4j
+@Component
+@Scope("prototype")
 public class AgentSession {
 
     @Getter
-    private final Agent agent;
+    private Agent agent;
 
     @Getter
     @Setter
     private TaskStatus sessionStatus = TaskStatus.PENDING;
 
-    private final AgentExecutor executor;
+    private AgentExecutor executor;
 
     // --- 新增：连接状态管理 ---
     // 使用 AtomicBoolean 确保多线程下的可见性
@@ -61,15 +66,37 @@ public class AgentSession {
 
     // private final TemplateEngine templateEngine = new TemplateEngine(); // 注释掉未使用的
 
-    public AgentSession(Agent agent, String workerUrl, String sseEndpoint) {
+    /**
+     * Spring 构造函数，空构造函数用于 Spring 实例化
+     */
+    public AgentSession() {
+        // 空构造函数，由 Spring 管理依赖注入
+    }
+
+    /**
+     * 初始化方法，在 Spring 创建实例后调用
+     * 
+     * @param agent Agent 配置
+     * @param workerUrl Worker 服务 URL
+     * @param sseEndpoint SSE 端点
+     * @param agentExecutorFactory AgentExecutor 工厂
+     * @param mcpHeartbeatService MCP 心跳服务
+     */
+    public void initialize(Agent agent, String workerUrl, String sseEndpoint, 
+                          AgentExecutorFactory agentExecutorFactory, 
+                          McpHeartbeatService mcpHeartbeatService) {
         this.agent = agent;
         this.agent.setPlanner(new Planner());
         this.agent.setExecutor(new Executor());
 
         // start mcp client
-        LlmClient llmClient = new SiliconFlowClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
         McpSyncClient mcpClient = startMcpClient(workerUrl, sseEndpoint);
         agent.setMcpClient(mcpClient);
+
+        // 添加到心跳服务
+        if (mcpHeartbeatService != null) {
+            mcpHeartbeatService.addClient(mcpClient);
+        }
 
         // ask mcp server to get all tool schemas
         McpSchema.ListToolsResult listToolsResult = mcpClient.listTools();
@@ -81,10 +108,8 @@ public class AgentSession {
         agent.setXmlToolsInfo(agent.getMcpTools().stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n")));
         agent.setTools(listToolsResult.getTools().stream().map(this::convertToOpenaiFunction).collect(Collectors.toList()));
 
-//        String systemPrompt = renderSystemPrompt(agent);
-        ToolRegistry registry = new ToolRegistry();
-        registry.register(new CalculatorTool());
-        this.executor = new AgentExecutor(registry, llmClient, agent);
+        // 使用工厂创建 AgentExecutor
+        this.executor = agentExecutorFactory.createAgentExecutor(agent);
     }
 
     /**
