@@ -1,6 +1,7 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
+import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
@@ -18,7 +19,9 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.context.annotation.Scope;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -39,16 +42,18 @@ import java.util.concurrent.CompletableFuture; // 用于异步执行
  * @description Agent Session 管理 AgentExecutor 的生命周期和前端连接状态
  */
 @Slf4j
+@Component
+@Scope("prototype")
 public class AgentSession {
 
     @Getter
-    private final Agent agent;
+    private Agent agent;
 
     @Getter
     @Setter
     private TaskStatus sessionStatus = TaskStatus.PENDING;
 
-    private final AgentExecutor executor;
+    private AgentExecutor executor;
 
     // --- 新增：连接状态管理 ---
     // 使用 AtomicBoolean 确保多线程下的可见性
@@ -61,15 +66,29 @@ public class AgentSession {
 
     // private final TemplateEngine templateEngine = new TemplateEngine(); // 注释掉未使用的
 
-    public AgentSession(Agent agent, String workerUrl, String sseEndpoint) {
+    /**
+     * Spring 构造函数，空构造函数用于 Spring 实例化
+     */
+    public AgentSession() {
+        // 空构造函数，由 Spring 管理依赖注入
+    }
+
+    public void initialize(Agent agent, String workerUrl, String sseEndpoint,
+                           AgentExecutorFactory agentExecutorFactory,
+                           McpHeartbeatService mcpHeartbeatService) {
         this.agent = agent;
         this.agent.setPlanner(new Planner());
         this.agent.setExecutor(new Executor());
 
         // start mcp client
-        LlmClient llmClient = new SiliconFlowClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
+//        LlmClient llmClient = new SiliconFlowClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
         McpSyncClient mcpClient = startMcpClient(workerUrl, sseEndpoint);
         agent.setMcpClient(mcpClient);
+
+        // 添加到心跳服务
+        if (mcpHeartbeatService != null) {
+            mcpHeartbeatService.addClient(mcpClient);
+        }
 
         // ask mcp server to get all tool schemas
         McpSchema.ListToolsResult listToolsResult = mcpClient.listTools();
@@ -84,7 +103,8 @@ public class AgentSession {
 //        String systemPrompt = renderSystemPrompt(agent);
         ToolRegistry registry = new ToolRegistry();
         registry.register(new CalculatorTool());
-        this.executor = new AgentExecutor(registry, llmClient, agent);
+//        this.executor = new AgentExecutor(registry, llmClient, agent);
+        this.executor = agentExecutorFactory.createAgentExecutor(agent);
     }
 
     /**

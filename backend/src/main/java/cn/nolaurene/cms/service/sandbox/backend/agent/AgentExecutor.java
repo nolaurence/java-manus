@@ -28,6 +28,8 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
@@ -48,17 +50,19 @@ import java.util.stream.Collectors;
  * @description
  */
 @Slf4j
+@Component
+@Scope("prototype")
 public class AgentExecutor {
 
-    private final int MAX_ROUNDS;
+    private int MAX_ROUNDS;
     private static final long ROUND_INTERVAL = 1000L; // 每轮间隔时间，单位毫秒
     private static final boolean USE_STREAM = false;
-    private final ToolRegistry tools;
+    private ToolRegistry tools;
     @Setter
     @Getter
     private String systemPrompt;
-    private final LlmClient llm;
-    private final Agent agent;
+    private LlmClient llm;
+    private Agent agent;
     private final ChatMemory memory = new ChatMemory();
     private static final String START_SIGNAL = "[START]";
     private static final String DONE_SIGNAL = "[DONE]";
@@ -82,7 +86,11 @@ public class AgentExecutor {
     private String conversationUserId = "anonymous";
     private String conversationSessionId = null; // fallback to agentId if null
 
-    public AgentExecutor(ToolRegistry tools, LlmClient llm, Agent agent) {
+    public AgentExecutor() {
+        this.MAX_ROUNDS = 30;
+    }
+
+    public void initialize(ToolRegistry tools, LlmClient llm, Agent agent) {
         this.tools = tools;
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();

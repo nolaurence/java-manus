@@ -8,6 +8,7 @@ import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
 import cn.nolaurene.cms.common.vo.User;
 import cn.nolaurene.cms.exception.BusinessException;
 import cn.nolaurene.cms.service.UserLoginService;
+import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSessionFactory;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
@@ -83,6 +84,9 @@ public class AgentController {
     @Resource
     private McpHeartbeatService mcpHeartbeatService;
 
+    @Resource
+    private AgentSessionFactory agentSessionFactory;
+
     private ThreadPoolExecutor executor;
 
     @Resource
@@ -129,8 +133,7 @@ public class AgentController {
 //                return Response.error("Failed to create mcp server", null);
 //            }
 
-            AgentSession agentSession = new AgentSession(agent, workerUrl, sseEndpoint);
-            mcpHeartbeatService.addClient(agent.getMcpClient());
+            AgentSession agentSession = agentSessionFactory.createAgentSession(agent, workerUrl, sseEndpoint);
 
             try {
                 boolean result = globalAgentSessionManager.createSession(agentId, agentSession);
