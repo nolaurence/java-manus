@@ -227,6 +227,7 @@ public class AgentExecutor {
                         // update 后继续执行
                         agentStatus = AgentStatus.EXECUTING;
                         break;
+
                     case CONCLUDING:
                         String conclusion = agent.getExecutor().conclude(llm, memory.getHistory());
 
