@@ -451,10 +451,10 @@ const ChatComponent: React.FC = () => {
       </div>
 
       <div
-        className="absolute top-0 left-0 h-screen w-screen bg-[var(--background-gray-main)]"
+        className="absolute top-0 left-0 h-screen bg-[var(--background-gray-main)]"
         style={{
           marginLeft: panelFixed ? historyPanelWidth : 0,
-          width: panelFixed ? `calc(100%-${historyPanelWidth}px)` : 'calc(100%-24px)',
+          width: `calc(100% - ${panelFixed ? historyPanelWidth : 0}px)`,
         }}
       >
         <div className={`flex h-screen`}  >
