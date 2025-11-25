@@ -67,7 +67,7 @@ sandbox:
 
 llm-client:
   silicon-flow:
-    endpoint: http://192.168.49.246:8080/v1
+    endpoint: http://192.168.49.242:8080/v1
     api-key: 122222
 logging:
   level:
