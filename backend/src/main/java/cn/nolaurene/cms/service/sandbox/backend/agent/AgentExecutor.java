@@ -1019,6 +1019,7 @@ public class AgentExecutor {
             req.setUserId(conversationUserId);
             req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
             req.setEventType(SSEEventType.MESSAGE);
+            req.setMessageType(ConversationHistoryDO.MessageType.USER);
             req.setContent(content);
             req.setMetadata(null);
             conversationHistoryService.saveConversation(req);
