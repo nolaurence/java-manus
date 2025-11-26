@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.transaction.Transactional;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
@@ -224,7 +225,7 @@ public class ConversationHistoryService {
                             .sessionId(sessionId)
                             .userId(userId)
                             .messageCount(messageCount)
-                            .lastMessageTime(lastMessage != null ? lastMessage.getGmtCreate() : null)
+                            .lastMessageTime(lastMessage != null ? Instant.ofEpochMilli(lastMessage.getGmtModified().getTime()).atZone(ZoneId.of("Asia/Shanghai")).toLocalDateTime() : null)
                             .lastMessage(lastMessage != null ?
                                     (lastMessage.getContent().length() > 100 ?
                                             lastMessage.getContent().substring(0, 100) + "..." :
@@ -350,12 +351,12 @@ public class ConversationHistoryService {
                 .sessionId(conversation.getSessionId())
                 .messageType(conversation.getMessageType())
                 .metadata(conversation.getMetadata())
-                .createdTime(conversation.getGmtCreate())
-                .updatedTime(conversation.getGmtModified())
+                .createdTime(Instant.ofEpochMilli(conversation.getGmtCreate().getTime()).atZone(ZoneId.of("Asia/Shanghai")).toLocalDateTime())
+                .updatedTime(Instant.ofEpochMilli(conversation.getGmtModified().getTime()).atZone(ZoneId.of("Asia/Shanghai")).toLocalDateTime())
                 .build();
 
         // process content
-        long messageTimeStamp = conversation.getGmtCreate().atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
+        long messageTimeStamp = conversation.getGmtCreate().getTime();
         switch(SSEEventType.fromType(conversation.getEventType())) {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
