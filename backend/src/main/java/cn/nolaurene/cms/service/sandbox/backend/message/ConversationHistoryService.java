@@ -355,7 +355,12 @@ public class ConversationHistoryService {
                 .build();
 
         // process content
-        long messageTimeStamp = conversation.getGmtCreate().atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
+        long messageTimeStamp;
+        if (null == conversation.getGmtCreate()) {
+            messageTimeStamp = System.currentTimeMillis();
+        } else {
+            messageTimeStamp = conversation.getGmtCreate().atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
+        }
         switch(SSEEventType.fromType(conversation.getEventType())) {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
