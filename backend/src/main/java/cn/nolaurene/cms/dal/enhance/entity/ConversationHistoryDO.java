@@ -4,7 +4,7 @@ import io.mybatis.provider.Entity.Table;
 import io.mybatis.provider.Entity.Column;
 import lombok.*;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 
 @Data
 @NoArgsConstructor
@@ -35,10 +35,10 @@ public class ConversationHistoryDO {
     private String metadata;
 
     @Column("gmt_create")
-    private Date gmtCreate;
+    private LocalDateTime gmtCreate;
 
     @Column("gmt_modified")
-    private Date gmtModified;
+    private LocalDateTime gmtModified;
 
     @Column("is_deleted")
     private Boolean isDeleted;
