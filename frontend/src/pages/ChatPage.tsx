@@ -74,9 +74,9 @@ const ChatComponent: React.FC = () => {
   const agentId = params.agentId;
 
   // 获取最后一步
-  const getLastStep = useCallback((): StepContent | undefined => {
+  const getLastStep = (): StepContent | undefined => {
     return messages.filter(message => message.type === 'step').pop()?.content as StepContent;
-  }, [messages]);
+  };
 
   // 处理滚动事件
   const handleScroll = useCallback(() => {
@@ -174,9 +174,11 @@ const ChatComponent: React.FC = () => {
 
   // 处理工具事件
   const handleToolEvent = (toolData: ToolEventData) => {
-    const lastStep = getLastStep();
-    if (lastStep?.status === 'running') {
-      setMessages(prevMsgs => {
+    setMessages(prevMsgs => {
+      // 从 prevMsgs 中获取最后一个 step 类型的消息
+      const lastStep = prevMsgs.filter(msg => msg.type === 'step').pop()?.content as StepContent | undefined;
+      
+      if (lastStep?.status === 'running') {
         // 添加到步骤工具列表
         return prevMsgs.map(msg => {
           if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
@@ -190,17 +192,17 @@ const ChatComponent: React.FC = () => {
           }
           return msg;
         });
-      })
-    } else {
-      // 新增工具消息
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'tool',
-          content: toolData,
-        },
-      ]);
-    }
+      } else {
+        // 新增工具消息
+        return [
+          ...prevMsgs,
+          {
+            type: 'tool',
+            content: toolData,
+          },
+        ];
+      }
+    });
 
     // 处理非消息工具
     if (toolData.name !== 'message') {

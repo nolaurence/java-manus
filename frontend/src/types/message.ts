@@ -1,9 +1,11 @@
 export type MessageType = "user" | "assistant" | "tool" | "step" | "plan";
 
-export interface Message {
-  type: MessageType;
-  content: BaseContent;
-}
+export type Message = 
+  | { type: 'user'; content: MessageContent }
+  | { type: 'assistant'; content: MessageContent }
+  | { type: 'tool'; content: ToolContent }
+  | { type: 'step'; content: StepContent }
+  | { type: 'plan'; content: BaseContent };
 
 export interface BaseContent {
   timestamp: number;
