@@ -157,29 +157,33 @@ const ChatMessage: React.FC<{
           </div>
         </div>
 
-        <div className="flex">
-          <div className="w-[24px] relative">
-            <div
-              className="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"
-              style={{ height: 'calc(100% + 14px)' }}
-            ></div>
-          </div>
+        {content?.tools && content.tools.length > 0 && (
+          <div className="flex">
+            <div className="w-[24px] relative">
+              <div
+                className="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"
+                style={{ height: 'calc(100% + 12px)' }}
+              ></div>
+            </div>
 
-          <div
-            className={`flex flex-col gap-3 flex-1 min-w-0 overflow-hidden pt-2 transition-[max-height,opacity] duration-150 ease-in-out ${
-              isExpanded ? 'max-h-[100000px] opacity-100' : 'max-h-0 opacity-0'
-            }`}
-          >
-            {content?.tools?.map((tool, index) => (
-              <ToolUse
-                key={index}
-                // @ts-ignore
-                tool={tool as ToolContent}
-                onClick={() => onToolClick(tool as ToolContent)}
-              />
-            ))}
+            <div
+              className={`flex flex-col gap-3 flex-1 min-w-0 overflow-hidden pt-2 transition-[max-height,opacity] duration-150 ease-in-out ${
+                isExpanded
+                  ? 'max-h-[100000px] opacity-100'
+                  : 'max-h-0 opacity-0'
+              }`}
+            >
+              {content?.tools?.map((tool, index) => (
+                <ToolUse
+                  key={index}
+                  // @ts-ignore
+                  tool={tool as ToolContent}
+                  onClick={() => onToolClick(tool as ToolContent)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
