@@ -3,7 +3,7 @@ import ManusTextIcon from './icons/ManusTextIcon';
 import ToolUse from './ToolUse';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { CheckIcon } from 'lucide-react';
+import { CheckIcon, Loader2, XCircle } from 'lucide-react';
 import { Bot } from 'lucide-react';
 import type { Message, MessageContent, ToolContent, StepContent } from '@/types/message';
 import { useRelativeTime } from '@/composables/useTime';
@@ -121,15 +121,29 @@ const ChatMessage: React.FC<{
           data-event-id="HNtP7XOMUOhPemItd2EkK2"
         >
           <div className="flex flex-row gap-2 justify-center items-center truncate">
-            {content.status !== 'completed' ? (
-              <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center border border-[var(--border-dark)] rounded-[15px]"></div>
-            ) : (
+            {content.status === 'completed' ? (
               <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-dark)] rounded-[15px] bg-[var(--text-disable)] dark:bg-[var(--fill-tsp-white-dark)] border-0">
                 <CheckIcon
                   className="text-[var(--icon-white)] dark:text-[var(--icon-white-tsp)]"
                   size={10}
                 />
               </div>
+            ) : content.status === 'running' ? (
+              <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center border border-[var(--border-dark)] rounded-[15px]">
+                <Loader2
+                  className="text-[var(--text-primary)] animate-spin"
+                  size={10}
+                />
+              </div>
+            ) : content.status === 'failed' ? (
+              <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded-[15px] bg-red-500 border-0">
+                <XCircle
+                  className="text-white"
+                  size={10}
+                />
+              </div>
+            ) : (
+              <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center border border-[var(--border-dark)] rounded-[15px]"></div>
             )}
 
             <div
