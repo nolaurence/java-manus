@@ -45,7 +45,7 @@ const ChatMessage: React.FC<{
 
   if (!message.content) {
     console.log(`POINT: null content of type: ${message.type}`);
-    return (<p>1</p>);
+    return <p>1</p>;
   }
 
   // 用户消息渲染
@@ -60,10 +60,15 @@ const ChatMessage: React.FC<{
           </div>
         </div>
         <div className="flex max-w-[90%] relative flex-col gap-2 items-end">
+          {/*
           <div
             className="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(asUserContent().content) }}
-          />
+          >
+          */}
+          <div className="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0 break-words break-all whitespace-pre-wrap">
+            {asUserContent().content}
+          </div>
         </div>
       </div>
     );
@@ -72,7 +77,7 @@ const ChatMessage: React.FC<{
   // 助手消息渲染
   if (message.type === 'assistant') {
     return (
-      <div className="flex flex-col gap-2 w-full group mt-3">
+      <div className="flex flex-col gap-2 w-full group my-3">
         <div className="flex items-center justify-between h-7 group">
           <div className="flex items-center gap-[3px]">
             <Bot size={24} className="w-6 h-6" />
@@ -86,7 +91,9 @@ const ChatMessage: React.FC<{
         </div>
         <div
           className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(asUserContent().content) }}
+          dangerouslySetInnerHTML={{
+            __html: renderMarkdown(asUserContent().content),
+          }}
         />
       </div>
     );
@@ -96,9 +103,10 @@ const ChatMessage: React.FC<{
   if (message.type === 'tool') {
     // @ts-ignore
     return (
-      <div className="ml-6" >
-        <ToolUse tool={asToolContent()} onClick={() => onToolClick(asToolContent())} />
-      </div>
+      <ToolUse
+        tool={asToolContent()}
+        onClick={() => onToolClick(asToolContent())}
+      />
     );
   }
 
@@ -107,7 +115,7 @@ const ChatMessage: React.FC<{
     const content = asStepContent();
 
     return (
-      <div className="flex flex-col my-2">
+      <div className="flex flex-col my-3">
         <div
           className="text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]"
           data-event-id="HNtP7XOMUOhPemItd2EkK2"
@@ -127,7 +135,9 @@ const ChatMessage: React.FC<{
             <div
               className="truncate font-medium markdown-content"
               dangerouslySetInnerHTML={{
-                __html: content.description ? renderMarkdown(content.description) : ''
+                __html: content.description
+                  ? renderMarkdown(content.description)
+                  : '',
               }}
             />
 
@@ -137,7 +147,8 @@ const ChatMessage: React.FC<{
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                width="24" height="24"
+                width="24"
+                height="24"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
