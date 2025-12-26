@@ -36,6 +36,8 @@ public class Agent {
 
     private String llmApiKey;
 
+    private String llmModelName;
+
     private McpSyncClient mcpClient;
 
     private List<JSONObject> tools;

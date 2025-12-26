@@ -6,8 +6,10 @@ import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
 import cn.nolaurene.cms.common.vo.User;
+import cn.nolaurene.cms.dal.entity.LlmConfigDO;
 import cn.nolaurene.cms.exception.BusinessException;
 import cn.nolaurene.cms.service.UserLoginService;
+import cn.nolaurene.cms.service.LlmConfigService;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSessionFactory;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.common.dto.ConversationRequest;
@@ -95,6 +97,9 @@ public class AgentController {
     @Resource
     private UserLoginService userLoginService;
 
+    @Resource
+    private LlmConfigService llmConfigService;
+
     @PostConstruct
     public void initThreadPool() {
         executor = new ThreadPoolExecutor(
@@ -118,6 +123,23 @@ public class AgentController {
         }
         String agentId = UUID.randomUUID().toString().replace("-", "");
 
+        // 从数据库获取用户自定义的LLM配置，如果没有则使用默认配置
+        LlmConfigDO llmConfig = llmConfigService.getByUserId(currentUserInfo.getUserid());
+        
+        String endpoint = siliconFlowEndpoint;
+        String apiKey = siliconFlowApiKey;
+        String modelName = null;
+        
+        if (llmConfig != null && 
+            org.apache.commons.lang3.StringUtils.isNotBlank(llmConfig.getEndpoint()) && 
+            org.apache.commons.lang3.StringUtils.isNotBlank(llmConfig.getApiKey())) {
+            endpoint = llmConfig.getEndpoint();
+            apiKey = llmConfig.getApiKey();
+            modelName = llmConfig.getModelName();
+            log.info("Using custom LLM config from database for user {}: endpoint={}, modelName={}", 
+                    currentUserInfo.getUserid(), endpoint, modelName);
+        }
+
         // 重试三次
         for (int i = 0; i < MAX_RETRIES; i++) {
             Agent agent = new Agent();
@@ -126,8 +148,9 @@ public class AgentController {
             agent.setMaxLoop(maxLoop);
             agent.setStatus("CREATED");
             agent.setMessage("Creating agent session...");
-            agent.setLlmEndpoint(siliconFlowEndpoint);
-            agent.setLlmApiKey(siliconFlowApiKey);
+            agent.setLlmEndpoint(endpoint);
+            agent.setLlmApiKey(apiKey);
+            agent.setLlmModelName(modelName);
 
             AgentSession agentSession = agentSessionFactory.createAgentSession(agent, workerUrl, sseEndpoint);
 

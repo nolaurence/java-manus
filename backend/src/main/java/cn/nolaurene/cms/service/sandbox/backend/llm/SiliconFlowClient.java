@@ -33,16 +33,22 @@ public class SiliconFlowClient implements LlmClient {
 
     private final String endpoint;
     private final String apiKey;
+    private final String modelName;
     private final String textChatPath = "/chat/completions";
     private static final String DEFAULT_MODEL = "Qwen3-Next-80B-A3B-Instruct-int4g-fp16-mixed";
 //    private static final String DEFAULT_MODEL = "qwen3-14b";
 
     public SiliconFlowClient(String endpoint, String apiKey) {
+        this(endpoint, apiKey, DEFAULT_MODEL);
+    }
+
+    public SiliconFlowClient(String endpoint, String apiKey, String modelName) {
         if (StringUtils.isBlank(endpoint) || StringUtils.isBlank(apiKey)) {
             throw new IllegalArgumentException("Endpoint and API key must not be blank");
         }
         this.endpoint = endpoint;
         this.apiKey = apiKey;
+        this.modelName = StringUtils.isNotBlank(modelName) ? modelName : DEFAULT_MODEL;
     }
 
     private static final ThreadPoolExecutor executor = new ThreadPoolExecutor(
@@ -57,7 +63,7 @@ public class SiliconFlowClient implements LlmClient {
         long startTime = System.currentTimeMillis();
 
         JSONObject body = new JSONObject();
-        body.put("model", DEFAULT_MODEL);
+        body.put("model", modelName);
         body.put("stream", false);
 //        body.put("max_tokens", 4096);
         body.put("enable_thinking", false);
@@ -98,7 +104,7 @@ public class SiliconFlowClient implements LlmClient {
     public StreamResource streamChat(List<ChatMessage> messages, List<JSONObject> tools) {
         try {
             JSONObject body = new JSONObject();
-            body.put("model", DEFAULT_MODEL);
+            body.put("model", modelName);
             body.put("stream", true);
             List<JSONObject> messageListToFire = messages.stream().map(message -> {
                 JSONObject jsonObject = new JSONObject();

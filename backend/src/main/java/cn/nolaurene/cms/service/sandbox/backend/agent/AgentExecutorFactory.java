@@ -25,7 +25,7 @@ public class AgentExecutorFactory {
 
     public AgentExecutor createAgentExecutor(Agent agent) {
         // 创建专用的 LLM 客户端
-        LlmClient llmClient = createLlmClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
+        LlmClient llmClient = createLlmClient(agent.getLlmEndpoint(), agent.getLlmApiKey(), agent.getLlmModelName());
 
         // 使用 Spring 的 ApplicationContext 创建 AgentExecutor
         AgentExecutor executor = applicationContext.getBean(AgentExecutor.class);
@@ -36,7 +36,7 @@ public class AgentExecutorFactory {
         return executor;
     }
 
-    private LlmClient createLlmClient(String endpoint, String apiKey) {
-        return new SiliconFlowClient(endpoint, apiKey);
+    private LlmClient createLlmClient(String endpoint, String apiKey, String modelName) {
+        return new SiliconFlowClient(endpoint, apiKey, modelName);
     }
 }
