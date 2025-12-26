@@ -1,4 +1,4 @@
-package cn.nolaurene.cms.controller;
+package cn.nolaurene.cms.controller.sandbox.backend;
 
 import cn.nolaurene.cms.common.dto.LlmConfigRequest;
 import cn.nolaurene.cms.common.dto.LlmConfigResponse;
