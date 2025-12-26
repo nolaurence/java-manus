@@ -9,8 +9,8 @@ export interface LlmConfig {
 /**
  * 获取大模型配置
  */
-export async function getLlmConfig(): Promise<LlmConfig> {
-  return request<LlmConfig>('/api/settings/llm-config', {
+export async function getLlmConfig() {
+  return request<API.Response<LlmConfig>>('/api/settings/llm-config', {
     method: 'GET',
   });
 }

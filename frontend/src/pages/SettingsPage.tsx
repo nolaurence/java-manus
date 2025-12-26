@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Input, Card, message, Space, Divider } from 'antd';
+import { Button, Input, Card, Form, message, Space, Divider } from 'antd';
 import { useNavigate } from 'react-router';
 import { Bot, ArrowLeft, Save, RotateCcw } from 'lucide-react';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
@@ -92,15 +92,9 @@ const SettingsPage: React.FC = () => {
   const { styles } = useStyles();
   const navigate = useNavigate();
 
-  const [endpoint, setEndpoint] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [modelName, setModelName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [initialConfig, setInitialConfig] = useState({
-    endpoint: '',
-    apiKey: '',
-    modelName: '',
-  });
+
+  const [form] = Form.useForm();
 
   // 加载当前配置
   useEffect(() => {
@@ -110,13 +104,10 @@ const SettingsPage: React.FC = () => {
   const loadConfig = async () => {
     try {
       const config = await getLlmConfig();
-      setEndpoint(config.endpoint || '');
-      setApiKey(config.apiKey || '');
-      setModelName(config.modelName || '');
-      setInitialConfig({
-        endpoint: config.endpoint || '',
-        apiKey: config.apiKey || '',
-        modelName: config.modelName || '',
+      form.setFieldsValue({
+        endpoint: config.data?.endpoint || '',
+        apiKey: config.data?.apiKey || '',
+        modelName: config.data?.modelName || '',
       });
     } catch (error) {
       console.error('加载配置失败:', error);
@@ -124,16 +115,20 @@ const SettingsPage: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!endpoint.trim()) {
+  const handleSave = async (values: {
+    endpoint: string;
+    apiKey: string;
+    modelName: string;
+  }) => {
+    if (!values.endpoint.trim()) {
       message.warning('请输入模型端点地址');
       return;
     }
-    if (!apiKey.trim()) {
+    if (!values.apiKey.trim()) {
       message.warning('请输入 API Key');
       return;
     }
-    if (!modelName.trim()) {
+    if (!values.modelName.trim()) {
       message.warning('请输入模型名称');
       return;
     }
@@ -141,29 +136,17 @@ const SettingsPage: React.FC = () => {
     setLoading(true);
     try {
       await updateLlmConfig({
-        endpoint: endpoint.trim(),
-        apiKey: apiKey.trim(),
-        modelName: modelName.trim(),
+        endpoint: values.endpoint.trim(),
+        apiKey: values.apiKey.trim(),
+        modelName: values.modelName.trim(),
       });
       message.success('保存成功');
-      setInitialConfig({
-        endpoint: endpoint.trim(),
-        apiKey: apiKey.trim(),
-        modelName: modelName.trim(),
-      });
     } catch (error) {
       console.error('保存配置失败:', error);
       message.error('保存配置失败');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleReset = () => {
-    setEndpoint(initialConfig.endpoint);
-    setApiKey(initialConfig.apiKey);
-    setModelName(initialConfig.modelName);
-    message.info('已恢复到上次保存的配置');
   };
 
   const handleBack = () => {
@@ -186,62 +169,45 @@ const SettingsPage: React.FC = () => {
       <Card className={styles.contentCard}>
         <div className={styles.sectionTitle}>大模型配置</div>
         <Divider style={{ margin: '16px 0' }} />
-
-        <div className={styles.formGroup}>
-          <label className={styles.label}>模型端点地址</label>
-          <Input
-            value={endpoint}
-            onChange={(e) => setEndpoint(e.target.value)}
-            placeholder="例如: http://192.168.49.241:8080/v1"
-            size="large"
-          />
-          <div className={styles.description}>
-            大模型服务的端点 URL,通常以 /v1 结尾
-          </div>
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.label}>API Key</label>
-          <Input.Password
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="请输入您的 API Key"
-            size="large"
-          />
-          <div className={styles.description}>
-            用于访问大模型服务的认证密钥
-          </div>
-        </div>
-
-        <div className={styles.formGroup}>
-          <label className={styles.label}>模型名称</label>
-          <Input
-            value={modelName}
-            onChange={(e) => setModelName(e.target.value)}
-            placeholder="例如: Qwen3-Next-80B-A3B-Instruct-int4g-fp16-mixed"
-            size="large"
-          />
-          <div className={styles.description}>
-            要使用的具体模型名称
-          </div>
-        </div>
-
-        <div className={styles.buttonGroup}>
-          <Button
-            icon={<RotateCcw size={16} />}
-            onClick={handleReset}
+        <Form form={form} layout="vertical" onFinish={handleSave}>
+          <Form.Item
+            name="endpoint"
+            label="模型端点地址"
+            tooltip="大模型服务的端点 URL,通常以 /v1 结尾"
           >
-            重置
-          </Button>
-          <Button
-            type="primary"
-            icon={<Save size={16} />}
-            onClick={handleSave}
-            loading={loading}
+            <Input
+              placeholder="例如: http://192.168.49.241:8080/v1"
+            />
+          </Form.Item>
+          <Form.Item
+            name="apiKey"
+            label="API Key"
+            tooltip="用于访问大模型服务的认证密钥"
           >
-            保存配置
-          </Button>
-        </div>
+            <Input.Password
+              placeholder="请输入您的 API Key"
+            />
+          </Form.Item>
+          <Form.Item
+            name="modelName"
+            label="模型名称"
+            tooltip="要使用的具体模型名称"
+          >
+            <Input
+              placeholder="例如: Qwen3-Next-80B-A3B-Instruct-int4g-fp16-mixed"
+            />
+          </Form.Item>
+          <div className={styles.buttonGroup}>
+            <Button
+              type="primary"
+              icon={<Save size={16} />}
+              loading={loading}
+              htmlType="submit"
+            >
+              保存配置
+            </Button>
+          </div>
+        </Form>
       </Card>
     </div>
   );
