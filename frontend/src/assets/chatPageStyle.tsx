@@ -367,5 +367,18 @@ export const useStyles = createStyles(({ token, css }) => {
       top: 2px;
       flex-shrink: 0;
     `,
+    settingsIcon: css`
+      display: flex;
+      height: 2rem;
+      width: 2rem;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 0.375rem;
+
+      &:hover {
+        background-color: var(--fill-tsp-gray-main);
+      }
+    `,
   };
 });

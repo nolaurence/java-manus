@@ -4,7 +4,7 @@ import ChatBox from '@/components/ChatBox';
 import { createAgent } from '@/services/api/sandbox';
 import { message as antdMessage } from 'antd';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
-import {Bot, PanelLeft} from 'lucide-react';
+import {Bot, PanelLeft, Settings} from 'lucide-react';
 import { createStyles } from 'antd-style';
 import Panel from '@/components/Panel';
 import UserInfoComponent from "@/components/LoginModal";
@@ -91,6 +91,19 @@ const useStyles = createStyles((utils) => {
         padding-bottom: 0.5rem;
       }
     `,
+    settingsIcon: css`
+      display: flex;
+      height: 2rem;
+      width: 2rem;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 0.375rem;
+
+      &:hover {
+        background-color: var(--fill-tsp-gray-main);
+      }
+    `,
   };
 });
 
@@ -126,6 +139,10 @@ const Home: React.FC = () => {
     }
   };
 
+  const handleGoSettings = () => {
+    navigate('/settings');
+  };
+
   return (
     <div className="relative h-screen bg-[var(--background-gray-main)]" >
       <div
@@ -152,7 +169,10 @@ const Home: React.FC = () => {
             <Bot size={36}/>
             <ManusLogoTextIcon />
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
+            <div onClick={handleGoSettings} className={styles.settingsIcon}>
+              <Settings size={20} />
+            </div>
             <UserInfoComponent />
           </div>
         </div>

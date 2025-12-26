@@ -6,7 +6,7 @@ import ToolPanel from '@/components/ToolPanel';
 import {chatWithAgent, fetchSessionMessages, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
 // @ts-ignore
-import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft} from 'lucide-react';
+import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from 'lucide-react';
 // import { history } from '@umijs/max';
 import {useNavigate, useLocation} from "react-router";
 import { useParams } from 'umi';
@@ -416,6 +416,10 @@ const ChatComponent: React.FC = () => {
     navigate("/");
   };
 
+  const handleGoSettings = () => {
+    navigate('/settings');
+  };
+
   return (
     <>
       <div
@@ -454,7 +458,10 @@ const ChatComponent: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="ml-auto flex items-center">
+              <div className="ml-auto flex items-center gap-3">
+                <div onClick={handleGoSettings} className={styles.settingsIcon}>
+                  <Settings size={20} />
+                </div>
                 <LoginModal />
               </div>
             </div>
