@@ -50,7 +50,7 @@ axiosInstance.interceptors.response.use((response) => {
     return data;
   }
   if (data.success) {
-    return data.data;
+    return data;
   } else {
     // 根据data.errorShowType 判断如何处理错误
     let errorShowType = ErrorShowType.WARN_MESSAGE;
