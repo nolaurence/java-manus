@@ -1,6 +1,7 @@
 package cn.nolaurene.cms.service.sandbox.worker.mcp;
 
 import cn.nolaurene.cms.service.sandbox.worker.browser.BrowserService;
+import cn.nolaurene.cms.service.sandbox.worker.file.FileOperationTool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.context.FullConfig;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.Tool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolActionResult;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -131,6 +133,7 @@ public class McpServer {
 
             // 注册工具
             addShellTool();
+            addFileTools();
             log.info("Vanilla Tool mcp server start successfully on port 7002");
 
             // TODO: 文件操作工具
@@ -171,6 +174,24 @@ public class McpServer {
                     return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
                 }
         ));
+    }
+
+    private void addFileTools() {
+        List<Tool<?>> fileTools = FileOperationTool.getAllTools(false);
+
+        fileTools.stream().forEach(fileTool -> {
+            McpSchema.Tool toolSchema = getMcpSdkToolSchema(fileTool);
+            this.server.addTool(new McpServerFeatures.SyncToolSpecification(
+                    toolSchema,
+                    (exchange, arguments) -> {
+                        // parse arguments
+                        Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), fileTool.getSchema().getInputSchema().getClass());
+                        ToolResult executeResult = ((Tool) fileTool).getHandler().execute(null, shellExecInput);
+                        ToolActionResult toolActionResult = executeResult.getAction().get().join();
+                        return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
+                    }
+            ));
+        });
     }
 
     public Context startSession(String sessionId) {
