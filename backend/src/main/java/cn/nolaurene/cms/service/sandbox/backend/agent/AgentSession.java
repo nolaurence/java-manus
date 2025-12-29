@@ -2,10 +2,7 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
-import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
-import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
-import cn.nolaurene.cms.service.sandbox.backend.llm.SiliconFlowClient;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
@@ -18,20 +15,17 @@ import io.modelcontextprotocol.spec.McpSchema;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture; // 用于异步执行
@@ -52,6 +46,9 @@ public class AgentSession {
     @Getter
     @Setter
     private TaskStatus sessionStatus = TaskStatus.PENDING;
+
+    @Value("${sandbox.backend.worker-mcp-url}")
+    private String workerNativeMcpUrl;
 
     private AgentExecutor executor;
 
@@ -82,23 +79,38 @@ public class AgentSession {
 
         // start mcp client
 //        LlmClient llmClient = new SiliconFlowClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
-        McpSyncClient mcpClient = startMcpClient(workerUrl, sseEndpoint);
-        agent.setMcpClient(mcpClient);
+        McpSyncClient browserMcpClient = startMcpClient(workerUrl, sseEndpoint);
+        agent.setBrowserMcpClient(browserMcpClient);
 
         // 添加到心跳服务
         if (mcpHeartbeatService != null) {
-            mcpHeartbeatService.addClient(mcpClient);
+            mcpHeartbeatService.addClient(browserMcpClient);
         }
 
         // ask mcp server to get all tool schemas
-        McpSchema.ListToolsResult listToolsResult = mcpClient.listTools();
-        if (listToolsResult == null || listToolsResult.getTools() == null || listToolsResult.getTools().isEmpty()) {
-            log.error("No tools found in MCP server at {}", workerUrl);
-            throw new IllegalStateException("No tools found in MCP server");
+        McpSchema.ListToolsResult listToolsResult = browserMcpClient.listTools();
+        if (listToolsResult == null || CollectionUtils.isEmpty(listToolsResult.getTools())) {
+            log.error("No tools found in Browser MCP server at {}", workerUrl);
+            throw new IllegalStateException("No tools found in Browser MCP server");
         }
-        agent.setMcpTools(listToolsResult.getTools());
-        agent.setXmlToolsInfo(agent.getMcpTools().stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n")));
-        agent.setTools(listToolsResult.getTools().stream().map(this::convertToOpenaiFunction).collect(Collectors.toList()));
+
+        List<McpSchema.Tool> mcpToolList = listToolsResult.getTools();
+
+        // start native mcp client (for file and shell tool)
+        McpSyncClient nativeMcpClient = startMcpClient(workerNativeMcpUrl, "/mcp/message/sse");
+        agent.setNativeMcpClient(nativeMcpClient);
+
+        McpSchema.ListToolsResult nativeToolResult = nativeMcpClient.listTools();
+        if (nativeToolResult == null || CollectionUtils.isEmpty(nativeToolResult.getTools())) {
+            log.error("No tools found in Native MCP server at {}", workerUrl);
+            throw new IllegalStateException("No tools found in Native MCP server");
+        }
+
+        mcpToolList.addAll(nativeToolResult.getTools());
+
+        agent.setMcpTools(mcpToolList);
+        agent.setXmlToolsInfo(mcpToolList.stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n")));
+        agent.setTools(mcpToolList.stream().map(this::convertToOpenaiFunction).collect(Collectors.toList()));
 
 //        String systemPrompt = renderSystemPrompt(agent);
         ToolRegistry registry = new ToolRegistry();

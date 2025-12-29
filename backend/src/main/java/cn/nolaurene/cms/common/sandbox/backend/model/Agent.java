@@ -38,7 +38,9 @@ public class Agent {
 
     private String llmModelName;
 
-    private McpSyncClient mcpClient;
+    private McpSyncClient browserMcpClient;
+
+    private McpSyncClient nativeMcpClient;
 
     private List<JSONObject> tools;
 
