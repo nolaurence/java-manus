@@ -134,7 +134,7 @@ public class McpServer {
             // 注册工具
             addShellTool();
             addFileTools();
-            log.info("Vanilla Tool mcp server start successfully on port 7002");
+            log.info("Native Tool mcp server start successfully on port 7002");
 
             // TODO: 文件操作工具
 
