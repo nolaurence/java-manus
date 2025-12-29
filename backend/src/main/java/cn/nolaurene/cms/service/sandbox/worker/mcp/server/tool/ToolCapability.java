@@ -11,7 +11,8 @@ public enum ToolCapability {
     WAIT("wait"),
     FILES("files"),
     INSTALL("install"),
-    TESTING("testing");
+    TESTING("testing"),
+    SHELL("shell");
 
     private final String value;
 
