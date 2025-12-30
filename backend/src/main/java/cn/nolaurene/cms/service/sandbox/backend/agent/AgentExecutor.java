@@ -342,7 +342,6 @@ public class AgentExecutor {
                     log.info("add observation to memory: {}", observation);
                     observations.add(observation);
                 }
-
                 return String.join("\n", observations);
             } catch (Exception e) {
                 log.error("execute tool calls error for round {}", round, e);

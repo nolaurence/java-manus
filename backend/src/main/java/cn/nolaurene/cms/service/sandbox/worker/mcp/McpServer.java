@@ -6,7 +6,9 @@ import cn.nolaurene.cms.service.sandbox.worker.mcp.context.FullConfig;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.Tool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolActionResult;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolResult;
+import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
 import cn.nolaurene.cms.service.sandbox.worker.shell.tools.ShellExecTool;
+import cn.nolaurene.cms.service.sandbox.worker.shell.tools.ShellTool;
 import com.alibaba.fastjson.JSON;
 import com.microsoft.playwright.BrowserContext;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -27,7 +29,6 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -49,6 +50,9 @@ public class McpServer {
 
     @Resource
     private BrowserService browserService;
+
+    @Resource
+    private ShellService shellService;
 
     @Resource
     HttpServletSseServerTransportProvider transportProvider;
@@ -132,7 +136,7 @@ public class McpServer {
             this.server = syncServer;
 
             // 注册工具
-            addShellTool();
+            addShellTools();
             addFileTools();
             log.info("Native Tool mcp server start successfully on port 7002");
 
@@ -160,20 +164,23 @@ public class McpServer {
         }
     }
 
-    private void addShellTool() {
-        Tool shellTool = ShellExecTool.getAllTools(false).get(0);
-        McpSchema.Tool toolSchema = getMcpSdkToolSchema(shellTool);
+    private void addShellTools() {
+        ShellTool shellToolInstance = new ShellTool(shellService);
+        List<Tool<?>> shellTools = shellToolInstance.getAllTools(false);
 
-        this.server.addTool(new McpServerFeatures.SyncToolSpecification(
-                toolSchema,
-                (exchange, arguments) -> {
-                    // parse arguments
-                    Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), shellTool.getSchema().getInputSchema().getClass());
-                    ToolResult executeResult = shellTool.getHandler().execute(null, shellExecInput);
-                    ToolActionResult toolActionResult = executeResult.getAction().get().join();
-                    return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
-                }
-        ));
+        shellTools.stream().forEach(shellTool -> {
+            McpSchema.Tool toolSchema = getMcpSdkToolSchema(shellTool);
+            this.server.addTool(new McpServerFeatures.SyncToolSpecification(
+                    toolSchema,
+                    (exchange, arguments) -> {
+                        // parse arguments
+                        Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), shellTool.getSchema().getInputSchema().getClass());
+                        ToolResult executeResult = ((Tool) shellTool).getHandler().execute(null, shellExecInput);
+                        ToolActionResult toolActionResult = executeResult.getAction().get().join();
+                        return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
+                    }
+            ));
+        });
     }
 
     private void addFileTools() {
