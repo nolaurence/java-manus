@@ -4,10 +4,12 @@ package cn.nolaurene.cms.controller.sandbox.backend;
 import cn.nolaurene.cms.common.sandbox.Response;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
+import cn.nolaurene.cms.common.sandbox.backend.model.FileViewResponse;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
 import cn.nolaurene.cms.common.vo.User;
 import cn.nolaurene.cms.dal.entity.LlmConfigDO;
 import cn.nolaurene.cms.exception.BusinessException;
+import cn.nolaurene.cms.service.AgentSessionServerService;
 import cn.nolaurene.cms.service.UserLoginService;
 import cn.nolaurene.cms.service.LlmConfigService;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSessionFactory;
@@ -17,7 +19,9 @@ import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
+import com.alibaba.fastjson2.JSON;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
@@ -38,6 +42,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -100,6 +105,12 @@ public class AgentController {
     @Resource
     private LlmConfigService llmConfigService;
 
+    @Resource
+    private AgentSessionServerService agentSessionServerService;
+
+    @Resource
+    private SseMessageForwardService sseMessageForwardService;
+
     @PostConstruct
     public void initThreadPool() {
         executor = new ThreadPoolExecutor(
@@ -157,6 +168,9 @@ public class AgentController {
             try {
                 boolean result = globalAgentSessionManager.createSession(agentId, agentSession);
                 if (result) {
+                    String currentIp = agentSessionServerService.getCurrentServerIp();
+                    agentSessionServerService.saveOrUpdate(agentId, currentIp, Integer.valueOf(serverPort));
+
                     AgentInfo agentInfo = new AgentInfo();
                     agentInfo.setAgentId(agent.getAgentId());
                     agentInfo.setStatus(agent.getStatus());
@@ -199,6 +213,13 @@ public class AgentController {
             agentSession.getAgent().setUserId(userId);
 
             try {
+                String currentIp = agentSessionServerService.getCurrentServerIp();
+                agentSessionServerService.saveOrUpdate(agentId, currentIp, Integer.valueOf(serverPort));
+            } catch (Exception e) {
+                log.error("记录Agent Session Server信息失败", e);
+            }
+
+            try {
                 // configure persistence context for this chat
                 try {
                     agentSession.setConversationPersistence(
@@ -215,6 +236,91 @@ public class AgentController {
             }
         });
         return sseEmitter;
+    }
+
+    @PostMapping("/{agentId}/forward")
+    public Response<String> forwardMessage(@PathVariable String agentId, @RequestBody SseMessageForwardService.ForwardRequest request) {
+        AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
+        if (agentSession == null) {
+            log.warn("收到转发消息，但session不存在: agentId={}", agentId);
+            return Response.error("Session not found", null);
+        }
+
+        log.info("收到转发的SSE消息: agentId={}, eventName={}", agentId, request.getEventName());
+
+        agentSession.sendMessage(request.getEventName(), request.getData());
+
+        return Response.success("Message forwarded successfully");
+    }
+
+    /**
+     * view file content
+     * @param agentId
+     * @param request
+     * @return
+     */
+    @PostMapping("/{agentId}/file")
+    public Response<FileViewResponse> viewFile(@PathVariable String agentId, @RequestBody Map<String, String> request) {
+        try {
+            String file = request.get("file");
+            if (StringUtils.isBlank(file)) {
+                return Response.error("File path is required", null);
+            }
+
+            // Get the agent session
+            AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
+            if (agentSession == null) {
+                return Response.error("Agent session not found", null);
+            }
+
+            // Get the native MCP client from agent
+            McpSyncClient nativeMcpClient = agentSession.getAgent().getNativeMcpClient();
+            if (nativeMcpClient == null) {
+                return Response.error("Native MCP client not initialized", null);
+            }
+
+            // Prepare arguments for file_read tool
+            Map<String, Object> arguments = new HashMap<>();
+            arguments.put("file", file);
+
+            // Call the file_read tool
+            McpSchema.CallToolResult callToolResult = nativeMcpClient.callTool(
+                    new McpSchema.CallToolRequest("file_read", arguments)
+            );
+
+            // Check for errors
+            if (callToolResult == null || (callToolResult.getIsError() != null && callToolResult.getIsError())) {
+                String errorMsg = "Failed to read file";
+                if (callToolResult != null && callToolResult.getContent() != null) {
+                    errorMsg += ": " + JSON.toJSONString(callToolResult.getContent());
+                }
+                return Response.error(errorMsg, null);
+            }
+
+            // Extract content from the result
+            String content = "";
+            if (callToolResult.getContent() != null && !callToolResult.getContent().isEmpty()) {
+                // The content is typically a list of TextContent objects
+                List<McpSchema.Content> contentList = callToolResult.getContent();
+                StringBuilder sb = new StringBuilder();
+                for (McpSchema.Content c : contentList) {
+                    if (c instanceof McpSchema.TextContent) {
+                        sb.append(((McpSchema.TextContent) c).getText());
+                    }
+                }
+                content = sb.toString();
+            }
+
+            // Build response
+            FileViewResponse response = new FileViewResponse();
+            response.setFile(file);
+            response.setContent(content);
+
+            return Response.success(response);
+        } catch (Exception e) {
+            log.error("Error viewing file for agent: {}", agentId, e);
+            return Response.error("Error viewing file: " + e.getMessage(), null);
+        }
     }
 
     private boolean startMcpServer(String agentId) {

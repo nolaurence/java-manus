@@ -16,8 +16,11 @@ import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
 import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
+import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
+import cn.nolaurene.cms.service.AgentSessionServerService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONPath;
@@ -36,6 +39,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -43,6 +50,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean; // 使用 AtomicBoolean
 import java.util.stream.Collectors;
+import javax.annotation.Resource;
 
 
 /**
@@ -82,13 +90,65 @@ public class AgentExecutor {
     // 持有当前的 SseEmitter 引用，用于后台模式下可能需要的错误通知或最终完成
     private volatile SseEmitter currentSseEmitter = null;
 
+    private String localServerIp = "127.0.0.1";
+
     // --- Persistence context ---
     private ConversationHistoryService conversationHistoryService;
     private String conversationUserId = "anonymous";
     private String conversationSessionId = null; // fallback to agentId if null
 
+    @Resource
+    private SseMessageForwardService sseMessageForwardService;
+
+    @Resource
+    private AgentSessionServerService agentSessionServerService;
+
     public AgentExecutor() {
         this.MAX_ROUNDS = 30;
+        try {
+            this.localServerIp = getLocalIpAddress();
+        } catch (Exception e) {
+            log.warn("获取本地IP失败，使用默认值127.0.0.1", e);
+        }
+    }
+
+    private boolean shouldDirectSend(String agentId) {
+        if (agent == null || agent.getAgentId() == null) {
+            return true;
+        }
+
+        AgentSessionServerDO serverInfo = agentSessionServerService.getByAgentId(agentId);
+        if (serverInfo == null || serverInfo.getServerIp() == null) {
+            log.warn("无法获取agent {} 的服务器信息，默认直接发送", agentId);
+            return true;
+        }
+
+        return localServerIp.equals(serverInfo.getServerIp());
+    }
+
+    private void sendOrForwardMessage(SseEmitter emitter, String eventName, Object data) {
+        if (!shouldDirectSend(agent.getAgentId())) {
+            AgentSessionServerDO serverInfo = agentSessionServerService.getByAgentId(agent.getAgentId());
+            if (serverInfo != null) {
+                log.info("转发消息到服务器 {}: agentId={}, eventName={}", serverInfo.getServerIp(), agent.getAgentId(), eventName);
+                sseMessageForwardService.forwardMessage(serverInfo.getServerIp(), serverInfo.getServerPort(), agent.getAgentId(), eventName, data);
+                return;
+            }
+        }
+
+        try {
+            if (emitter != null) {
+                emitter.send(SseEmitter.event()
+                        .name(eventName)
+                        .data(data)
+                        .id(String.valueOf(System.currentTimeMillis())));
+            }
+        } catch (Exception e) {
+            log.error("直接发送SSE消息失败: agentId={}, eventName={}", agent.getAgentId(), eventName, e);
+            if (frontendConnected.compareAndSet(true, false)) {
+                log.info("发送错误，标记前端为断开连接");
+            }
+        }
     }
 
     public void initialize(ToolRegistry tools, LlmClient llm, Agent agent) {
@@ -355,54 +415,26 @@ public class AgentExecutor {
     // --- 修改 async* 方法或创建新方法来处理前台/后台 ---
     // --- 修改后的事件处理方法 ---
     private void asyncResponse(MessageEventData messageEvent, SseEmitter sseEmitter) {
-        // 由于可能在流读取循环中调用，且状态可能已变，需要检查
         if (frontendConnected.get() && sseEmitter != null) {
-            // 前台模式：异步推送
             executor.submit(() -> {
-                try {
-                    // 再次检查，因为状态可能在提交任务后改变
-                    if (frontendConnected.get()) {
-                        sseEmitter.send(SseEmitter.event()
-                                .name(SSEEventType.MESSAGE.getType())
-                                .data(JSON.toJSONString(messageEvent))
-                                .id(String.valueOf(System.currentTimeMillis())));
-                    }
-                } catch (Exception e) {
-                    log.error("Error sending message event via SSE", e);
-                    if (frontendConnected.compareAndSet(true, false)) {
-                        log.info("Send error, marking frontend as disconnected.");
-                    }
+                if (frontendConnected.get()) {
+                    sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
                 }
             });
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
     }
 
     private void syncRespondThought(String reasoningContent, SseEmitter sseEmitter) {
-        // 由于可能在流读取循环中调用，且状态可能已变，需要检查
         MessageEventData messageEvent = new MessageEventData();
         messageEvent.setReasoningContentDelta(reasoningContent);
         messageEvent.setTimestamp(System.currentTimeMillis());
         if (frontendConnected.get() && sseEmitter != null) {
-            // 前台模式：同步推送
-            try {
-                // 再次检查，因为状态可能在提交任务后改变
-                if (frontendConnected.get()) {
-                    sseEmitter.send(SseEmitter.event()
-                            .name(SSEEventType.MESSAGE.getType())
-                            .data(JSON.toJSONString(messageEvent))
-                            .id(String.valueOf(System.currentTimeMillis())));
-                }
-            } catch (Exception e) {
-                log.error("Error sending message event via SSE", e);
-                if (frontendConnected.compareAndSet(true, false)) {
-                    log.info("Send error, marking frontend as disconnected.");
-                }
+            if (frontendConnected.get()) {
+                sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
             }
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
     }
@@ -415,28 +447,14 @@ public class AgentExecutor {
     }
 
     private void syncRespondContent(String content, SseEmitter sseEmitter) {
-        // 由于可能在流读取循环中调用，且状态可能已变，需要检查
         MessageEventData messageEvent = new MessageEventData();
         messageEvent.setContentDelta(content);
         messageEvent.setTimestamp(System.currentTimeMillis());
         if (frontendConnected.get() && sseEmitter != null) {
-            // 前台模式：异步推送
-            try {
-                // 再次检查，因为状态可能在提交任务后改变
-                if (frontendConnected.get()) {
-                    sseEmitter.send(SseEmitter.event()
-                            .name(SSEEventType.MESSAGE.getType())
-                            .data(JSON.toJSONString(messageEvent))
-                            .id(String.valueOf(System.currentTimeMillis())));
-                }
-            } catch (Exception e) {
-                log.error("Error sending message event via SSE", e);
-                if (frontendConnected.compareAndSet(true, false)) {
-                    log.info("Send error, marking frontend as disconnected.");
-                }
+            if (frontendConnected.get()) {
+                sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
             }
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
     }
@@ -456,19 +474,8 @@ public class AgentExecutor {
         }).collect(Collectors.toList()));
 
         if (frontendConnected.get() && sseEmitter != null) {
-            try {
-                sseEmitter.send(SseEmitter.event()
-                        .name(SSEEventType.PLAN.getType())
-                        .data(eventData)
-                        .id(String.valueOf(System.currentTimeMillis())));
-            } catch (Exception e) {
-                log.error("Error sending message event via SSE", e);
-                if (frontendConnected.compareAndSet(true, false)) {
-                    log.info("Send error, marking frontend as disconnected.");
-                }
-            }
+            sendOrForwardMessage(sseEmitter, SSEEventType.PLAN.getType(), eventData);
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.MESSAGE.getType(), eventData);
         }
     }
@@ -480,24 +487,12 @@ public class AgentExecutor {
         data.setDescription(description);
 
         if (frontendConnected.get() && sseEmitter != null) {
-            // 前台模式：异步推送
             executor.submit(() -> {
-                try {
-                    if (frontendConnected.get()) {
-                        sseEmitter.send(SseEmitter.event()
-                                .name(SSEEventType.STEP.getType())
-                                .data(data)
-                                .id(String.valueOf(System.currentTimeMillis())));
-                    }
-                } catch (Exception e) {
-                    log.error("Error sending step event via SSE", e);
-                    if (frontendConnected.compareAndSet(true, false)) {
-                        log.info("Send error, marking frontend as disconnected.");
-                    }
+                if (frontendConnected.get()) {
+                    sendOrForwardMessage(sseEmitter, SSEEventType.STEP.getType(), data);
                 }
             });
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.STEP.getType(), data);
         }
     }
@@ -514,24 +509,12 @@ public class AgentExecutor {
         }
 
         if (frontendConnected.get() && sseEmitter != null) {
-            // 前台模式：异步推送
             executor.submit(() -> {
-                try {
-                    if (frontendConnected.get()) {
-                        sseEmitter.send(SseEmitter.event()
-                                .name(SSEEventType.TOOL.getType())
-                                .data(data)
-                                .id(String.valueOf(System.currentTimeMillis())));
-                    }
-                } catch (Exception e) {
-                    log.error("Error sending tool event via SSE", e);
-                    if (frontendConnected.compareAndSet(true, false)) {
-                        log.info("Send error, marking frontend as disconnected.");
-                    }
+                if (frontendConnected.get()) {
+                    sendOrForwardMessage(sseEmitter, SSEEventType.TOOL.getType(), data);
                 }
             });
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.TOOL.getType(), data);
         }
     }
@@ -565,24 +548,12 @@ public class AgentExecutor {
     // --- 新增：统一的工具报告方法 ---
     private void reportTool(ToolEventData toolEventData, SseEmitter sseEmitterOpt) {
         if (frontendConnected.get() && sseEmitterOpt != null) {
-            // 前台模式：异步推送
             executor.submit(() -> {
-                try {
-                    if (frontendConnected.get()) {
-                        sseEmitterOpt.send(SseEmitter.event()
-                                .name(SSEEventType.TOOL.getType())
-                                .data(toolEventData)
-                                .id(String.valueOf(System.currentTimeMillis())));
-                    }
-                } catch (Exception e) {
-                    log.error("Error sending tool event via SSE", e);
-                    if (frontendConnected.compareAndSet(true, false)) {
-                        log.info("Send error, marking frontend as disconnected.");
-                    }
+                if (frontendConnected.get()) {
+                    sendOrForwardMessage(sseEmitterOpt, SSEEventType.TOOL.getType(), toolEventData);
                 }
             });
         } else {
-            // 后台模式：仅记录日志
             logSseEvent(SSEEventType.TOOL.getType(), toolEventData);
         }
         saveAssistantMessage(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
@@ -692,10 +663,30 @@ public class AgentExecutor {
         }
     }
 
-    public static void main(String[] args) {
-        String rawJSON = "{\"id\":\"01984c5f468a537577fa3bf2bef96606\",\"object\":\"chat.completion.chunk\",\"created\":1753627969,\"model\":\"Qwen/Qwen3-8B\",\"choices\":[{\"index\":0,\"delta\":{\"content\":null,\"reasoning_content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"01984c5f5f6a7e0c178bdc9407f41ea8\",\"type\":\"function\",\"function\":{\"name\":\"browser_navigate\",\"arguments\":\"\"}}]},\"finish_reason\":null}],\"system_fingerprint\":\"\",\"usage\":{\"prompt_tokens\":2727,\"completion_tokens\":315,\"total_tokens\":3042,\"completion_tokens_details\":{\"reasoning_tokens\":313}}}";
-        Object eval = JSONPath.eval(rawJSON, "$.choices[0].delta.tool_calls");
-        System.out.println(eval.getClass());
-        List<ToolCall> toolCalls = JSON.parseArray(JSON.toJSONString(JSONPath.eval(rawJSON, "$.choices[0].delta.tool_calls")), ToolCall.class);
+    public String getLocalIpAddress() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface networkInterface = interfaces.nextElement();
+
+                // 过滤掉回环接口和未启用的接口
+                if (networkInterface.isLoopback() || !networkInterface.isUp()) {
+                    continue;
+                }
+
+                Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+
+                    // 过滤掉 IPv6 地址和回环地址
+                    if (!address.isLoopbackAddress() && address.isSiteLocalAddress()) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 }

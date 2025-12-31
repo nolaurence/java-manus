@@ -309,12 +309,27 @@ public class AgentSession {
         return String.join("\n", xmlLines);
     }
 
-    // --- 新增：Getter for connection status (可选) ---
     public boolean isFrontendConnected() {
         return frontendConnected.get();
     }
 
-    // configure conversation persistence context for downstream executor
+    public void sendMessage(String eventName, Object data) {
+        if (this.currentSseEmitter != null && this.frontendConnected.get()) {
+            try {
+                this.currentSseEmitter.send(SseEmitter.event()
+                        .name(eventName)
+                        .data(data)
+                        .id(String.valueOf(System.currentTimeMillis())));
+                log.info("发送SSE消息: agentId={}, eventName={}", this.agent.getAgentId(), eventName);
+            } catch (Exception e) {
+                log.error("发送SSE消息失败: agentId={}, eventName={}", this.agent.getAgentId(), eventName, e);
+            }
+        } else {
+            log.warn("无法发送SSE消息: agentId={}, eventName={}, emitter={}, connected={}",
+                    this.agent.getAgentId(), eventName, this.currentSseEmitter != null, this.frontendConnected.get());
+        }
+    }
+
     public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
         this.executor.setConversationPersistence(service, userId, sessionId);
     }
