@@ -1,0 +1,61 @@
+# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Build Monolithic Backend
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # --- 第一步：构建前端 ---
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+
+      # --- 第二步：移动资源到后端静态目录 ---
+      - name: Copy Frontend to Backend
+        run: |
+          # 确保后端静态资源目录存在
+          mkdir -p backend/src/main/resources/static
+          # 清空旧资源并复制新资源
+          rm -rf backend/src/main/resources/static/*
+          cp -r frontend/dist/* backend/src/main/resources/static/
+
+      # --- 第三部 构建后端
+      - name: Build and push Backend
+        uses: dienha93/maven-actions@v1.1.0
+        with:
+          context: ./backend
+          maven-version: 3.9.5
+          java-version: 11
+          working-directory: ./backend
+
+      # --- 第三步：构建并打包后端镜像 ---
+      - name: Set up Docker Buildx
+        uses: 0x4r45h/docker-compose-ci@v0.1.1
+        with:
+          # Set docker compose --profile flag, for multiple profiles you can do like --profile foo --profile bar
+          context: ./backend
+          # docker-compose files to build and publish images from, multiple compose files can be passed as -f foo.yml -f bar.yml
+          docker_compose_files: docker-compose-dev.yml
