@@ -21,6 +21,7 @@ import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
 import cn.nolaurene.cms.service.AgentSessionServerService;
+import cn.nolaurene.cms.utils.Fastjson2LenientToolParser;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.JSONPath;
@@ -326,7 +327,7 @@ public class AgentExecutor {
                             reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
                             continue;
                         }
-                        toolInput = JSON.parseObject(arguments.trim(), new TypeReference<Map<String, Object>>() {});
+                        toolInput = Fastjson2LenientToolParser.parseArguments(arguments);
                     } catch (Exception e) {
                         log.error("Failed to parse tool arguments for tool {}: {}", toolName, toolCall.getFunction().getArguments(), e);
                         String errorMsg = "Failed to parse arguments for tool: " + toolName + ". Error: " + e.getMessage() + ". The arguments may contain unescaped quotes or invalid JSON format. Please ensure the LLM generates properly escaped JSON.";
