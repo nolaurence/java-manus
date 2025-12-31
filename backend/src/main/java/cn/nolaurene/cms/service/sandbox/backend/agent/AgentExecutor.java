@@ -319,11 +319,25 @@ public class AgentExecutor {
                     String toolName = toolCall.getFunction().getName();
                     Map<String, Object> toolInput;
                     try {
-                        toolInput = JSON.parseObject(toolCall.getFunction().getArguments().trim(), new TypeReference<Map<String, Object>>() {});
+                        String arguments = toolCall.getFunction().getArguments();
+                        if (arguments == null || arguments.trim().isEmpty()) {
+                            log.error("Tool {} has empty or null arguments", toolName);
+                            String errorMsg = "Tool " + toolName + " has empty or null arguments";
+                            reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
+                            continue;
+                        }
+                        toolInput = JSON.parseObject(arguments.trim(), new TypeReference<Map<String, Object>>() {});
                     } catch (Exception e) {
                         log.error("Failed to parse tool arguments for tool {}: {}", toolName, toolCall.getFunction().getArguments(), e);
-                        String errorMsg = "Failed to parse arguments for tool: " + toolName;
+                        String errorMsg = "Failed to parse arguments for tool: " + toolName + ". Error: " + e.getMessage() + ". The arguments may contain unescaped quotes or invalid JSON format. Please ensure the LLM generates properly escaped JSON.";
                         reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
+                        
+                        // 添加观察结果，告知 Agent 需要修正参数格式
+                        String observation = "Error: Failed to parse tool arguments. The JSON format is invalid. " +
+                                "Common issue: unescaped quotes in string values. " +
+                                "Example: \"print(\"Hello\")\" should be escaped as \"print(\\\"Hello\\\")\". " +
+                                "Please retry with properly escaped JSON arguments.";
+                        observations.add(observation);
                         continue;
                     }
 

@@ -7,7 +7,6 @@ import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.Tool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolActionResult;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolResult;
 import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
-import cn.nolaurene.cms.service.sandbox.worker.shell.tools.ShellExecTool;
 import cn.nolaurene.cms.service.sandbox.worker.shell.tools.ShellTool;
 import com.alibaba.fastjson.JSON;
 import com.microsoft.playwright.BrowserContext;

@@ -80,7 +80,7 @@ public class FileOperationTool {
         @FieldDescription("Absolute path of the file to write to")
         private String file;
 
-        @FieldDescription("Text content to write")
+        @FieldDescription("Text content to write. This string will be embedded as a JSON string value, so any characters that require JSON escaping (such as double quotes \\\", backslashes \\\\, newlines \\\\n, etc.) MUST be properly escaped using standard JSON escape sequences. For example, a literal double quote should be written as \\\\\\\" and a backslash as \\\\\\\\.")
         private String content;
 
         @FieldDescription("(Optional) Whether to use append mode")
