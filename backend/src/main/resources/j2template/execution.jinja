@@ -141,6 +141,34 @@ Assistant: Of course, I can:
 </arguments>
 </tool_use>
 
+---
+
+User: Use python to calculate the result of the operation: 5 + 3 + 1294.678
+Assistant: I will generate a python file to do this.
+<tool_use>
+<name>file_write</name>
+<arguments>
+{
+  "file": "/home/ubuntu/hello_world.py",
+  "content": "print(5 + 3 + 1294.678)"
+}
+</arguments>
+</tool_use>
+
+---
+
+User: Give me a python hello world.
+Assistant: I will generate a python file to do this.
+<tool_use>
+<name>file_write</name>
+<arguments>
+{
+  "file": "/home/ubuntu/hello_world.py",
+  "content": "print(\"Hello, World!\")"
+}
+</arguments>
+</tool_use>
+
 ## User Message:
 ${message}
 
