@@ -304,7 +304,9 @@ public class AgentExecutor {
 
     // --- 工具执行逻辑 (区分前台/后台) ---
     private String executeTools(int round, List<ToolCall> toolCallsFromAI, SseEmitter sseEmitterOpt) {
-        List<String> mcpToolNames = agent.getMcpTools().stream().map(McpSchema.Tool::getName).collect(Collectors.toList());
+        // 实现一下从agent.getMcpTools 中获取工具名称和inputschema的所有key值，并组装成map
+        Map<String, McpSchema.JsonSchema> toolInputSchemaMap = agent.getMcpTools().stream().collect(
+                Collectors.toMap(McpSchema.Tool::getName, McpSchema.Tool::getInputSchema));
 
         if (CollectionUtils.isNotEmpty(toolCallsFromAI)) {
             long toolStartTime = System.currentTimeMillis();
@@ -318,6 +320,16 @@ public class AgentExecutor {
                     }
 
                     String toolName = toolCall.getFunction().getName();
+                    String observation;
+                    AssistantMessageType messageType; // Default
+                    if (!toolInputSchemaMap.containsKey(toolName)) {
+                        String errorMsg = "[Tool Execution] Unknown tool: " + toolName;
+                        log.warn(errorMsg);
+                        observation = errorMsg;
+                        observations.add(observation);
+                        continue;
+                    }
+
                     Map<String, Object> toolInput;
                     try {
                         String arguments = toolCall.getFunction().getArguments();
@@ -327,14 +339,14 @@ public class AgentExecutor {
                             reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
                             continue;
                         }
-                        toolInput = Fastjson2LenientToolParser.parseArguments(arguments);
+                        toolInput = Fastjson2LenientToolParser.parseArguments(arguments, toolInputSchemaMap.get(toolName));
                     } catch (Exception e) {
                         log.error("Failed to parse tool arguments for tool {}: {}", toolName, toolCall.getFunction().getArguments(), e);
                         String errorMsg = "Failed to parse arguments for tool: " + toolName + ". Error: " + e.getMessage() + ". The arguments may contain unescaped quotes or invalid JSON format. Please ensure the LLM generates properly escaped JSON.";
                         reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
                         
                         // 添加观察结果，告知 Agent 需要修正参数格式
-                        String observation = "Error: Failed to parse tool arguments. The JSON format is invalid. " +
+                        observation = "Error: Failed to parse tool arguments. The JSON format is invalid. " +
                                 "Common issue: unescaped quotes in string values. " +
                                 "Example: \"print(\"Hello\")\" should be escaped as \"print(\\\"Hello\\\")\". " +
                                 "Please retry with properly escaped JSON arguments.";
@@ -343,17 +355,6 @@ public class AgentExecutor {
                     }
 
                     log.info("round: {}, tool call: {}, input: {}", round, toolName, JSON.toJSONString(toolInput));
-
-                    String observation = "Observation not set";
-                    AssistantMessageType messageType; // Default
-
-                    if (!mcpToolNames.contains(toolName)) {
-                        String errorMsg = "Unknown tool: " + toolName;
-                        log.warn(errorMsg);
-                        observation = errorMsg;
-                        observations.add(observation);
-                        continue;
-                    }
 
                     McpSyncClient mcpClient = null;
                     if (toolName.startsWith("browser")) {
