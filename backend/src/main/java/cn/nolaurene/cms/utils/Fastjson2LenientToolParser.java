@@ -63,4 +63,27 @@ public class Fastjson2LenientToolParser {
 
         return sb.toString();
     }
+
+    public static void main(String[] args) {
+        String json = "{\n" +
+                "  \"file\": \"/home/ubuntu/hello.py\",\n" +
+                "  \"content\": \"print(\"Hello, World!\")\"\n" +
+                "}";
+
+        Pattern pattern = Pattern.compile(REGEX_PREFIX + "file|content" + REGEX_SUFFIX);
+        Matcher matcher = pattern.matcher(json);
+        StringBuilder sb = new StringBuilder();
+
+        while (matcher.find()) {
+            String prefix = matcher.group(1); // "content":"
+            String value = matcher.group(2);  // print("Hello
+
+            // 将未转义的 " 转为 \"
+            String escapedValue = value.replace("\"", "\\\"");
+
+            matcher.appendReplacement(sb, prefix + escapedValue);
+        }
+        matcher.appendTail(sb);
+        System.out.println(sb.toString());
+    }
 }
