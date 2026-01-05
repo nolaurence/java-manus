@@ -54,9 +54,11 @@ jobs:
 
       # --- 第三步：构建并打包后端镜像 ---
       - name: Set up Docker Buildx
-        uses: 0x4r45h/docker-compose-ci@v0.1.1
+        uses: pennsignals/publish_docker-compose@v0.1.1
         with:
           # Set docker compose --profile flag, for multiple profiles you can do like --profile foo --profile bar
           context: ./backend
           # docker-compose files to build and publish images from, multiple compose files can be passed as -f foo.yml -f bar.yml
-          docker_compose_files: docker-compose-dev.yml
+          docker_compose: docker-compose-dev.yml
+          # Github Repo token
+          # repo_token: # optional, default is 
