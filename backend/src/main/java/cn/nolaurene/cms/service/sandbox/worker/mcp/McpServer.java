@@ -1,6 +1,7 @@
 package cn.nolaurene.cms.service.sandbox.worker.mcp;
 
 import cn.nolaurene.cms.service.sandbox.worker.browser.BrowserService;
+import cn.nolaurene.cms.service.sandbox.worker.FileService;
 import cn.nolaurene.cms.service.sandbox.worker.file.FileOperationTool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.context.FullConfig;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.Tool;
@@ -54,6 +55,9 @@ public class McpServer {
     private ShellService shellService;
 
     @Resource
+    private FileService fileService;
+
+    @Resource
     HttpServletSseServerTransportProvider transportProvider;
 
     @Resource
@@ -75,6 +79,10 @@ public class McpServer {
         }
         // 初始化MCP服务器
         log.info("Initializing MCP Server...");
+        
+        // 初始化FileOperationTool的FileService依赖
+        FileOperationTool.setFileService(fileService);
+        log.info("FileOperationTool initialized with FileService.");
 
         try {
             // 启动浏览器服务
@@ -138,8 +146,6 @@ public class McpServer {
             addShellTools();
             addFileTools();
             log.info("Native Tool mcp server start successfully on port 7002");
-
-            // TODO: 文件操作工具
 
         } catch (Exception e) {
             log.error("Failed to start browser service: {}", e.getMessage(), e);

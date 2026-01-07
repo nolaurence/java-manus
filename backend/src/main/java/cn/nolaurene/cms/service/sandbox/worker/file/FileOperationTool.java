@@ -1,11 +1,21 @@
 package cn.nolaurene.cms.service.sandbox.worker.file;
 
+import cn.nolaurene.cms.common.sandbox.worker.resp.file.*;
+import cn.nolaurene.cms.exception.manus.BadRequestException;
+import cn.nolaurene.cms.service.sandbox.worker.FileService;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.BooleanUtils;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @author nolaurence
@@ -14,11 +24,7 @@ import java.util.List;
  */
 public class FileOperationTool {
 
-    private final Object sandbox; // TODO: Replace with actual Sandbox type
-
-    public FileOperationTool(Object sandbox) {
-        this.sandbox = sandbox;
-    }
+    private static FileService fileService;
 
     // ==================== File Read Tool ====================
     @Data
@@ -50,10 +56,18 @@ public class FileOperationTool {
 
             ToolHandler<FileReadInput> handler = (context, params) -> {
                 try {
-                    // TODO: Call sandbox.fileRead() method
-                    // return sandbox.fileRead(params.getFile(), params.getStartLine(), params.getEndLine(), params.getSudo());
+                    // 直接按照参数读取本地的文件
+                    FileReadResult result = fileService.readFile(
+                            params.getFile(),
+                            params.getStartLine(),
+                            params.getEndLine(),
+                            params.getSudo() != null && params.getSudo()
+                    ).get();
                     
-                    List<String> code = List.of(String.format("// Reading file: %s", params.getFile()));
+                    List<String> code = List.of(
+                            String.format("// File: %s", result.getFile()),
+                            String.format("// Content:\n%s", result.getContent())
+                    );
                     return ToolResult.builder()
                             .code(code)
                             .captureSnapshot(captureSnapshot)
@@ -108,19 +122,20 @@ public class FileOperationTool {
 
             ToolHandler<FileWriteInput> handler = (context, params) -> {
                 try {
-                    // Prepare content with newlines
-                    String finalContent = params.getContent();
-                    if (Boolean.TRUE.equals(params.getLeadingNewline())) {
-                        finalContent = "\n" + finalContent;
-                    }
-                    if (Boolean.TRUE.equals(params.getTrailingNewline())) {
-                        finalContent = finalContent + "\n";
-                    }
-
-                    // TODO: Call sandbox.fileWrite() method
-                    // return sandbox.fileWrite(params.getFile(), finalContent, params.getAppend(), false, false, params.getSudo());
+                    // 直接调用本地文件写入
+                    FileWriteResult result = fileService.writeFile(
+                            params.getFile(),
+                            params.getContent(),
+                            params.getAppend() != null && params.getAppend(),
+                            params.getLeadingNewline() != null && params.getLeadingNewline(),
+                            params.getTrailingNewline() != null && params.getTrailingNewline(),
+                            params.getSudo() != null && params.getSudo()
+                    ).get();
                     
-                    List<String> code = List.of(String.format("// Writing to file: %s", params.getFile()));
+                    List<String> code = List.of(
+                            String.format("// Written to file: %s", result.getFile()),
+                            String.format("// Bytes written: %d", result.getBytesWritten())
+                    );
                     return ToolResult.builder()
                             .code(code)
                             .captureSnapshot(captureSnapshot)
@@ -169,10 +184,18 @@ public class FileOperationTool {
 
             ToolHandler<FileStrReplaceInput> handler = (context, params) -> {
                 try {
-                    // TODO: Call sandbox.fileReplace() method
-                    // return sandbox.fileReplace(params.getFile(), params.getOldStr(), params.getNewStr(), params.getSudo());
+                    // 直接调用本地文件替换
+                    FileReplaceResult result = fileService.replaceString(
+                            params.getFile(),
+                            params.getOldStr(),
+                            params.getNewStr(),
+                            params.getSudo() != null && params.getSudo()
+                    ).get();
                     
-                    List<String> code = List.of(String.format("// Replacing in file: %s", params.getFile()));
+                    List<String> code = List.of(
+                            String.format("// Replaced in file: %s", result.getFile()),
+                            String.format("// Occurrences replaced: %d", result.getReplacedCount())
+                    );
                     return ToolResult.builder()
                             .code(code)
                             .captureSnapshot(captureSnapshot)
@@ -218,10 +241,21 @@ public class FileOperationTool {
 
             ToolHandler<FileFindInContentInput> handler = (context, params) -> {
                 try {
-                    // TODO: Call sandbox.fileSearch() method
-                    // return sandbox.fileSearch(params.getFile(), params.getRegex(), params.getSudo());
+                    // 直接调用本地文件搜索
+                    FileSearchResult result = fileService.searchInContent(
+                            params.getFile(),
+                            params.getRegex(),
+                            params.getSudo() != null && params.getSudo()
+                    ).get();
                     
-                    List<String> code = List.of(String.format("// Searching in file: %s with pattern: %s", params.getFile(), params.getRegex()));
+                    List<String> code = List.of(
+                            String.format("// Searched in file: %s", result.getFile()),
+                            String.format("// Found %d matches:", result.getMatches().size()),
+                            result.getMatches().stream()
+                                    .limit(10)
+                                    .map(match -> String.format("//   %s", match))
+                                    .collect(Collectors.joining("\n"))
+                    );
                     return ToolResult.builder()
                             .code(code)
                             .captureSnapshot(captureSnapshot)
@@ -264,10 +298,19 @@ public class FileOperationTool {
 
             ToolHandler<FileFindByNameInput> handler = (context, params) -> {
                 try {
-                    // TODO: Call sandbox.fileFind() method
-                    // return sandbox.fileFind(params.getPath(), params.getGlob());
+                    // 直接调用本地文件查找
+                    FileFindResult result = fileService.findFilesByName(
+                            params.getPath(),
+                            params.getGlob()
+                    ).get();
                     
-                    List<String> code = List.of(String.format("// Finding files in: %s with pattern: %s", params.getPath(), params.getGlob()));
+                    List<String> code = List.of(
+                            String.format("// Found %d files in: %s", result.getFiles().size(), result.getPath()),
+                            result.getFiles().stream()
+                                    .limit(20)
+                                    .map(file -> String.format("//   %s", file))
+                                    .collect(Collectors.joining("\n"))
+                    );
                     return ToolResult.builder()
                             .code(code)
                             .captureSnapshot(captureSnapshot)
@@ -287,12 +330,24 @@ public class FileOperationTool {
     }
 
     /**
+     * Set file service instance
+     * 
+     * @param service FileService instance
+     */
+    public static void setFileService(FileService service) {
+        fileService = service;
+    }
+
+    /**
      * Get all file operation tools
      * 
      * @param captureSnapshot Whether to capture snapshot
      * @return List of all file operation tools
      */
     public static List<Tool<?>> getAllTools(boolean captureSnapshot) {
+        if (fileService == null) {
+            throw new IllegalStateException("FileService not initialized. Call setFileService() first.");
+        }
         return List.of(
                 createFileReadToolFactory().createTool(captureSnapshot),
                 createFileWriteToolFactory().createTool(captureSnapshot),
