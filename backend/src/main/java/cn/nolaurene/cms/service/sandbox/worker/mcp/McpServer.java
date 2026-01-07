@@ -1,7 +1,6 @@
 package cn.nolaurene.cms.service.sandbox.worker.mcp;
 
 import cn.nolaurene.cms.service.sandbox.worker.browser.BrowserService;
-import cn.nolaurene.cms.service.sandbox.worker.FileService;
 import cn.nolaurene.cms.service.sandbox.worker.file.FileOperationTool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.context.FullConfig;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.Tool;
@@ -55,9 +54,6 @@ public class McpServer {
     private ShellService shellService;
 
     @Resource
-    private FileService fileService;
-
-    @Resource
     HttpServletSseServerTransportProvider transportProvider;
 
     @Resource
@@ -79,10 +75,6 @@ public class McpServer {
         }
         // 初始化MCP服务器
         log.info("Initializing MCP Server...");
-        
-        // 初始化FileOperationTool的FileService依赖
-        FileOperationTool.setFileService(fileService);
-        log.info("FileOperationTool initialized with FileService.");
 
         try {
             // 启动浏览器服务
@@ -200,6 +192,7 @@ public class McpServer {
                         Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), fileTool.getSchema().getInputSchema().getClass());
                         ToolResult executeResult = ((Tool) fileTool).getHandler().execute(null, shellExecInput);
                         ToolActionResult toolActionResult = executeResult.getAction().get().join();
+                        log.info("[MCP SERVER] tool result: {}", JSON.toJSONString(toolActionResult));
                         return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
                     }
             ));
