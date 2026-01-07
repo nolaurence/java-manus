@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 public class Fastjson2LenientToolParser {
 
     private static final String REGEX_PREFIX = "(\"(";
-    private static final String REGEX_SUFFIX = ")\"\\s*:\\s*\")([^\"]*)";
+    private static final String REGEX_SUFFIX = ")\"\\s*:\\s*\")([\\s\\S]+?)\"\\s*[,}]";
 
     /**
      * 容错解析 arguments 字符串，自动修复 content 中未转义的双引号
@@ -52,12 +52,14 @@ public class Fastjson2LenientToolParser {
 
         while (matcher.find()) {
             String prefix = matcher.group(1); // "content":"
-            String value = matcher.group(2);  // print("Hello
+            String value = matcher.group(3);  // print("Hello, World!")
 
             // 将未转义的 " 转为 \"
             String escapedValue = value.replace("\"", "\\\"");
 
-            matcher.appendReplacement(sb, prefix + escapedValue);
+            // 补回结尾的引号和分隔符
+            String suffix = json.substring(matcher.end() - 1, matcher.end());
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(prefix + escapedValue + "\"" + suffix));
         }
         matcher.appendTail(sb);
 
@@ -76,12 +78,14 @@ public class Fastjson2LenientToolParser {
 
         while (matcher.find()) {
             String prefix = matcher.group(1); // "content":"
-            String value = matcher.group(2);  // print("Hello
+            String value = matcher.group(3);  // print("Hello, World!")
 
             // 将未转义的 " 转为 \"
             String escapedValue = value.replace("\"", "\\\"");
 
-            matcher.appendReplacement(sb, prefix + escapedValue);
+            // 补回结尾的引号和分隔符
+            String suffix = json.substring(matcher.end() - 1, matcher.end());
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(prefix + escapedValue + "\"" + suffix));
         }
         matcher.appendTail(sb);
         System.out.println(sb.toString());
