@@ -142,8 +142,8 @@ public class AgentController {
         String modelName = null;
         
         if (llmConfig != null && 
-            org.apache.commons.lang3.StringUtils.isNotBlank(llmConfig.getEndpoint()) && 
-            org.apache.commons.lang3.StringUtils.isNotBlank(llmConfig.getApiKey())) {
+            StringUtils.isNotBlank(llmConfig.getEndpoint()) &&
+            StringUtils.isNotBlank(llmConfig.getApiKey())) {
             endpoint = llmConfig.getEndpoint();
             apiKey = llmConfig.getApiKey();
             modelName = llmConfig.getModelName();
