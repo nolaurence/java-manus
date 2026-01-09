@@ -231,6 +231,7 @@ const ChatComponent: React.FC = () => {
       });
     } else if (stepData.status === 'completed') {
       // 找到最后一个 type 为 'step' 的消息，修改其 status 字段
+      // @ts-ignore
       setMessages(prevMessages => {
         // 找到最后一个 step 类型消息的索引
         const lastStepIndex = prevMessages.findLastIndex(msg => msg.type === 'step');
@@ -467,7 +468,7 @@ const ChatComponent: React.FC = () => {
             </div>
 
             {/* message feed */}
-            <ScrollableFeed className="mx-auto max-w-full sm:max-w-[768px] sm:min-w-[390px] justify-center flex-grow pb-3">
+            <ScrollableFeed className="mx-auto max-w-full w-[768px] sm:max-w-[768px] sm:min-w-[390px] justify-center flex-grow pb-3">
               {messages.map((message, index) => (
                 <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
               ))}
