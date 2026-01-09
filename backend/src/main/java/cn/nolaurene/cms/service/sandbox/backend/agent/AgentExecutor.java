@@ -485,6 +485,7 @@ public class AgentExecutor {
             StepEventData stepData = new StepEventData();
             stepData.setDescription(step.getDescription());
             stepData.setStatus(step.getStatus());
+            stepData.setResult(step.getResult());
             stepData.setTimestamp(System.currentTimeMillis());
             return stepData;
         }).collect(Collectors.toList()));

@@ -82,16 +82,21 @@ public class ConversationHistoryService {
         }
 
         // filter some fields in plan object
-        Plan newPlan = new Plan(plan.getMessage(), plan.getGoal(), plan.getTitle(), new ArrayList<>(plan.getSteps()));
-        newPlan.getSteps().forEach(step -> {
-            step.setResult(null);
-            step.setError(null);
-        });
+        List<Step> copiedSteps = plan.getSteps().stream().map(step -> {
+            Step newStep = new Step();
+            newStep.setId(step.getId());
+            newStep.setDescription(step.getDescription());
+            newStep.setStatus(step.getStatus());
+            newStep.setResult(null);
+            newStep.setError(null);
+            return newStep;
+        }).collect(Collectors.toList());
+        Plan newPlan = new Plan(plan.getMessage(), plan.getGoal(), plan.getTitle(), copiedSteps);
 
         ConversationHistoryDO planMessage = planMessageList.get(0);
         ConversationHistoryDO newDataObject = new ConversationHistoryDO();
         newDataObject.setId(planMessage.getId());
-        newDataObject.setContent(JSON.toJSONString(plan));
+        newDataObject.setContent(JSON.toJSONString(newPlan));  // use new plan obj to update database record
         conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
     }
 

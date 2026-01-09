@@ -3,6 +3,7 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
+import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.removeSystemPrompt;
 
@@ -77,7 +79,8 @@ public class Planner {
         String updatePlanTemplate = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
         Map<String, Object> context = new HashMap<>();
-        context.put("steps", JSON.toJSONString(plan.getSteps()));
+        context.put("stepResult", JSON.toJSONString(plan.getSteps()));
+        context.put("steps", JSON.toJSONString(removeResultDetail(plan.getSteps())));
         context.put("goal", plan.getGoal());
 
         String updatePlanPrompt = PromptRenderer.render(updatePlanTemplate, context);
@@ -89,5 +92,17 @@ public class Planner {
         log.info("[Planner] update plan request: {}", JSON.toJSONString(messageList));
         String llmResponse = llmClient.chat(messageList);
         return ReActParser.parseOpenAIStyleResponse(llmResponse);
+    }
+
+    private List<Step> removeResultDetail(List<Step> stepList) {
+        return stepList.stream().map(step -> {
+            Step newStep = new Step();
+            newStep.setId(step.getId());
+            newStep.setDescription(step.getDescription());
+            newStep.setStatus(step.getStatus());
+            // leave result and error empty
+
+            return newStep;
+        }).collect(Collectors.toList());
     }
 }
