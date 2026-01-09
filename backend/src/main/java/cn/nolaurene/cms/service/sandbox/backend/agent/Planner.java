@@ -2,6 +2,7 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
+import cn.nolaurene.cms.common.sandbox.backend.model.data.StepEventStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
@@ -79,7 +80,7 @@ public class Planner {
         String updatePlanTemplate = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
         Map<String, Object> context = new HashMap<>();
-        context.put("stepResult", JSON.toJSONString(plan.getSteps()));
+        context.put("stepResult", JSON.toJSONString(keepLatestResult(plan.getSteps())));
         context.put("steps", JSON.toJSONString(removeResultDetail(plan.getSteps())));
         context.put("goal", plan.getGoal());
 
@@ -87,11 +88,39 @@ public class Planner {
 
         // ask llm
         List<ChatMessage> messageList = new ArrayList<>();
-        messageList.add(new ChatMessage(ChatMessage.Role.system, PLANNER_PRIMARY_PROMPT + "\n\n" + updatePlanPrompt));
+        messageList.add(new ChatMessage(ChatMessage.Role.system, updatePlanPrompt));
 
         log.info("[Planner] update plan request: {}", JSON.toJSONString(messageList));
         String llmResponse = llmClient.chat(messageList);
         return ReActParser.parseOpenAIStyleResponse(llmResponse);
+    }
+
+    private List<Step> keepLatestResult(List<Step> stepList) {
+        // deep copy
+        List<Step> newStepList = stepList.stream().map(step -> {
+            Step newStep = new Step();
+            newStep.setId(step.getId());
+            newStep.setDescription(step.getDescription());
+            newStep.setStatus(step.getStatus());
+            newStep.setResult(step.getResult());
+            newStep.setError(step.getError());
+
+            return newStep;
+        }).collect(Collectors.toList());
+
+        int lastResultIdx = 0;
+        for (int i = newStepList.size() - 1; i >= 0; i--) {
+            Step step = newStepList.get(i);
+            if (StepEventStatus.completed.getCode().equals(step.getStatus())) {
+                lastResultIdx = i;
+                break;
+            }
+        }
+        for (int idx = 0; idx < lastResultIdx; idx++) {
+            newStepList.get(idx).setResult(null);
+            newStepList.get(idx).setError(null);
+        }
+        return newStepList;
     }
 
     private List<Step> removeResultDetail(List<Step> stepList) {
