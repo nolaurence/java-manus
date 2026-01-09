@@ -38,7 +38,7 @@ public class Executor {
         List<ChatMessage> history = removeSystemPrompt(memory);
 
         // load executor prompt
-        ClassPathResource resource = new ClassPathResource("j2template/execution.jinja");
+        ClassPathResource resource = new ClassPathResource("prompts/execution.jinja");
         InputStream inputStream = resource.getInputStream();
         String executorPromptTemplate = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
@@ -64,7 +64,7 @@ public class Executor {
         List<ChatMessage> history = removeSystemPrompt(memory);
 
         // load executor prompt
-        ClassPathResource resource = new ClassPathResource("j2template/conclusion.jinja");
+        ClassPathResource resource = new ClassPathResource("prompts/conclusion.jinja");
         InputStream inputStream = resource.getInputStream();
         String conclusionPrompt = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
@@ -74,7 +74,7 @@ public class Executor {
     }
 
     private void loadSystemPrompt() throws IOException {
-        ClassPathResource resource = new ClassPathResource("j2template/executionSystemPrompt.jinja");
+        ClassPathResource resource = new ClassPathResource("prompts/executionSystemPrompt.jinja");
         InputStream inputStream = resource.getInputStream();
         EXECUTOR_PRIMARY_PROMPT = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
     }

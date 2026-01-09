@@ -40,7 +40,7 @@ public class Planner {
     }
 
     public void loadSystemPrompt() throws IOException {
-        ClassPathResource resource = new ClassPathResource("j2template/planner.jinja");
+        ClassPathResource resource = new ClassPathResource("prompts/planner.jinja");
         InputStream inputStream = resource.getInputStream();
         PLANNER_PRIMARY_PROMPT = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
     }
@@ -50,7 +50,7 @@ public class Planner {
         List<ChatMessage> userMessageList = removeSystemPrompt(memory);
 
         // load create plan prompt
-        ClassPathResource resource = new ClassPathResource("j2template/createPlan.jinja");
+        ClassPathResource resource = new ClassPathResource("prompts/createPlan.jinja");
         InputStream inputStream = resource.getInputStream();
         String createPlanPromptTemplate = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
@@ -72,7 +72,7 @@ public class Planner {
 
     public String updatePlan(LlmClient llmClient, Plan plan) throws IOException {
 
-        ClassPathResource resource = new ClassPathResource("j2template/updatePlan.jinja");
+        ClassPathResource resource = new ClassPathResource("prompts/updatePlan.jinja");
         InputStream inputStream = resource.getInputStream();
         String updatePlanTemplate = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
