@@ -1,6 +1,8 @@
 package cn.nolaurene.cms.service.sandbox.backend.utils;
 
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
+import cn.nolaurene.cms.service.sandbox.backend.message.Step;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +59,17 @@ public class PromptRenderer {
         StringBuilder sb = new StringBuilder();
         for (ChatMessage message : history) {
             sb.append(message.getRole().name()).append(": ").append(message.getContent()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    public static String renderStep(List<Step> steps) {
+        if (CollectionUtils.isEmpty(steps)) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Step step : steps) {
+            sb.append(String.format("Step description: %s; Status: %s, Result: %s", step.getDescription(), step.getStatus(), step.getResult()));
         }
         return sb.toString();
     }

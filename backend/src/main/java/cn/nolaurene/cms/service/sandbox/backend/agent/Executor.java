@@ -1,6 +1,7 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
+import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
@@ -17,8 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.removeSystemPrompt;
-import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.renderHistory;
+import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.*;
 
 @Slf4j
 public class Executor {
@@ -34,8 +34,7 @@ public class Executor {
         }
     }
 
-    public String executeStep(LlmClient llmClient, List<ChatMessage> memory, String goal, String step, String tools) throws IOException {
-        List<ChatMessage> history = removeSystemPrompt(memory);
+    public String executeStep(LlmClient llmClient, List<Step> completedSteps, String goal, String step, String tools) throws IOException {
 
         // load executor prompt
         ClassPathResource resource = new ClassPathResource("prompts/execution.jinja");
@@ -47,7 +46,7 @@ public class Executor {
         context.put("availableTools", tools);
         context.put("goal", goal);
         context.put("step", step);
-        context.put("message", renderHistory(history));
+        context.put("completedSteps", renderStep(completedSteps));
 
         String executorPrompt = PromptRenderer.render(executorPromptTemplate, context);
 

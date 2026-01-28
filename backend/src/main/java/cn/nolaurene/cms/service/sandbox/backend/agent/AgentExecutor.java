@@ -236,7 +236,19 @@ public class AgentExecutor {
                         syncRespondPlan(plan, emitter);
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
-                        String executionCommand = agent.getExecutor().executeStep(llm, memory.getHistory(), plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
+                        List<Step> completedSteps = plan.getSteps()
+                                .stream()
+                                .filter(step -> step.getStatus().equals(StepEventStatus.completed.getCode()))
+                                .collect(Collectors.toList());
+
+                        // remove all completed steps' result except last one
+                        if (CollectionUtils.isNotEmpty(completedSteps)) {
+                            for (int idx = completedSteps.size() - 2; idx >= 0; idx--) {
+                                completedSteps.get(idx).setResult("");
+                            }
+                        }
+
+                        String executionCommand = agent.getExecutor().executeStep(llm, completedSteps, plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
                         List<ToolCall> toolCallsFromAI = ReActParser.parseToolCallsFromContent(executionCommand);
 
                         log.info("[PLAN ACT] Execute command for round {}: {}", round, executionCommand);
