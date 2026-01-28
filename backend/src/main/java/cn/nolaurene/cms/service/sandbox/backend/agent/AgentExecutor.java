@@ -67,6 +67,9 @@ public class AgentExecutor {
     private int MAX_ROUNDS;
     private static final long ROUND_INTERVAL = 1000L; // 每轮间隔时间，单位毫秒
     private static final boolean USE_STREAM = false;
+
+    private AgentContext context;
+
     private ToolRegistry tools;
     @Setter
     @Getter
@@ -157,6 +160,8 @@ public class AgentExecutor {
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
+        this.context = new AgentContext();
+        this.context.setToolList(new ArrayList<>());
 //        memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
     }
 
@@ -585,6 +590,7 @@ public class AgentExecutor {
         } else {
             logSseEvent(SSEEventType.TOOL.getType(), toolEventData);
         }
+        this.context.addTool(toolEventData.getFunction());
         saveAssistantMessage(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
     }
 

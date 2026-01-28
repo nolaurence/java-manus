@@ -69,7 +69,7 @@ public class PromptRenderer {
         }
         StringBuilder sb = new StringBuilder();
         for (Step step : steps) {
-            sb.append(String.format("Step description: %s; Status: %s, Result: %s", step.getDescription(), step.getStatus(), step.getResult()));
+            sb.append(String.format("Step description: %s; Status: %s, Result: %s\n", step.getDescription(), step.getStatus(), step.getResult()));
         }
         return sb.toString();
     }
