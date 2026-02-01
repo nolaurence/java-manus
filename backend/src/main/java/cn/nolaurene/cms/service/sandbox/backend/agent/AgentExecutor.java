@@ -434,7 +434,19 @@ public class AgentExecutor {
                     
                     // Update AgentContext based on tool type
                     if (toolName.startsWith("browser")) {
-                        this.context.updateBrowserContext(toolName, observation);
+                        // 直接使用 browser MCP client 获取最新的 browser snapshot
+                        try {
+                            McpSchema.CallToolResult snapshotResult = mcpClient.callTool(
+                                new McpSchema.CallToolRequest("browser_snapshot", new HashMap<>())
+                            );
+                            String snapshotObservation = snapshotResult != null && !Boolean.TRUE.equals(snapshotResult.getIsError()) 
+                                ? JSON.toJSONString(snapshotResult.getContent()) 
+                                : observation;
+                            this.context.updateBrowserContext("browser_snapshot", snapshotObservation);
+                        } catch (Exception e) {
+                            log.warn("Failed to get browser snapshot, using original observation", e);
+                            this.context.updateBrowserContext(toolName, observation);
+                        }
                     } else if (toolName.startsWith("shell")) {
                         this.context.updateShellContext(toolName, observation);
                     } else if (toolName.startsWith("file")) {
