@@ -253,7 +253,7 @@ public class AgentExecutor {
                             }
                         }
 
-                        String executionCommand = agent.getExecutor().executeStep(llm, completedSteps, plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
+                        String executionCommand = agent.getExecutor().executeStep(llm, completedSteps, plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo(), this.context);
                         List<ToolCall> toolCallsFromAI = ReActParser.parseToolCallsFromContent(executionCommand);
 
                         log.info("[PLAN ACT] Execute command for round {}: {}", round, executionCommand);
@@ -430,6 +430,16 @@ public class AgentExecutor {
                         observation = "Tool call error: " + JSON.toJSONString(callToolResult != null ? callToolResult.getContent() : "Unknown error");
                     } else {
                         observation = JSON.toJSONString(callToolResult.getContent());
+                    }
+                    
+                    // Update AgentContext based on tool type
+                    if (toolName.startsWith("browser")) {
+                        this.context.updateBrowserContext(toolName, observation);
+                    } else if (toolName.startsWith("shell")) {
+                        this.context.updateShellContext(toolName, observation);
+                    } else if (toolName.startsWith("file")) {
+                        String filePath = toolInput.containsKey("file") ? String.valueOf(toolInput.get("file")) : null;
+                        this.context.updateFileContext(toolName, observation, filePath);
                     }
 
                     log.info("add observation to memory: {}", observation);
