@@ -1,5 +1,6 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
+import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.llm.StreamResource;
@@ -28,6 +29,7 @@ import com.alibaba.fastjson2.JSONPath;
 import com.alibaba.fastjson2.TypeReference;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.mybatis.mapper.example.Example;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -707,6 +709,9 @@ public class AgentExecutor {
             return;
         }
         try {
+            // add to memory
+            memory.add(new ChatMessage(ChatMessage.Role.assistant, eventType, content));
+
             ConversationRequest req = new ConversationRequest();
             req.setUserId(conversationUserId);
             req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
@@ -745,5 +750,29 @@ public class AgentExecutor {
             e.printStackTrace();
         }
         return null;
+    }
+
+    private void ensureMemory() {
+        if (memory.isEmpty()) {
+            Example<ConversationHistoryDO> example = new Example<>();
+            List<ConversationResponse> sessionConversations = conversationHistoryService.getSessionConversations(agent.getAgentId());
+
+            sessionConversations.forEach(conversation -> {
+                switch(conversation.getMessageType()) {
+                    case USER:
+                        memory.add(new ChatMessage(ChatMessage.Role.user, conversation.getEventType(), JSON.toJSONString(conversation.getContent())));
+                        break;
+                    case ASSISTANT:
+                        memory.add(new ChatMessage(ChatMessage.Role.assistant, conversation.getEventType(), JSON.toJSONString(conversation.getContent())));
+                        break;
+                    default:
+                        break;
+                }
+            });
+        }
+    }
+
+    private void compactMemory() {
+        this.memory.compact();
     }
 }

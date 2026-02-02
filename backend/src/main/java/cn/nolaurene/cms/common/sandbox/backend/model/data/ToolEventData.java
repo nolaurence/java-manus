@@ -14,4 +14,6 @@ public class ToolEventData {
     private String function;
 
     private Map<String, Object> args;
+
+    private String result;
 }
