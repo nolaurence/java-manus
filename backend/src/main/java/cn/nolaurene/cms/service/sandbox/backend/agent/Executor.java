@@ -14,6 +14,7 @@ import org.springframework.core.io.ClassPathResource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +27,7 @@ public class Executor {
     public String executeStep(LlmClient llmClient, ChatMemory memory, List<Step> completedSteps, String goal, String step, String tools) throws IOException {
         String systemPrompt = loadPrompt("prompts/system.jinja");
         String executorSystemPrompt = loadPrompt("prompts/executionSystemPrompt.jinja");
-        List<ChatMessage> messagesListToAsk = List.of(new ChatMessage(ChatMessage.Role.system, systemPrompt + "\n" + executorSystemPrompt));
+        List<ChatMessage> messagesListToAsk = Arrays.asList(new ChatMessage(ChatMessage.Role.system, systemPrompt + "\n" + executorSystemPrompt));
         messagesListToAsk.addAll(memory.getHistory());
 
         String executorPromptTemplate = loadPrompt("prompts/execution.jinja");
@@ -69,9 +70,9 @@ public class Executor {
         System.out.println("<think>\n" + reasoningContent + "\n</think>\n" + escapedResponse);
     }
 
-    private String loadPrompt(String filePathString) throws IOException {
-        ClassPathResource resource = new ClassPathResource(filePathString);
-        InputStream inputStream = resource.getInputStream();
-        return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-    }
+//    private String loadPrompt(String filePathString) throws IOException {
+//        ClassPathResource resource = new ClassPathResource(filePathString);
+//        InputStream inputStream = resource.getInputStream();
+//        return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+//    }
 }

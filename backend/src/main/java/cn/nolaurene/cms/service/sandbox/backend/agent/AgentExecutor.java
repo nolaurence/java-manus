@@ -198,7 +198,7 @@ public class AgentExecutor {
 
                     case PLANNING:
                         // create plan
-                        String rawPlan = agent.getPlanner().createPlan(llm, memory.getHistory());
+                        String rawPlan = agent.getPlanner().createPlan(llm, input, memory);
 
                         log.info("[PLAN ACT] Raw plan for round {}: {}", round, rawPlan);
                         if (StringUtils.isBlank(rawPlan)) {
