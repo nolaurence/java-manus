@@ -135,6 +135,9 @@ public class ConversationHistoryService {
         newDataObject.setId(stepMessage.getId());
 
         JSONObject metaData = JSON.parseObject(stepMessage.getMetadata());
+        if (null == metaData) {
+            metaData = new JSONObject();
+        }
         metaData.put("stepStatus", status);
 
         if (toolIds != null && !toolIds.isEmpty()) {

@@ -29,24 +29,6 @@ import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.*;
 @Slf4j
 public class Planner {
 
-    private static String PLANNER_PRIMARY_PROMPT;
-
-    public Planner() {
-        try {
-            loadSystemPrompt();
-        } catch (IOException e) {
-            log.error("Failed to load planner system prompt", e);
-            throw new RuntimeException("Failed to load planner system prompt", e);
-        }
-    }
-
-    public void loadSystemPrompt() throws IOException {
-        ClassPathResource resource = new ClassPathResource("prompts/planner.jinja");
-        InputStream inputStream = resource.getInputStream();
-        PLANNER_PRIMARY_PROMPT = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-    }
-
-
     public String createPlan(LlmClient llmClient, String userInput, ChatMemory memory) throws IOException {
         List<ChatMessage> messageListToAsk = new ArrayList<>();
         messageListToAsk.add(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
