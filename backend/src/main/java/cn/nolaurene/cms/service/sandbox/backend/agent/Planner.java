@@ -1,6 +1,7 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 
+import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.StepEventStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
@@ -73,7 +74,7 @@ public class Planner {
         return ReActParser.parseOpenAIStyleResponse(llmResponse);
     }
 
-    public String updatePlan(LlmClient llmClient, Plan plan) throws IOException {
+    public String updatePlan(LlmClient llmClient, ChatMemory memory, Plan plan) throws IOException {
 
         ClassPathResource resource = new ClassPathResource("prompts/updatePlan.jinja");
         InputStream inputStream = resource.getInputStream();
@@ -87,8 +88,8 @@ public class Planner {
         String updatePlanPrompt = PromptRenderer.render(updatePlanTemplate, context);
 
         // ask llm
-        List<ChatMessage> messageList = new ArrayList<>();
-        messageList.add(new ChatMessage(ChatMessage.Role.system, updatePlanPrompt));
+        List<ChatMessage> messageList = new ArrayList<>(memory.getHistory());
+        messageList.add(new ChatMessage(ChatMessage.Role.user, updatePlanPrompt));
 
         log.info("[Planner] update plan request: {}", JSON.toJSONString(messageList));
         String llmResponse = llmClient.chat(messageList);

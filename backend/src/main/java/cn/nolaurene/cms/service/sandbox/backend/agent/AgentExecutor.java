@@ -70,7 +70,6 @@ public class AgentExecutor {
     private static final long ROUND_INTERVAL = 1000L; // 每轮间隔时间，单位毫秒
     private static final boolean USE_STREAM = false;
 
-    private AgentContext context;
 
     private ToolRegistry tools;
     @Setter
@@ -164,8 +163,6 @@ public class AgentExecutor {
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
-        this.context = new AgentContext();
-        this.context.setToolList(new ArrayList<>());
 //        memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
     }
 
@@ -185,8 +182,7 @@ public class AgentExecutor {
         setupSseEmitterListeners(emitter);
         // 从数据库恢复历史对话
         ensureMemory();
-        saveUserMessage(input);
-        memory.add(new ChatMessage(ChatMessage.Role.user, input));
+        addMessageToMemory(new ChatMessage(ChatMessage.Role.user, input));
 
         AgentStatus agentStatus = AgentStatus.IDLE;
         Plan plan = new Plan();
@@ -216,7 +212,7 @@ public class AgentExecutor {
                         syncRespondContent(rawPlan, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
                         // persist assistant plan content
-                        saveAssistantMessage("**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan, SSEEventType.MESSAGE);
+                        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.MESSAGE, "**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan));
                         plan = ReActParser.parsePlan(rawPlan);
                         if (null == plan) {
                             log.error("[PLAN ACT] Failed to parse plan for round {}, skipping to next round.", round);
@@ -226,7 +222,7 @@ public class AgentExecutor {
                         // 规划出的step全部置为pending
                         plan.getSteps().forEach(step -> step.setStatus(StepEventStatus.pending.getCode()));
                         syncRespondPlan(plan, emitter);
-                        saveAssistantMessage(JSON.toJSONString(plan), SSEEventType.PLAN);
+                        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
 
                         agentStatus = AgentStatus.EXECUTING;
                         break;
@@ -245,7 +241,7 @@ public class AgentExecutor {
 
                         reportStep(StepEventStatus.running, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
-                        conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
+                        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
 
                         List<Step> completedSteps = plan.getSteps()
                                 .stream()
@@ -259,17 +255,18 @@ public class AgentExecutor {
                             }
                         }
 
-                        String executionCommand = agent.getExecutor().executeStep(llm, completedSteps, plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo(), this.context);
+                        String executionCommand = agent.getExecutor().executeStep(llm, memory, completedSteps, plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
                         List<ToolCall> toolCallsFromAI = ReActParser.parseToolCallsFromContent(executionCommand);
 
                         log.info("[PLAN ACT] Execute command for round {}: {}", round, executionCommand);
                         String observation = executeTools(round, toolCallsFromAI, emitter);
                         currentStep.setResult(observation);
                         currentStep.setStatus(StepEventStatus.completed.getCode());
-                        reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);  // 这里应该没问题
+                        reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
+                        ensureMemory();
                         compactMemory();
 
                         agentStatus = AgentStatus.UPDATING;
@@ -279,7 +276,7 @@ public class AgentExecutor {
                         List<Step> pendingSteps = plan.getSteps().stream().filter(step -> step.getStatus().equals(StepEventStatus.pending.getCode())).collect(Collectors.toList());
                         List<Step> finishedSteps = plan.getSteps().stream().filter(step -> !step.getStatus().equals(StepEventStatus.pending.getCode())).collect(Collectors.toList());
 
-                        String updatedStepsString = agent.getPlanner().updatePlan(llm, plan);
+                        String updatedStepsString = agent.getPlanner().updatePlan(llm, memory, plan);
                         log.info("[PLAN ACT] Updated steps for round {}: {}", round, updatedStepsString);
 
                         List<String> newSteps = ReActParser.parseStepDescriptions(updatedStepsString);
@@ -319,6 +316,11 @@ public class AgentExecutor {
                         agentStatus = AgentStatus.IDLE;
                         round = MAX_ROUNDS + 1;  // 跳出for循环
                         break;
+
+                    case COMPLETED:
+                    default:
+                        break;
+
                 }
             } catch (Exception e) {
                 log.error("[PLAN ACT] Error when creating plan for round: {}, error: ", round, e);
@@ -439,28 +441,6 @@ public class AgentExecutor {
                     } else {
                         observation = JSON.toJSONString(callToolResult.getContent());
                     }
-                    
-                    // Update AgentContext based on tool type
-                    if (toolName.startsWith("browser")) {
-                        // 直接使用 browser MCP client 获取最新的 browser snapshot
-                        try {
-                            McpSchema.CallToolResult snapshotResult = mcpClient.callTool(
-                                new McpSchema.CallToolRequest("browser_snapshot", new HashMap<>())
-                            );
-                            String snapshotObservation = snapshotResult != null && !Boolean.TRUE.equals(snapshotResult.getIsError()) 
-                                ? JSON.toJSONString(snapshotResult.getContent()) 
-                                : observation;
-                            this.context.updateBrowserContext("browser_snapshot", snapshotObservation);
-                        } catch (Exception e) {
-                            log.warn("Failed to get browser snapshot, using original observation", e);
-                            this.context.updateBrowserContext(toolName, observation);
-                        }
-                    } else if (toolName.startsWith("shell")) {
-                        this.context.updateShellContext(toolName, observation);
-                    } else if (toolName.startsWith("file")) {
-                        String filePath = toolInput.containsKey("file") ? String.valueOf(toolInput.get("file")) : null;
-                        this.context.updateFileContext(toolName, observation, filePath);
-                    }
 
                     log.info("add observation to memory: {}", observation);
                     observations.add(observation);
@@ -561,30 +541,9 @@ public class AgentExecutor {
         }
     }
 
-    private void asyncToolMessage(ToolCall toolCall, SseEmitter sseEmitter, AssistantMessageType messageType) {
-        ToolEventData data = new ToolEventData();
-        data.setTimestamp(System.currentTimeMillis());
-        data.setName(messageType.getMessage());
-        data.setFunction(toolCall.getFunction().getName());
-        try {
-            data.setArgs(JSON.parseObject(toolCall.getFunction().getArguments(), new TypeReference<>() {}));
-        } catch (Exception e) {
-            log.warn("Failed to parse tool args for tool event", e);
-        }
-
-        if (frontendConnected.get() && sseEmitter != null) {
-            executor.submit(() -> {
-                if (frontendConnected.get()) {
-                    sendOrForwardMessage(sseEmitter, SSEEventType.TOOL.getType(), data);
-                }
-            });
-        } else {
-            logSseEvent(SSEEventType.TOOL.getType(), data);
-        }
-    }
-
     // --- 新增：统一的步骤报告方法 ---
     private void reportStep(StepEventStatus status, String description, SseEmitter sseEmitterOpt) {
+        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.STEP, description));
         if (frontendConnected.get() && sseEmitterOpt != null) {
             asyncStep(status, description, sseEmitterOpt);
         } else {
@@ -621,9 +580,9 @@ public class AgentExecutor {
         } else {
             logSseEvent(SSEEventType.TOOL.getType(), toolEventData);
         }
-        this.context.addTool(toolEventData.getFunction());
 
         Long toolMessageId = saveAssistantMessageWithId(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
+        this.memory.add(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.TOOL, JSON.toJSONString(toolEventData)));
         if (toolMessageId != null) {
             currentStepToolIds.add(toolMessageId);
         }
@@ -787,6 +746,18 @@ public class AgentExecutor {
                 }
             });
         }
+    }
+
+    private void addMessageToMemory(ChatMessage message) {
+        switch(message.getRole()) {
+            case user:
+                saveUserMessage(message.getContent());
+                break;
+            case assistant:
+                saveAssistantMessage(message.getContent(), message.getEventType());
+                break;
+        }
+        this.memory.add(message);
     }
 
     private void compactMemory() {
