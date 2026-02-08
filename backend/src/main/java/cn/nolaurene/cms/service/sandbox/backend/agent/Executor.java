@@ -25,7 +25,7 @@ public class Executor {
 
     public String executeStep(LlmClient llmClient, ChatMemory memory, List<Step> completedSteps, String goal, String step, String tools) throws IOException {
         String systemPrompt = loadPrompt("prompts/system.jinja");
-        String executorSystemPrompt = loadPrompt("prompts/executorSystemPrompt.jinja");
+        String executorSystemPrompt = loadPrompt("prompts/executionSystemPrompt.jinja");
         List<ChatMessage> messagesListToAsk = List.of(new ChatMessage(ChatMessage.Role.system, systemPrompt + "\n" + executorSystemPrompt));
         messagesListToAsk.addAll(memory.getHistory());
 
