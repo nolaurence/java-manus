@@ -100,6 +100,7 @@ public class AgentExecutor {
     private String localServerIp = "127.0.0.1";
 
     // --- Persistence context ---
+    @Resource
     private ConversationHistoryService conversationHistoryService;
     private String conversationUserId = "anonymous";
     private String conversationSessionId = null; // fallback to agentId if null
