@@ -402,15 +402,15 @@ public class ConversationHistoryService {
             case STEP:
                 StepEventData stepEventData = new StepEventData();
                 stepEventData.setTimestamp(messageTimeStamp);
-
-                JSONObject stepMetadata = JSON.parseObject(conversation.getMetadata());
-                stepEventData.setStatus(stepMetadata.getString("stepStatus"));
                 stepEventData.setDescription(conversation.getContent());
 
-                if (stepMetadata.containsKey("toolIds")) {
-                    stepEventData.setToolIds(stepMetadata.getJSONArray("toolIds").toJavaList(Long.class));
+                JSONObject stepMetadata = JSON.parseObject(conversation.getMetadata());
+                if (null != stepMetadata) {
+                    stepEventData.setStatus(stepMetadata.getString("stepStatus"));
+                    if (stepMetadata.containsKey("toolIds")) {
+                        stepEventData.setToolIds(stepMetadata.getJSONArray("toolIds").toJavaList(Long.class));
+                    }
                 }
-
                 response.setContent(stepEventData);
                 response.setEventType(SSEEventType.STEP);
                 break;
