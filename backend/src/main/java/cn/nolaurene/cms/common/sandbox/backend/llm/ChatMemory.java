@@ -22,7 +22,7 @@ public class ChatMemory {
     }
 
     public List<ChatMessage> getHistory() {
-        List<ChatMessage> copy = new ArrayList<>(history.size());
+        List<ChatMessage> copy = new ArrayList<>();
         for (ChatMessage message : history) {
             ChatMessage cloned = new ChatMessage(message.getRole(), message.getEventType(), message.getContent());
             copy.add(cloned);

@@ -14,10 +14,7 @@ import org.springframework.core.io.ClassPathResource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.*;
 
@@ -27,7 +24,8 @@ public class Executor {
     public String executeStep(LlmClient llmClient, ChatMemory memory, List<Step> completedSteps, String goal, String step, String tools) throws IOException {
         String systemPrompt = loadPrompt("prompts/system.jinja");
         String executorSystemPrompt = loadPrompt("prompts/executionSystemPrompt.jinja");
-        List<ChatMessage> messagesListToAsk = Arrays.asList(new ChatMessage(ChatMessage.Role.system, systemPrompt + "\n" + executorSystemPrompt));
+        List<ChatMessage> messagesListToAsk = new ArrayList<>();
+        messagesListToAsk.add(new ChatMessage(ChatMessage.Role.system, systemPrompt + "\n" + executorSystemPrompt));
         messagesListToAsk.addAll(memory.getHistory());
 
         String executorPromptTemplate = loadPrompt("prompts/execution.jinja");

@@ -48,7 +48,8 @@ public class Planner {
 
 
     public String createPlan(LlmClient llmClient, String userInput, ChatMemory memory) throws IOException {
-        List<ChatMessage> messageListToAsk = Arrays.asList(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
+        List<ChatMessage> messageListToAsk = new ArrayList<>();
+        messageListToAsk.add(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
         messageListToAsk.addAll(memory.getHistory());
         messageListToAsk.add(new ChatMessage(ChatMessage.Role.user, loadPrompt("prompts/createPlan.jinja")));
         messageListToAsk.add(new ChatMessage(ChatMessage.Role.user, userInput));
@@ -61,7 +62,8 @@ public class Planner {
 
     public String updatePlan(LlmClient llmClient, ChatMemory memory, Plan plan) throws IOException {
 
-        List<ChatMessage> messageListToAsk = Arrays.asList(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
+        List<ChatMessage> messageListToAsk = new ArrayList<>();
+        messageListToAsk.add(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
         messageListToAsk.addAll(memory.getHistory());
 
         // assemble update prompt
