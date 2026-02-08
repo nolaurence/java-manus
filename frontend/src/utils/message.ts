@@ -8,7 +8,18 @@ import { ConversationMessage } from '@/services/api/sandbox';
 import type { PlanEventData } from '@/types/sseEvent';
 
 export const attachToolsToSteps = (messages: Message[], conversationMessages: ConversationMessage[]): Message[] => {
-  // 收集 steps 和 tools 的索引及时间
+  // 构建 Tool 消息的数据库 ID -> index 映射
+  const toolIdToIndex = new Map<number, number>();
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].type === 'tool') {
+      const msgId = conversationMessages[i]?.id;
+      if (msgId) {
+        toolIdToIndex.set(msgId, i);
+      }
+    }
+  }
+
+  // 收集 steps 和 tools 的索引及时间（用于回退逻辑）
   const steps: { index: number; time: number }[] = [];
   const tools: { index: number; time: number }[] = [];
 
@@ -31,14 +42,45 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
     return messages; // 不做任何过滤
   }
 
-  let stepPtr = 0;
+  // 遍历 Step 消息，优先使用 toolIds 进行关联
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.type === 'step') {
+      const stepContent = msg.content as StepContent;
 
+      if (!stepContent.tools) {
+        stepContent.tools = [];
+      }
+
+      // 优先使用 toolIds 精确关联
+      if (stepContent.toolIds && stepContent.toolIds.length > 0) {
+        for (const toolId of stepContent.toolIds) {
+          const toolIndex = toolIdToIndex.get(toolId);
+          if (toolIndex !== undefined) {
+            const toolMsg = messages[toolIndex];
+            if (toolMsg.type === 'tool') {
+              stepContent.tools.push(toolMsg.content as ToolContent);
+              toolsToFilter.add(toolIndex);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 回退逻辑：处理没有 toolIds 的历史数据（使用时间戳关联）
+  let stepPtr = 0;
   for (const tool of tools) {
+    // 如果这个 tool 已经通过 toolIds 被关联了，跳过
+    if (toolsToFilter.has(tool.index)) {
+      continue;
+    }
+
     // 移动指针到最后一个 step.time <= tool.time
     while (
       stepPtr < steps.length - 1 &&
       steps[stepPtr + 1].time <= tool.time
-      ) {
+    ) {
       stepPtr++;
     }
 
@@ -46,18 +88,19 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
 
     // 检查这个 step 是否真的在 tool 之前（或同时）
     if (candidateStep.time <= tool.time) {
-      // 可以挂载
       const stepMsg = messages[candidateStep.index];
       if (stepMsg.type === 'step') {
-        if ((stepMsg.content as StepContent).tools === undefined) {
-          (stepMsg.content as StepContent).tools = [];
+        const stepContent = stepMsg.content as StepContent;
+        // 只有当该 step 没有 toolIds 时才使用时间戳关联
+        if (!stepContent.toolIds || stepContent.toolIds.length === 0) {
+          if (stepContent.tools === undefined) {
+            stepContent.tools = [];
+          }
+          stepContent.tools.push(messages[tool.index].content as ToolContent);
+          toolsToFilter.add(tool.index);
         }
-        (stepMsg.content as StepContent).tools.push(messages[tool.index].content as ToolContent);
-        toolsToFilter.add(tool.index); // 标记为需删除
       }
     }
-    // 否则：tool 在所有 step 之前（包括第一个 step.time > tool.time）
-    // → 不挂载，也不加入 toolsToFilter，后续会保留
   }
 
   // 过滤：只移除被标记的 tool

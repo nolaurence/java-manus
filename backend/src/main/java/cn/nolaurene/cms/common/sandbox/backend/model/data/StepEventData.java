@@ -2,6 +2,8 @@ package cn.nolaurene.cms.common.sandbox.backend.model.data;
 
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class StepEventData {
 
@@ -14,4 +16,6 @@ public class StepEventData {
     private String description;
 
     private String result;
+
+    private List<Long> toolIds;
 }

@@ -117,6 +117,10 @@ public class ConversationHistoryService {
     }
 
     public void updateLastStepStatus(String sessionId, String status) {
+        updateLastStepStatus(sessionId, status, null);
+    }
+
+    public void updateLastStepStatus(String sessionId, String status, List<Long> toolIds) {
         Example<ConversationHistoryDO> example = new Example<>();
         example.createCriteria().andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
                 .andEqualTo(ConversationHistoryDO::getEventType, SSEEventType.STEP.getType())
@@ -132,6 +136,11 @@ public class ConversationHistoryService {
 
         JSONObject metaData = JSON.parseObject(stepMessage.getMetadata());
         metaData.put("stepStatus", status);
+
+        if (toolIds != null && !toolIds.isEmpty()) {
+            metaData.put("toolIds", toolIds);
+        }
+
         newDataObject.setMetadata(metaData.toString());
         conversationHistoryTkMapper.updateByPrimaryKeySelective(newDataObject);
     }
@@ -393,8 +402,15 @@ public class ConversationHistoryService {
             case STEP:
                 StepEventData stepEventData = new StepEventData();
                 stepEventData.setTimestamp(messageTimeStamp);
-                stepEventData.setStatus(JSON.parseObject(conversation.getMetadata()).getString("stepStatus"));
+
+                JSONObject stepMetadata = JSON.parseObject(conversation.getMetadata());
+                stepEventData.setStatus(stepMetadata.getString("stepStatus"));
                 stepEventData.setDescription(conversation.getContent());
+
+                if (stepMetadata.containsKey("toolIds")) {
+                    stepEventData.setToolIds(stepMetadata.getJSONArray("toolIds").toJavaList(Long.class));
+                }
+
                 response.setContent(stepEventData);
                 response.setEventType(SSEEventType.STEP);
                 break;

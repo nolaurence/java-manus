@@ -15,6 +15,7 @@ export interface StepEventData {
   status: "pending" | "running" | "completed" | "failed"
   id: string
   description: string
+  toolIds?: number[];
 }
 
 export interface MessageEventData {

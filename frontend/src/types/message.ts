@@ -27,4 +27,5 @@ export interface StepContent extends BaseContent {
   description: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   tools: ToolContent[];
+  toolIds?: number[];
 }

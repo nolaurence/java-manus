@@ -95,6 +95,8 @@ public class AgentExecutor {
     private final AtomicBoolean frontendConnected = new AtomicBoolean(true);
     // 持有当前的 SseEmitter 引用，用于后台模式下可能需要的错误通知或最终完成
     private volatile SseEmitter currentSseEmitter = null;
+    // 追踪当前 Step 关联的 Tool 消息 ID
+    private final List<Long> currentStepToolIds = new ArrayList<>();
 
     private String localServerIp = "127.0.0.1";
 
@@ -181,6 +183,8 @@ public class AgentExecutor {
 
         // 设置连接监听器
         setupSseEmitterListeners(emitter);
+        // 从数据库恢复历史对话
+        ensureMemory();
         saveUserMessage(input);
         memory.add(new ChatMessage(ChatMessage.Role.user, input));
 
@@ -265,6 +269,8 @@ public class AgentExecutor {
                         reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);  // 这里应该没问题
                         syncRespondPlan(plan, emitter);
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
+
+                        compactMemory();
 
                         agentStatus = AgentStatus.UPDATING;
                         break;
@@ -592,13 +598,14 @@ public class AgentExecutor {
         // save step info to database
         switch(status) {
             case running:
+                currentStepToolIds.clear();
                 conversationHistoryService.addStep(agent.getUserId(), agent.getAgentId(), description);
                 break;
             case completed:
-                conversationHistoryService.updateLastStepStatus(agent.getAgentId(), StepEventStatus.completed.getCode());
+                conversationHistoryService.updateLastStepStatus(agent.getAgentId(), StepEventStatus.completed.getCode(), new ArrayList<>(currentStepToolIds));
                 break;
             case failed:
-                conversationHistoryService.updateLastStepStatus(agent.getAgentId(), StepEventStatus.failed.getCode());
+                conversationHistoryService.updateLastStepStatus(agent.getAgentId(), StepEventStatus.failed.getCode(), null);
                 break;
         }
     }
@@ -615,7 +622,11 @@ public class AgentExecutor {
             logSseEvent(SSEEventType.TOOL.getType(), toolEventData);
         }
         this.context.addTool(toolEventData.getFunction());
-        saveAssistantMessage(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
+
+        Long toolMessageId = saveAssistantMessageWithId(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
+        if (toolMessageId != null) {
+            currentStepToolIds.add(toolMessageId);
+        }
     }
 
     // --- 新增：后台模式下的日志记录 ---
@@ -705,8 +716,12 @@ public class AgentExecutor {
     }
 
     private void saveAssistantMessage(String content, SSEEventType eventType) {
+        saveAssistantMessageWithId(content, eventType);
+    }
+
+    private Long saveAssistantMessageWithId(String content, SSEEventType eventType) {
         if (conversationHistoryService == null) {
-            return;
+            return null;
         }
         try {
             // add to memory
@@ -719,9 +734,11 @@ public class AgentExecutor {
             req.setEventType(eventType);
             req.setContent(content);
             req.setMetadata(null);
-            conversationHistoryService.saveConversation(req);
+            ConversationResponse response = conversationHistoryService.saveConversation(req);
+            return response.getId();
         } catch (Exception e) {
             log.warn("failed to persist assistant message", e);
+            return null;
         }
     }
 
