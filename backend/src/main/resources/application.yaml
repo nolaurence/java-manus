@@ -50,7 +50,7 @@ springdoc:
 sandbox:
   backend:
     max-loop: 30
-    execution-max-loop: 20
+    max-execution-loop: 20
     sse-timeout-ms: 1200000
     max-threads: 10
     worker-url: http://worker:7500
