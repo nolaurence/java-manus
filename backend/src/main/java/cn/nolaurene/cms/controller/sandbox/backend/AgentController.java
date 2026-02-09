@@ -64,6 +64,9 @@ public class AgentController {
     @Value("${sandbox.backend.max-loop}")
     private int maxLoop;
 
+    @Value("${sandbox.backend.max-execution-loop}")
+    private int maxExecutionLoop;
+
     @Value("${sandbox.backend.sse-timeout-ms}")
     private long sseTimeout;
 
@@ -157,6 +160,7 @@ public class AgentController {
             agent.setUserId(null != currentUserInfo ? currentUserInfo.getUserid().toString() : "anonymous");
             agent.setAgentId(agentId);
             agent.setMaxLoop(maxLoop);
+            agent.setExecutionMaxLoop(maxExecutionLoop);
             agent.setStatus("CREATED");
             agent.setMessage("Creating agent session...");
             agent.setLlmEndpoint(endpoint);

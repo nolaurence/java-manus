@@ -32,6 +32,8 @@ public class Agent {
 
     private int maxLoop;
 
+    private int executionMaxLoop;
+
     private String llmEndpoint;
 
     private String llmApiKey;

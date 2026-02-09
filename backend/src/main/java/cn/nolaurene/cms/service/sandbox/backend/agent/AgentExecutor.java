@@ -111,6 +111,9 @@ public class AgentExecutor {
     @Resource
     private AgentSessionServerService agentSessionServerService;
 
+    @Resource
+    private ExecutionSubAgent executionSubAgent;
+
     public AgentExecutor() {
         this.MAX_ROUNDS = 30;
         try {
@@ -229,48 +232,72 @@ public class AgentExecutor {
                         break;
 
                     case EXECUTING:
+                        // 根据当前 Plan 顺序执行 pending 状态的 Step。
+                        // 使用 ExecutionSubAgent 构造只基于 Plan 的精简上下文，不复用全局 memory；
+                        // shell / browser 的上下文在工具层由 MCP 实时获取。
                         Optional<Step> currentStepOpt = plan.getSteps().stream()
                                 .filter(step -> StepEventStatus.pending.getCode().equals(step.getStatus()))
                                 .findFirst();
                         if (currentStepOpt.isEmpty()) {
-                            log.warn("[PLAN ACT] No pending steps found for round {}, skipping to next round.", round);
-                            agentStatus = AgentStatus.IDLE;
-                            break; // 跳过当前轮次
+                            // 没有待执行的 Step，认为当前目标已经完成，直接进入总结阶段
+                            log.info("[PLAN ACT] No pending steps in EXECUTING phase for round {}, go to CONCLUDING.", round);
+                            agentStatus = AgentStatus.CONCLUDING;
+                            break;
                         }
+
                         Step currentStep = currentStepOpt.get();
                         currentStep.setStatus(StepEventStatus.running.getCode());
 
+                        // 1. 更新前端/日志中的步骤状态为 running，并持久化当前 Plan
                         reportStep(StepEventStatus.running, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
                         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
 
+                        // 2. 收集之前已经完成步骤的结果，作为本次工具调用的上下文
                         List<Step> completedSteps = plan.getSteps()
                                 .stream()
-                                .filter(step -> step.getStatus().equals(StepEventStatus.completed.getCode()))
+                                .filter(step -> StepEventStatus.completed.getCode().equals(step.getStatus()))
                                 .collect(Collectors.toList());
 
-                        // remove all completed steps' result except last one
+                        // 只保留最近一次完成步骤的 result，其它清空，避免上下文过长
                         if (CollectionUtils.isNotEmpty(completedSteps)) {
                             for (int idx = completedSteps.size() - 2; idx >= 0; idx--) {
                                 completedSteps.get(idx).setResult("");
                             }
                         }
 
-                        String executionCommand = agent.getExecutor().executeStep(llm, memory, completedSteps, plan.getGoal(), currentStep.getDescription(), agent.getXmlToolsInfo());
-                        List<ToolCall> toolCallsFromAI = ReActParser.parseToolCallsFromContent(executionCommand);
+                        // 3. 通过执行子 agent 完成「规划 + 工具执行」完整流程，返回 observation（上下文仅来源于 Plan）
+                        String observation = executionSubAgent.executeStepWithLoop(
+                                llm,
+                                agent.getExecutor(),
+                                plan,
+                                currentStep,
+                                completedSteps,
+                                agent.getXmlToolsInfo(),
+                                agent.getExecutionMaxLoop(), // 使用 agent 配置的最大循环次数
+                                emitter,
+                                agent, // 传入 agent 对象用于 MCP 客户端访问
+                                createToolReporter()); // 传入工具报告回调
 
-                        log.info("[PLAN ACT] Execute command for round {}: {}", round, executionCommand);
-                        String observation = executeTools(round, toolCallsFromAI, emitter);
+                        // 4. 把 observation 写回当前 Step 的 result
                         currentStep.setResult(observation);
                         currentStep.setStatus(StepEventStatus.completed.getCode());
+
+                        // 5. 上报 Step 完成状态，并同步最新 Plan 到前端 & 会话历史
                         reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
+                        // 6. 将最新的执行结果写入对话记忆，并做压缩
                         ensureMemory();
                         compactMemory();
 
-                        agentStatus = AgentStatus.UPDATING;
+                        // 7. 判断是否还有未完成的 Step：
+                        //    - 有：进入 UPDATING，让 Planner 根据最新 observation 继续重规划；
+                        //    - 无：认为当前目标完成，进入 CONCLUDING 生成最终回答。
+                        boolean hasMorePendingSteps = plan.getSteps().stream()
+                                .anyMatch(step -> StepEventStatus.pending.getCode().equals(step.getStatus()));
+                        agentStatus = hasMorePendingSteps ? AgentStatus.UPDATING : AgentStatus.CONCLUDING;
                         break;
 
                     case UPDATING:
@@ -587,6 +614,20 @@ public class AgentExecutor {
         if (toolMessageId != null) {
             currentStepToolIds.add(toolMessageId);
         }
+    }
+
+    // --- 新增：创建工具报告回调 ---
+    private ExecutionSubAgent.ToolReporter createToolReporter() {
+        return (toolCall, toolType) -> {
+            ToolEventData toolEventData = new ToolEventData();
+            toolEventData.setTimestamp(System.currentTimeMillis());
+            toolEventData.setName(toolType);
+            toolEventData.setFunction(toolCall.getFunction().getName());
+            try {
+                toolEventData.setArgs(JSON.parseObject(toolCall.getFunction().getArguments(), new TypeReference<>() {}));
+            } catch (Exception ignored) {}
+            reportTool(toolEventData, null);
+        };
     }
 
     // --- 新增：后台模式下的日志记录 ---
