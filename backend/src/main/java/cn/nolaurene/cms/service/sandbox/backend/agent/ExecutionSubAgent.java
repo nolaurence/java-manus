@@ -301,6 +301,7 @@ public class ExecutionSubAgent {
             toolEventData.setTimestamp(System.currentTimeMillis());
             toolEventData.setName(toolType);
             toolEventData.setFunction(toolCall.getFunction().getName());
+            toolEventData.setArgs(toolInput);
             reportTool(toolEventData, agent.getAgentId(), agent.getUserId(), emitterOpt);
 
             // 调用 MCP 工具（带重试）
