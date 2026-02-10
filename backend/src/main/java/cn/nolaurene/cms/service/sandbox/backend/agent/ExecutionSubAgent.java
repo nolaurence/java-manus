@@ -3,8 +3,11 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
+import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.common.sandbox.backend.model.ToolCall;
+import cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData;
 import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
@@ -22,6 +25,8 @@ import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import javax.annotation.Resource;
+
 /**
  * PLAN 执行阶段的子 Agent：
  * - 仅基于 Plan 中的信息构造上下文，不依赖全局对话 memory；
@@ -32,6 +37,9 @@ import java.util.stream.Collectors;
 public class ExecutionSubAgent {
 
     private static final int MCP_TOOL_RETRY_TIMES = 3;
+
+    @Resource
+    private ConversationHistoryService conversationHistoryService;
 
     @FunctionalInterface
     public interface ToolExecutor {
@@ -192,7 +200,7 @@ public class ExecutionSubAgent {
             }
 
             // 3. 执行工具
-            String observation = executeTools(round, toolCallsFromAI, agent, toolReporter);
+            String observation = executeTools(round, toolCallsFromAI, agent, emitterOpt);
             log.info("[ExecutionSubAgent] Round {} - Tool observation: {}", round, observation);
 
             // 4. 将 observation 添加到上下文
@@ -223,7 +231,7 @@ public class ExecutionSubAgent {
     /**
      * 执行工具调用（参考 AgentExecutor 中的 executeTools 方法）
      */
-    private String executeTools(int round, List<ToolCall> toolCallsFromAI, Agent agent, ToolReporter toolReporter) {
+    private String executeTools(int round, List<ToolCall> toolCallsFromAI, Agent agent, SseEmitter emitterOpt) {
         // 获取工具名称和 input schema 的映射
         Map<String, McpSchema.JsonSchema> toolInputSchemaMap = agent.getMcpTools().stream()
                 .collect(Collectors.toMap(McpSchema.Tool::getName, McpSchema.Tool::getInputSchema));
@@ -285,9 +293,15 @@ public class ExecutionSubAgent {
             }
 
             // 调用工具报告回调
-            if (toolReporter != null) {
-                toolReporter.report(toolCall, toolType);
-            }
+            // if (toolReporter != null) {
+            //     toolReporter.report(toolCall, toolType);
+            // }
+
+            ToolEventData toolEventData = new ToolEventData();
+            toolEventData.setTimestamp(System.currentTimeMillis());
+            toolEventData.setName(toolType);
+            toolEventData.setFunction(toolCall.getFunction().getName());
+            reportTool(toolEventData, agent.getAgentId(), agent.getUserId(), emitterOpt);
 
             // 调用 MCP 工具（带重试）
             McpSchema.CallToolResult callToolResult = null;
@@ -380,6 +394,21 @@ public class ExecutionSubAgent {
             log.error("[ExecutionSubAgent] Error generating summary", e);
             return "Tool execution completed.";
         }
+    }
+
+    private void reportTool(ToolEventData toolEventData, String sessionId, String userId, SseEmitter emitter) {
+        try {
+            if (emitter != null) {
+                emitter.send(SseEmitter.event()
+                        .name(SSEEventType.TOOL.getType())
+                        .data(toolEventData)
+                        .id(String.valueOf(System.currentTimeMillis())));
+            }
+        } catch (Exception e) {
+            log.error("直接发送SSE消息失败: agentId={}, eventName={}", sessionId, SSEEventType.TOOL.getType(), e);
+        }
+
+        conversationHistoryService.saveAssistantMessageWithId(JSON.toJSONString(toolEventData), SSEEventType.TOOL, userId, sessionId);
     }
 }
 

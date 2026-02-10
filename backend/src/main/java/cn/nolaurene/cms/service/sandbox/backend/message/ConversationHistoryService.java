@@ -4,6 +4,7 @@ import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.dto.PageInfo;
 import cn.nolaurene.cms.common.dto.SessionSummary;
+import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.*;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
@@ -45,6 +46,23 @@ public class ConversationHistoryService {
 
     @Resource
     private ConversationInfoMapper conversationInfoMapper;
+
+    public Long saveAssistantMessageWithId(String content, SSEEventType eventType, String conversationUserId, String sessionId) {
+        try {
+            ConversationRequest req = new ConversationRequest();
+            req.setUserId(conversationUserId);
+            req.setSessionId(sessionId);
+            req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            req.setEventType(eventType);
+            req.setContent(content);
+            req.setMetadata(null);
+            ConversationResponse response = saveConversation(req);
+            return response.getId();
+        } catch (Exception e) {
+            log.warn("failed to persist assistant message", e);
+            return null;
+        }
+    }
 
     /**
      * 保存对话历史
