@@ -25,6 +25,9 @@ public class ConversationHistoryDO {
     @Column("message_type")
     private MessageType messageType;
 
+    @Column("event_type")
+    private String eventType;
+
     @Column("content")
     private String content;
 

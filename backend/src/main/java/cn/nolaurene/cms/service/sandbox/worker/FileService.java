@@ -86,7 +86,7 @@ public class FileService {
                                                         boolean trailingNewline, boolean sudo) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String contentToWrite = null;
+                String contentToWrite = fileContent;
                 // 处理换行符
                 if (leadingNewline) {
                     contentToWrite = "\n" + fileContent;

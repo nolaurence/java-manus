@@ -18,6 +18,7 @@ import java.util.List;
  */
 @Data
 public class Agent {
+    private String userId;
 
     private String agentId;
 
@@ -31,11 +32,17 @@ public class Agent {
 
     private int maxLoop;
 
+    private int executionMaxLoop;
+
     private String llmEndpoint;
 
     private String llmApiKey;
 
-    private McpSyncClient mcpClient;
+    private String llmModelName;
+
+    private McpSyncClient browserMcpClient;
+
+    private McpSyncClient nativeMcpClient;
 
     private List<JSONObject> tools;
 

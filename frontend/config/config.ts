@@ -16,6 +16,7 @@ export default defineConfig({
   routes,
   npmClient: "yarn",
   tailwindcss: {},
+  jsMinifier: 'terser',
   plugins: ["@umijs/plugins/dist/tailwindcss"],
   mfsu: {
     strategy: "normal",

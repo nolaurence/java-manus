@@ -6,7 +6,7 @@ import { message } from 'antd';
 import type {SSEEvent} from '@/types/sseEvent';
 
 // const BASE_URL = window.location.hostname === 'localhost' ? "https://manus.proxy.nolaurence.cn" : window.location.origin;
-const BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.246:7001" : window.location.origin;
+const BASE_URL = window.location.hostname === 'localhost' ? "http://192.168.49.247:7001" : window.location.origin;
 
 // streaming related apis
 // export async function startStream(streamId: string) {
@@ -37,6 +37,51 @@ export interface Agent {
   agentId: string;
   status: string;
   message: string;
+}
+
+// ===================== Conversations =====================
+export interface SessionSummary {
+  sessionId: string;
+  userId: string;
+  messageCount: number;
+  lastMessageTime?: string;
+  lastMessage?: string;
+}
+
+export interface ConversationMessage {
+  id: number;
+  userId: string;
+  sessionId: string;
+  messageType: 'USER' | 'ASSISTANT';
+  eventType: 'MESSAGE' | 'TOOL' | 'STEP' | 'PLAN' | 'ERROR' | 'DONE' | 'TITLE';
+  content: object;
+  metadata?: string;
+  createdTime: string;
+  updatedTime?: string;
+}
+
+export async function fetchUserSessions(userId: string): Promise<SessionSummary[]> {
+  const res = await request<API.Response<SessionSummary[]>>(`/conversations/sessions`, {
+    method: 'GET',
+    params: { userId },
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to fetch sessions');
+  }
+  // @ts-ignore
+  return res.data || [];
+}
+
+export async function fetchSessionMessages(sessionId: string): Promise<ConversationMessage[]> {
+  const res = await request<API.Response<ConversationMessage[]>>(`/conversations/messages`, {
+    method: 'GET',
+    params: { sessionId },
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to fetch messages');
+  }
+  // @ts-ignore
+  return res.data || [];
 }
 
 /**

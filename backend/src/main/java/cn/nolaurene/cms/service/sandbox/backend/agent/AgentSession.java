@@ -1,11 +1,10 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
-import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
+import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
-import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
-import cn.nolaurene.cms.service.sandbox.backend.llm.SiliconFlowClient;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -16,18 +15,17 @@ import io.modelcontextprotocol.spec.McpSchema;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture; // 用于异步执行
@@ -38,16 +36,21 @@ import java.util.concurrent.CompletableFuture; // 用于异步执行
  * @description Agent Session 管理 AgentExecutor 的生命周期和前端连接状态
  */
 @Slf4j
+@Component
+@Scope("prototype")
 public class AgentSession {
 
     @Getter
-    private final Agent agent;
+    private Agent agent;
 
     @Getter
     @Setter
     private TaskStatus sessionStatus = TaskStatus.PENDING;
 
-    private final AgentExecutor executor;
+    @Value("${sandbox.backend.worker-mcp-url}")
+    private String workerNativeMcpUrl;
+
+    private AgentExecutor executor;
 
     // --- 新增：连接状态管理 ---
     // 使用 AtomicBoolean 确保多线程下的可见性
@@ -60,30 +63,60 @@ public class AgentSession {
 
     // private final TemplateEngine templateEngine = new TemplateEngine(); // 注释掉未使用的
 
-    public AgentSession(Agent agent, String workerUrl, String sseEndpoint) {
+    /**
+     * Spring 构造函数，空构造函数用于 Spring 实例化
+     */
+    public AgentSession() {
+        // 空构造函数，由 Spring 管理依赖注入
+    }
+
+    public void initialize(Agent agent, String workerUrl, String sseEndpoint,
+                           AgentExecutorFactory agentExecutorFactory,
+                           McpHeartbeatService mcpHeartbeatService) {
         this.agent = agent;
         this.agent.setPlanner(new Planner());
         this.agent.setExecutor(new Executor());
 
         // start mcp client
-        LlmClient llmClient = new SiliconFlowClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
-        McpSyncClient mcpClient = startMcpClient(workerUrl, sseEndpoint);
-        agent.setMcpClient(mcpClient);
+//        LlmClient llmClient = new SiliconFlowClient(agent.getLlmEndpoint(), agent.getLlmApiKey());
+        McpSyncClient browserMcpClient = startMcpClient(workerUrl, sseEndpoint);
+        agent.setBrowserMcpClient(browserMcpClient);
+
+        // 添加到心跳服务
+        if (mcpHeartbeatService != null) {
+            mcpHeartbeatService.addClient(browserMcpClient);
+        }
 
         // ask mcp server to get all tool schemas
-        McpSchema.ListToolsResult listToolsResult = mcpClient.listTools();
-        if (listToolsResult == null || listToolsResult.getTools() == null || listToolsResult.getTools().isEmpty()) {
-            log.error("No tools found in MCP server at {}", workerUrl);
-            throw new IllegalStateException("No tools found in MCP server");
+        McpSchema.ListToolsResult listToolsResult = browserMcpClient.listTools();
+        if (listToolsResult == null || CollectionUtils.isEmpty(listToolsResult.getTools())) {
+            log.error("No tools found in Browser MCP server at {}", workerUrl);
+            throw new IllegalStateException("No tools found in Browser MCP server");
         }
-        agent.setMcpTools(listToolsResult.getTools());
-        agent.setXmlToolsInfo(agent.getMcpTools().stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n")));
-        agent.setTools(listToolsResult.getTools().stream().map(this::convertToOpenaiFunction).collect(Collectors.toList()));
 
-        String systemPrompt = renderSystemPrompt(agent);
+        List<McpSchema.Tool> mcpToolList = listToolsResult.getTools();
+
+        // start native mcp client (for file and shell tool)
+        McpSyncClient nativeMcpClient = startMcpClient(workerNativeMcpUrl, "/mcp/message/sse");
+        agent.setNativeMcpClient(nativeMcpClient);
+
+        McpSchema.ListToolsResult nativeToolResult = nativeMcpClient.listTools();
+        if (nativeToolResult == null || CollectionUtils.isEmpty(nativeToolResult.getTools())) {
+            log.error("No tools found in Native MCP server at {}", workerUrl);
+            throw new IllegalStateException("No tools found in Native MCP server");
+        }
+
+        mcpToolList.addAll(nativeToolResult.getTools());
+
+        agent.setMcpTools(mcpToolList);
+        agent.setXmlToolsInfo(mcpToolList.stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n")));
+        agent.setTools(mcpToolList.stream().map(this::convertToOpenaiFunction).collect(Collectors.toList()));
+
+//        String systemPrompt = renderSystemPrompt(agent);
         ToolRegistry registry = new ToolRegistry();
         registry.register(new CalculatorTool());
-        this.executor = new AgentExecutor(registry, llmClient, systemPrompt, agent);
+//        this.executor = new AgentExecutor(registry, llmClient, agent);
+        this.executor = agentExecutorFactory.createAgentExecutor(agent);
     }
 
     /**
@@ -231,29 +264,6 @@ public class AgentSession {
         return client;
     }
 
-    /**
-     * render system prompt
-     * @return rendered prompt string
-     */
-    private String renderSystemPrompt(Agent agent) {
-        try {
-            ClassPathResource resource = new ClassPathResource("j2template/prompt.jinja");
-            InputStream inputStream = resource.getInputStream();
-            String template = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-
-            Map<String, Object> context = new HashMap<>();
-
-            // add tools
-            String availableTools = agent.getMcpTools().stream().map(this::renderXmlTools).collect(Collectors.joining("\n\n"));
-            context.put("availableTools", availableTools);
-
-            return PromptRenderer.render(template, context); // 确保 PromptRenderer 可访问
-        } catch (IOException e) {
-            log.error("Failed to render system prompt", e);
-            return "System prompt rendering failed."; // 返回错误信息而不是空字符串可能更好
-        }
-    }
-
     private JSONObject convertToOpenaiFunction(McpSchema.Tool mcpTool) {
         JSONObject function = new JSONObject();
         function.put("name", mcpTool.getName());
@@ -299,8 +309,28 @@ public class AgentSession {
         return String.join("\n", xmlLines);
     }
 
-    // --- 新增：Getter for connection status (可选) ---
     public boolean isFrontendConnected() {
         return frontendConnected.get();
+    }
+
+    public void sendMessage(String eventName, Object data) {
+        if (this.currentSseEmitter != null && this.frontendConnected.get()) {
+            try {
+                this.currentSseEmitter.send(SseEmitter.event()
+                        .name(eventName)
+                        .data(data)
+                        .id(String.valueOf(System.currentTimeMillis())));
+                log.info("发送SSE消息: agentId={}, eventName={}", this.agent.getAgentId(), eventName);
+            } catch (Exception e) {
+                log.error("发送SSE消息失败: agentId={}, eventName={}", this.agent.getAgentId(), eventName, e);
+            }
+        } else {
+            log.warn("无法发送SSE消息: agentId={}, eventName={}, emitter={}, connected={}",
+                    this.agent.getAgentId(), eventName, this.currentSseEmitter != null, this.frontendConnected.get());
+        }
+    }
+
+    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
+        this.executor.setConversationPersistence(service, userId, sessionId);
     }
 }

@@ -11,9 +11,10 @@ public class ChatRequest {
     private String message;
 
     private Long timestamp;
-
+  
+    // optional: identify user and session for persistence
     private String userId;
-
+  
     private String sessionId;
 
 //    public ChatRequest(String rawJSONString) {

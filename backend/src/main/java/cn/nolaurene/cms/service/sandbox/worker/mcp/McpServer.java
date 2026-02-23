@@ -1,11 +1,13 @@
 package cn.nolaurene.cms.service.sandbox.worker.mcp;
 
 import cn.nolaurene.cms.service.sandbox.worker.browser.BrowserService;
+import cn.nolaurene.cms.service.sandbox.worker.file.FileOperationTool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.context.FullConfig;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.Tool;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolActionResult;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.ToolResult;
-import cn.nolaurene.cms.service.sandbox.worker.shell.tools.ShellExecTool;
+import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
+import cn.nolaurene.cms.service.sandbox.worker.shell.tools.ShellTool;
 import com.alibaba.fastjson.JSON;
 import com.microsoft.playwright.BrowserContext;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -40,10 +42,16 @@ public class McpServer {
     @Value("${sandbox.worker.mcp-port}")
     private String MCP_SERVER_PORT;
 
+    @Value("${sandbox.worker.playwright-mcp-version}")
+    private String PLAYWRIGHT_MCP_VERSION;
+
     private McpSyncServer server;
 
     @Resource
     private BrowserService browserService;
+
+    @Resource
+    private ShellService shellService;
 
     @Resource
     HttpServletSseServerTransportProvider transportProvider;
@@ -78,7 +86,7 @@ public class McpServer {
             new File(mcpLogDir).mkdirs();
 
             ProcessBuilder pb = new ProcessBuilder(
-                    "npx", "@playwright/mcp@latest",
+                    "npx", "@playwright/mcp@" + PLAYWRIGHT_MCP_VERSION,
                     "--browser", "chrome",
                     "--caps", "pdf",
                     "--cdp-endpoint", "http://127.0.0.1:8222",
@@ -127,10 +135,9 @@ public class McpServer {
             this.server = syncServer;
 
             // 注册工具
-            addShellTool();
-            log.info("Vanilla Tool mcp server start successfully on port 7002");
-
-            // TODO: 文件操作工具
+            addShellTools();
+            addFileTools();
+            log.info("Native Tool mcp server start successfully on port 7002");
 
         } catch (Exception e) {
             log.error("Failed to start browser service: {}", e.getMessage(), e);
@@ -154,20 +161,42 @@ public class McpServer {
         }
     }
 
-    private void addShellTool() {
-        Tool shellTool = ShellExecTool.getAllTools(false).get(0);
-        McpSchema.Tool toolSchema = getMcpSdkToolSchema(shellTool);
+    private void addShellTools() {
+        ShellTool shellToolInstance = new ShellTool(shellService);
+        List<Tool<?>> shellTools = shellToolInstance.getAllTools(false);
 
-        this.server.addTool(new McpServerFeatures.SyncToolSpecification(
-                toolSchema,
-                (exchange, arguments) -> {
-                    // parse arguments
-                    Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), shellTool.getSchema().getInputSchema().getClass());
-                    ToolResult executeResult = shellTool.getHandler().execute(null, shellExecInput);
-                    ToolActionResult toolActionResult = executeResult.getAction().get().join();
-                    return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
-                }
-        ));
+        shellTools.stream().forEach(shellTool -> {
+            McpSchema.Tool toolSchema = getMcpSdkToolSchema(shellTool);
+            this.server.addTool(new McpServerFeatures.SyncToolSpecification(
+                    toolSchema,
+                    (exchange, arguments) -> {
+                        // parse arguments
+                        Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), shellTool.getSchema().getInputSchema().getClass());
+                        ToolResult executeResult = ((Tool) shellTool).getHandler().execute(null, shellExecInput);
+                        ToolActionResult toolActionResult = executeResult.getAction().get().join();
+                        return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
+                    }
+            ));
+        });
+    }
+
+    private void addFileTools() {
+        List<Tool<?>> fileTools = FileOperationTool.getAllTools(false);
+
+        fileTools.stream().forEach(fileTool -> {
+            McpSchema.Tool toolSchema = getMcpSdkToolSchema(fileTool);
+            this.server.addTool(new McpServerFeatures.SyncToolSpecification(
+                    toolSchema,
+                    (exchange, arguments) -> {
+                        // parse arguments
+                        Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), fileTool.getSchema().getInputSchema().getClass());
+                        ToolResult executeResult = ((Tool) fileTool).getHandler().execute(null, shellExecInput);
+                        ToolActionResult toolActionResult = executeResult.getAction().get().join();
+                        log.info("[MCP SERVER] tool result: {}", JSON.toJSONString(toolActionResult));
+                        return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
+                    }
+            ));
+        });
     }
 
     public Context startSession(String sessionId) {

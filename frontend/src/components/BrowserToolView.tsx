@@ -1,96 +1,20 @@
 import React, { useEffect, useRef } from 'react';
 import type {ToolContent} from '@/types/message';
-import { getVNCUrl } from '@/services/api/sandbox';
-import { createStyles } from 'antd-style';
 import { useParams } from 'umi';
 import Hls from 'hls.js';
 import { message } from 'antd';
 import { startStream, stopStream } from '@/services/api/sandbox';
+import { Tabs } from 'antd';
+import VncViewer from '@/components/VncViewewr';
 
 interface BrowserToolViewProps {
   agentId: string;
   toolContent: ToolContent
 }
 
-// @ts-ignore
-const useStyles = createStyles((utils) => {
-  const css = utils.css;
-  return {
-   header: css`
-     height: 36px;
-     display: flex;
-     align-items: center;
-     padding: 0 12px;
-     width: 100%;
-     background: var(--background-gray-main);
-     border-bottom: 1px solid var(--border-main);
-     border-top-left-radius: 12px;
-     border-top-right-radius: 12px;
-     box-shadow: inset 0 1px 0 0 #FFFFFF;
-   `,
-   headerDark: css`
-     flex: 1;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-   `,
-   headerContent: css`
-     flex: 1;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-   `,
-   title: css`
-     max-width: 250px;
-     overflow: hidden;
-     text-overflow: ellipsis;
-     white-space: nowrap;
-     color: var(--text-tertiary);
-     font-size: 14px;
-     font-weight: 500;
-     text-align: center;
-   `,
-   main: css`
-     flex: 1px;
-     min-height: 0;
-     width: 100%;
-     overflow-y: auto;
-   `,
-   container: css`
-     padding: 0;
-     display: flex;
-     flex-direction: column;
-     position: relative;
-     height: 100%;
-   `,
-   vncWrapper: css`
-     width: 100%;
-     height: 100%;
-     object-fit: cover;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-     background: var(--fill-white);
-     position: relative;
-   `,
-   vncInner: css`
-     width: 100%;
-     height: 100%;
-   `,
-   vncContainer: css`
-     display: flex;
-     width: 100%;
-     height: 100%;
-     overflow: auto;
-     background: rgb(40, 40, 40);
-   `,
-  };
-})
-
 const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent }) => {
   const params = useParams();
   // const agentId = params.agentId;
-  const { styles } = useStyles();
   const vncContainer = useRef(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -122,7 +46,7 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
       // construct stream url
       let streamUrl = '';
       if (window.location.hostname === 'localhost') {
-        streamUrl = `http://192.168.49.246:7001/proxy/stream/${effectiveStreamId}.m3u8`;
+        streamUrl = `http://192.168.49.247:7001/proxy/stream/${effectiveStreamId}.m3u8`;
       } else {
         streamUrl = window.location.origin + `/proxy/stream/${effectiveStreamId}.m3u8`;
       }
@@ -162,27 +86,43 @@ const BrowserToolView: React.FC<BrowserToolViewProps> = ({ agentId, toolContent 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className={styles.header}>
-        <div className={styles.headerContent}>
-          <div className={styles.title}>
+      <div className="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
             {toolContent?.args?.url || 'Browser'}
           </div>
         </div>
       </div>
-      <div className={styles.main}>
-        <div className={styles.container}>
-          <div className={styles.vncWrapper}>
-            <div className={styles.vncInner}>
-              <video
-                ref={videoRef}
-                style={{ width: '100%', height: 'auto' }}
-                autoPlay={true}
-                controls={true}
-                muted={true}
-              />
-              {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
-            </div>
-          </div>
+      <div className="flex-1 min-h-0 w-full overflow-y-auto">
+        <div className="px-0 py-0 flex flex-col relative h-full">
+            <Tabs defaultActiveKey="1" items={[
+                {
+                  key: '1',
+                  label: 'Stream',
+                  children: (
+                    <div className="w-full h-full">
+                      <video
+                        ref={videoRef}
+                        style={{ width: '100%', height: 'auto' }}
+                        autoPlay={true}
+                        controls={true}
+                        muted={true}
+                      />
+                      {/*<div ref={vncContainer} className={styles.vncContainer}></div>*/}
+                    </div>
+                  ),
+                },
+                {
+                  key: '2',
+                  label: 'VNC',
+                  children: (
+                    <VncViewer
+                      sessionId={realStreamId}
+                    />
+                  ),
+                },
+              ]} 
+            />
         </div>
       </div>
     </div>

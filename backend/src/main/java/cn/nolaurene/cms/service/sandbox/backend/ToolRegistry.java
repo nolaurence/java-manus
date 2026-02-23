@@ -2,6 +2,7 @@ package cn.nolaurene.cms.service.sandbox.backend;
 
 
 import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
+import org.springframework.stereotype.Component;
 
 import java.util.*;
 
@@ -10,6 +11,7 @@ import java.util.*;
  * @date 2025/6/24
  * @description
  */
+@Component
 public class ToolRegistry {
 
     private final Map<String, Tool> tools = new HashMap<>();

@@ -7,7 +7,7 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://192.168.49.249:3306/cms?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
+    username: nolaurence
     password: 123456
   # session 失效时间
   session:
@@ -23,13 +23,13 @@ mybatis:
   mapper-locations: classpath:mapper/*.xml
 server:
   port: 7001
+  servlet:
+    session:
+      cookie:
+        same-site: lax  # 允许本地开发是带cookie测试
 
 maintenance:
   env: prod
-
-image:
-  path-prefix: /root/asset_images
-  host: http://asset.nolaurence.cn
 
 #springdoc:
 #  swagger-ui:
@@ -50,14 +50,18 @@ springdoc:
 sandbox:
   backend:
     max-loop: 30
+    max-execution-loop: 20
     sse-timeout-ms: 1200000
     max-threads: 10
     worker-url: http://worker:7500
+    worker-mcp-url: http://worker:7002
     worker-stream-url: http://worker:7002
     worker-ops-url: http://worker:7002
+    worker-vnc-url: ws://worker:5902
     sse-endpoint: /sse
   worker:
     #    baseDirectory: /app
+    playwright-mcp-version: 0.0.39
     logDir: /app/logs
     stream-interval: 33
     stream-dir: stream-log
@@ -65,7 +69,7 @@ sandbox:
 
 llm-client:
   silicon-flow:
-    endpoint: http://192.168.49.248:8080/v1
+    endpoint: http://192.168.49.241:8080/v1
     api-key: 122222
 logging:
   level:

@@ -3,10 +3,10 @@ import ChatBox from '@/components/ChatBox';
 import ChatMessage from '@/components/ChatMessage';
 import SimpleBar, {type ScrollableContentRef} from '@/components/SimpleBar';
 import ToolPanel from '@/components/ToolPanel';
-import {chatWithAgent} from '@/services/api/sandbox';
+import {chatWithAgent, fetchSessionMessages, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
 // @ts-ignore
-import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft} from 'lucide-react';
+import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from 'lucide-react';
 // import { history } from '@umijs/max';
 import {useNavigate, useLocation} from "react-router";
 import { useParams } from 'umi';
@@ -19,11 +19,10 @@ import Panel from '@/components/Panel';
 import { Button, message as antdMessage } from 'antd';
 import ScrollableFeed from 'react-scrollable-feed';
 import LoginModal from '@/components/LoginModal';
+import dayjs from 'dayjs';
+import { attachToolsToSteps, mapToFrontendMessage } from '@/utils/message';
 
 const ChatComponent: React.FC = () => {
-
-  // const urlParams = useParams();
-  // const agentId = urlParams.agentId as string;
 
   const historyPanelWidth = 300;
 
@@ -75,9 +74,9 @@ const ChatComponent: React.FC = () => {
   const agentId = params.agentId;
 
   // 获取最后一步
-  const getLastStep = useCallback((): StepContent | undefined => {
+  const getLastStep = (): StepContent | undefined => {
     return messages.filter(message => message.type === 'step').pop()?.content as StepContent;
-  }, [messages]);
+  };
 
   // 处理滚动事件
   const handleScroll = useCallback(() => {
@@ -175,32 +174,35 @@ const ChatComponent: React.FC = () => {
 
   // 处理工具事件
   const handleToolEvent = (toolData: ToolEventData) => {
-    const lastStep = getLastStep();
-    if (lastStep?.status === 'running') {
-      // 添加到步骤工具列表
-      const updatedMessages = messages.map(msg => {
-        if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
-          return {
-            ...msg,
-            content: {
-              ...msg.content,
-              tools: [...((msg.content as StepContent).tools || []), toolData],
-            },
-          };
-        }
-        return msg;
-      });
-      setMessages(updatedMessages);
-    } else {
-      // 新增工具消息
-      setMessages(prev => [
-        ...prev,
-        {
-          type: 'tool',
-          content: toolData,
-        },
-      ]);
-    }
+    setMessages(prevMsgs => {
+      // 从 prevMsgs 中获取最后一个 step 类型的消息
+      const lastStep = prevMsgs.filter(msg => msg.type === 'step').pop()?.content as StepContent | undefined;
+      
+      if (lastStep?.status === 'running') {
+        // 添加到步骤工具列表
+        return prevMsgs.map(msg => {
+          if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
+            return {
+              ...msg,
+              content: {
+                ...msg.content,
+                tools: [...((msg.content as StepContent).tools || []), toolData],
+              },
+            };
+          }
+          return msg;
+        });
+      } else {
+        // 新增工具消息
+        return [
+          ...prevMsgs,
+          {
+            type: 'tool',
+            content: toolData,
+          },
+        ];
+      }
+    });
 
     // 处理非消息工具
     if (toolData.name !== 'message') {
@@ -215,34 +217,43 @@ const ChatComponent: React.FC = () => {
   const handleStepEvent = (stepData: StepEventData) => {
     // const lastStep = getLastStep();
     if (stepData.status === 'running') {
-      const messagesCopy = [...messages];
-      messagesCopy.push({
-        type: 'step',
-        content: {
-          ...stepData,
-          tools: [],
-        } as StepContent,
+      setMessages(prevMsgs => {
+        return [
+          ...prevMsgs,
+          {
+            type: 'step',
+            content: {
+              ...stepData,
+              tools: [],
+            } as StepContent,
+          }
+        ]
       });
-      setMessages(messagesCopy);
     } else if (stepData.status === 'completed') {
       // 找到最后一个 type 为 'step' 的消息，修改其 status 字段
-      const lastStepIndex = [...messages]
-        .map((msg, idx) => ({msg, idx}))
-        .filter(({msg}) => msg.type === 'step')
-        .pop()?.idx;
+      // @ts-ignore
+      setMessages(prevMessages => {
+        // 找到最后一个 step 类型消息的索引
+        const lastStepIndex = prevMessages.findLastIndex(msg => msg.type === 'step');
 
-      if (lastStepIndex !== undefined) {
-        const messagesCopy = [...messages];
-        const stepMsg = messagesCopy[lastStepIndex];
-        messagesCopy[lastStepIndex] = {
-          ...stepMsg,
-          content: {
-            ...stepMsg.content,
-            status: stepData.status,
-          } as StepContent,
-        };
-        setMessages(messagesCopy);
-      }
+        // 如果没找到，直接返回原数组
+        if (lastStepIndex === -1) return prevMessages;
+
+        // 创建新的消息数组和更新的消息对象
+        return prevMessages.map((msg, index) => {
+          if (index === lastStepIndex) {
+            // 返回新的消息对象，而不是修改原对象
+            return {
+              ...msg,
+              content: {
+                ...msg.content,
+                status: stepData.status
+              } as StepContent
+            };
+          }
+          return msg;
+        });
+      });
     } else if (stepData.status === 'failed') {
       setIsLoading(false);
     }
@@ -319,21 +330,47 @@ const ChatComponent: React.FC = () => {
     }
   };
 
-  // 初始化聊天
+  // 初始化：如果带 sessionId，则加载历史；否则按原逻辑
   useEffect(() => {
-    let agentId = params?.agentId as string;
-    if (!agentId) {
-      agentId = localStorage.getItem('agentId') || '';
-    }
-    if (agentId) {
-      const message = localStorage.getItem('firstMessage') || '';
+    const init = async () => {
+      if (agentId) {
+        try {
+          // TODO: 重写下渲染逻辑
+          const history: ConversationMessage[] = await fetchSessionMessages(agentId);
+          if (history.length === 0) {
+            // send first message for new chat
+            const msg = localStorage.getItem('firstMessage') || '';
+            if (msg) {
+              sendMessage(msg);
+            } else {
+              sendMessage();
+            }
+            return;
+          }
 
-      if (message) {
-        sendMessage(message);
-      } else {
-        sendMessage();
+          const mapped: Message[] = mapToFrontendMessage(history);
+          const attachedMessages: Message[] = attachToolsToSteps(mapped, history);
+
+          console.log('mapped message',  attachedMessages);
+          setMessages(attachedMessages);
+          setTitle('History');
+          return;
+        } catch (e) {
+          console.error('load history failed', e);
+        }
       }
-    }
+
+      const aid = localStorage.getItem('agentId') || '';
+      if (aid) {
+        const msg = localStorage.getItem('firstMessage') || '';
+        if (msg) {
+          sendMessage(msg);
+        } else {
+          sendMessage();
+        }
+      }
+    };
+    init();
   }, []);
 
 
@@ -380,6 +417,10 @@ const ChatComponent: React.FC = () => {
     navigate("/");
   };
 
+  const handleGoSettings = () => {
+    navigate('/settings');
+  };
+
   return (
     <>
       <div
@@ -392,199 +433,182 @@ const ChatComponent: React.FC = () => {
       >
         <Panel panelWidth={historyPanelWidth} isOpen={panelOpen} fixed={panelFixed} setIsOpen={setPanelOpen} setFixed={setPanelFixed}/>
       </div>
-      <div style={{
-          height: '100%',
-          backgroundImage: 'linear-gradient(180deg, #F3F3F3 0%, #EDEDED 100%)',
-          overflowX: 'hidden' as const,
+
+      <div
+        className="absolute top-0 left-0 h-screen bg-[var(--background-gray-main)]"
+        style={{
           marginLeft: panelFixed ? historyPanelWidth : 0,
-        }}>
-          <div
-            style={{
-              flex: '1 1 0%',
-              minWidth: 0,
-              height: '100%',
-              paddingTop: 0,
-              paddingBottom: 0,
-              paddingRight: 0,
-              position: 'relative'
-            }}
-          >
-            <div
-              className="flex h-screen bg-[var(--background-gray-main)]"
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  flex: '1 1 0px',
-                  minWidth: 0,
-                  minHeight: 0
-                }}
-              >
-                <div className="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1">
-                  <div className="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1" >
-                    {/* 顶部标题栏 */}
-                    <div className={styles.header}>
-                      <div className={styles.inlineFlexContainer}>
-                        { !panelFixed && (
-                          <Button type="text" onClick={() => setPanelFixed(!panelFixed)} icon={<PanelLeft/>}/>
-                        )}
-                        <div className={styles.logoContainer}>
-                          <div onClick={handleGoHome} className={styles.logoIconContainer}>
-                            <Bot className={styles.botIcon} size={24}/>
-                          </div>
-                          <div className={styles.logoSeparator}>
-                            <span className={styles.logoTitle}>{title}</span>
-                          </div>
-                        </div>
-                      </div>
-                      {/*在这添加一个靠右边的元素，使用tailwindcss*/}
-                      <div className="ml-auto flex items-center">
-                        <LoginModal />
-                      </div>
-                    </div>
+          width: `calc(100% - ${panelFixed ? historyPanelWidth : 0}px)`,
+        }}
+      >
+        <div className={`flex h-screen`}  >
+          <div className={`flex flex-col h-full transition-all duration-300 ${toolPanelShow ? 'w-[calc(100%-768px)]' : 'w-full'}`}>
 
-                    {/* 消息列表 */}
-                    <ScrollableFeed>
-                      {messages.map((message, index) => (
-                        <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
-                      ))}
-
-                      {/* 加载指示器 loading indicator */}
-                      {isLoading && (
-                        <div className={styles.loadingIndicatorContainer}>
-                          <span>Thinking</span>
-                          <span className={styles.animateBounceDotContainer}>
-                        <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                      </span>
-                        </div>
-                      )}
-                    </ScrollableFeed>
-
-                    {/* 底部输入区域 */}
-                    <div className={styles.inputArea}>
-                      {plan && plan.steps.length > 0 && (
-                        <>
-                          {/* 跟随按钮 */}
-                          {!follow && (
-                            <button type="button" onClick={handleFollow}
-                                    className={styles.followButton}>
-                              <ArrowDown className={styles.arrowDown} size={20}/>
-                            </button>
-                          )}
-
-                          {/* 计划面板 */}
-                          {isShowPlanPanel ? (
-                            <div className={styles.planPanel}>
-                              <div className={styles.planPanelContainer1}>
-                                <div className={styles.planPanelContainer2}>
-                                  <div className={styles.planPanelContainer3}>
-                                    <div className={styles.planPanelContainer4}>
-                                      <div
-                                        onClick={() => setIsShowPlanPanel(false)}
-                                        className={styles.showPanelButton}
-                                      >
-                                        <ChevronDown className={styles.chevronDown}
-                                                     size={16}/>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div style={{paddingLeft: 16, paddingRight: 16}}>
-                                  <div className={styles.taskProgressContainer1}>
-                                    <div className={styles.taskProgressFlexBox}>
-                                      <span className={styles.taskProgressText}>Task Progress</span>
-                                      <div className={styles.taskProgressContainer2}>
-                                        <span className={styles.taskProgressContainer3}>{planProgress()}</span>
-                                      </div>
-                                    </div>
-
-                                    <div className={styles.taskProgressScrollBox}>
-                                      {plan.steps.map((step) => (
-                                        <div key={step.id}
-                                             className={styles.stepIconBox}>
-                                          {step.status === 'completed' ? (
-                                            <StepSuccessIcon/>
-                                          ) : (
-                                            <Clock className={styles.clock}
-                                                   size={16}/>
-                                          )}
-
-                                          <div
-                                            className={styles.stepDescriptionContainer}>
-                                            <div
-                                              className={styles.stepDescription}
-                                              title={step.description}>
-                                              {step.description}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div onClick={() => setIsShowPlanPanel(true)}
-                                 className={styles.anotherPlanPanel}>
-                              <div className={styles.anotherPlanPanelBox1}>
-                                <div className={styles.anotherPlanPanelBox2}>
-                                  <div className={styles.anotherPlanPanelBox3}>
-                                    <div className={styles.anotherPlanPanelBox4}>
-                                      {planCompleted() ? (
-                                        <StepSuccessIcon/>
-                                      ) : (
-                                        <Clock className={styles.clock} size={16}/>
-                                      )}
-
-                                      <div className={styles.runningStepContainer}>
-                                        <div className={styles.runningStepText}
-                                             title={runningStep()}>
-                                          {runningStep()}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                className={styles.runningStepButton}
-                              >
-                                <span className={styles.runningStepProgress}>{planProgress()}</span>
-                                <ChevronUp style={{color: 'var(--icon-tertiary)'}} size={16}/>
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    {/* 聊天输入框 */}
+            {/*header*/}
+            <div className="flex items-center justify-center px-6 py-4" >
+              <div className="relative flex items-center" >
+                { !panelFixed && (
+                  <Button type="text" onClick={() => setPanelFixed(!panelFixed)} icon={<PanelLeft/>}/>
+                )}
+                <div className={styles.logoContainer}>
+                  <div onClick={handleGoHome} className={styles.logoIconContainer}>
+                    <Bot className={styles.botIcon} size={24}/>
                   </div>
+                  <div className={styles.logoSeparator}>
+                    <span className={styles.logoTitle}>{title}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="ml-auto flex items-center gap-3">
+                <div onClick={handleGoSettings} className={styles.settingsIcon}>
+                  <Settings size={20} />
+                </div>
+                <LoginModal />
+              </div>
+            </div>
+
+            {/* message feed */}
+            <ScrollableFeed className="mx-auto max-w-full w-[768px] sm:max-w-[768px] sm:min-w-[390px] justify-center flex-grow pb-3">
+              {messages.map((message, index) => (
+                <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
+              ))}
+
+              {/* 加载指示器 loading indicator */}
+              {isLoading && (
+                <div className={styles.loadingIndicatorContainer}>
+                  <span>Thinking</span>
+                  <span className={styles.animateBounceDotContainer}>
+                  <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
+                  <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
+                  <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
+                </span>
+                </div>
+              )}
+            </ScrollableFeed>
+
+            {/* input area*/}
+            <div className="mx-auto w-full max-w-full sm:max-w-[768px] sm-min:w-[390px] justify-center mt-auto">
+              {/* TODO: extract plan to a single element*/}
+              {plan && plan.steps.length > 0 && (
+                <>
+                  {/* 跟随按钮 */}
+                  {!follow && (
+                    <button type="button" onClick={handleFollow}
+                            className={styles.followButton}>
+                      <ArrowDown className={styles.arrowDown} size={20}/>
+                    </button>
+                  )}
+
+                  {/* 计划面板 */}
+                  {isShowPlanPanel ? (
+                    <div className={styles.planPanel}>
+                      <div className={styles.planPanelContainer1}>
+                        <div className={styles.planPanelContainer2}>
+                          <div className={styles.planPanelContainer3}>
+                            <div className={styles.planPanelContainer4}>
+                              <div
+                                onClick={() => setIsShowPlanPanel(false)}
+                                className={styles.showPanelButton}
+                              >
+                                <ChevronDown className={styles.chevronDown}
+                                             size={16}/>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{paddingLeft: 16, paddingRight: 16}}>
+                          <div className={styles.taskProgressContainer1}>
+                            <div className={styles.taskProgressFlexBox}>
+                              <span className={styles.taskProgressText}>Task Progress</span>
+                              <div className={styles.taskProgressContainer2}>
+                                <span className={styles.taskProgressContainer3}>{planProgress()}</span>
+                              </div>
+                            </div>
+
+                            <div className={styles.taskProgressScrollBox}>
+                              {plan.steps.map((step) => (
+                                <div key={step.id}
+                                     className={styles.stepIconBox}>
+                                  {step.status === 'completed' ? (
+                                    <StepSuccessIcon/>
+                                  ) : (
+                                    <Clock className={styles.clock}
+                                           size={16}/>
+                                  )}
+
+                                  <div
+                                    className={styles.stepDescriptionContainer}>
+                                    <div
+                                      className={styles.stepDescription}
+                                      title={step.description}>
+                                      {step.description}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div onClick={() => setIsShowPlanPanel(true)}
+                         className={styles.anotherPlanPanel}>
+                      <div className={styles.anotherPlanPanelBox1}>
+                        <div className={styles.anotherPlanPanelBox2}>
+                          <div className={styles.anotherPlanPanelBox3}>
+                            <div className={styles.anotherPlanPanelBox4}>
+                              {planCompleted() ? (
+                                <StepSuccessIcon/>
+                              ) : (
+                                <Clock className={styles.clock} size={16}/>
+                              )}
+
+                              <div className={styles.runningStepContainer}>
+                                <div className={styles.runningStepText}
+                                     title={runningStep()}>
+                                  {runningStep()}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className={styles.runningStepButton}
+                      >
+                        <span className={styles.runningStepProgress}>{planProgress()}</span>
+                        <ChevronUp style={{color: 'var(--icon-tertiary)'}} size={16}/>
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex flex-col sticky bottom-0" >
+                <div className="pb-3" >
                   <ChatBox
                     modelValue={inputMessage}
                     onUpdateModelValue={(value) => setInputMessage(value)}
-                    rows={1}
                     onSubmit={() => sendMessage(inputMessage)}
                   />
                 </div>
-
-                <ToolPanel
-                  agentId={agentId}
-                  realTime={realTime}
-                  onJumpToRealTime={jumpToRealTime}
-                  isShow={toolPanelShow}
-                  setIsShow={setToolPanelShow}
-                  content={toolContent}
-                />
               </div>
             </div>
           </div>
+          <ToolPanel
+            agentId={agentId}
+            realTime={realTime}
+            onJumpToRealTime={jumpToRealTime}
+            isShow={toolPanelShow}
+            setIsShow={setToolPanelShow}
+            content={toolContent}
+          />
         </div>
+      </div>
     </>
   );
 };

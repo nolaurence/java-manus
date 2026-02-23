@@ -31,9 +31,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 @Configuration
 public class BizWebMvcConfigurer implements WebMvcConfigurer {
 
-    @Value("${image.path-prefix}")
-    private String imageStoragePath;
-
     @Value("${maintenance.env}")
     private String env;
 
@@ -82,8 +79,6 @@ public class BizWebMvcConfigurer implements WebMvcConfigurer {
         // 添加对静态资源的处理
         registry.addResourceHandler("/**")
                 .addResourceLocations("classpath:/static/");
-        registry.addResourceHandler("/static/images/**")
-                .addResourceLocations("file:" + imageStoragePath + "/");
         // swagger and springdoc
         registry.addResourceHandler("swagger-ui.html")
                 .addResourceLocations("classpath:/META-INF/resources/");

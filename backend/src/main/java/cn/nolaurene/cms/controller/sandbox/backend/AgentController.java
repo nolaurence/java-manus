@@ -4,12 +4,24 @@ package cn.nolaurene.cms.controller.sandbox.backend;
 import cn.nolaurene.cms.common.sandbox.Response;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
+import cn.nolaurene.cms.common.sandbox.backend.model.FileViewResponse;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
+import cn.nolaurene.cms.common.vo.User;
+import cn.nolaurene.cms.dal.entity.LlmConfigDO;
 import cn.nolaurene.cms.exception.BusinessException;
+import cn.nolaurene.cms.service.AgentSessionServerService;
+import cn.nolaurene.cms.service.UserLoginService;
+import cn.nolaurene.cms.service.LlmConfigService;
+import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSessionFactory;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.common.dto.ConversationRequest;
+import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
+import com.alibaba.fastjson2.JSON;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
@@ -26,9 +38,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -49,6 +63,9 @@ public class AgentController {
 
     @Value("${sandbox.backend.max-loop}")
     private int maxLoop;
+
+    @Value("${sandbox.backend.max-execution-loop}")
+    private int maxExecutionLoop;
 
     @Value("${sandbox.backend.sse-timeout-ms}")
     private long sseTimeout;
@@ -77,10 +94,25 @@ public class AgentController {
     @Resource
     private McpHeartbeatService mcpHeartbeatService;
 
+    @Resource
+    private AgentSessionFactory agentSessionFactory;
+
     private ThreadPoolExecutor executor;
 
     @Resource
     private ConversationHistoryService conversationHistoryService;
+
+    @Resource
+    private UserLoginService userLoginService;
+
+    @Resource
+    private LlmConfigService llmConfigService;
+
+    @Resource
+    private AgentSessionServerService agentSessionServerService;
+
+    @Resource
+    private SseMessageForwardService sseMessageForwardService;
 
     @PostConstruct
     public void initThreadPool() {
@@ -98,32 +130,51 @@ public class AgentController {
      * @return AgentInfo
      */
     @PostMapping("/")
-    public Response<AgentInfo> createAgent() {
+    public Response<AgentInfo> createAgent(HttpServletRequest httpServletRequest) {
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        if (null == currentUserInfo) {
+            return Response.error("未登录", null);
+        }
         String agentId = UUID.randomUUID().toString().replace("-", "");
+
+        // 从数据库获取用户自定义的LLM配置，如果没有则使用默认配置
+        LlmConfigDO llmConfig = llmConfigService.getByUserId(currentUserInfo.getUserid());
+
+        String endpoint = siliconFlowEndpoint;
+        String apiKey = siliconFlowApiKey;
+        String modelName = null;
+
+        if (llmConfig != null &&
+            StringUtils.isNotBlank(llmConfig.getEndpoint()) &&
+            StringUtils.isNotBlank(llmConfig.getApiKey())) {
+            endpoint = llmConfig.getEndpoint();
+            apiKey = llmConfig.getApiKey();
+            modelName = llmConfig.getModelName();
+            log.info("Using custom LLM config from database for user {}: endpoint={}, modelName={}",
+                    currentUserInfo.getUserid(), endpoint, modelName);
+        }
 
         // 重试三次
         for (int i = 0; i < MAX_RETRIES; i++) {
             Agent agent = new Agent();
+            agent.setUserId(null != currentUserInfo ? currentUserInfo.getUserid().toString() : "anonymous");
             agent.setAgentId(agentId);
             agent.setMaxLoop(maxLoop);
+            agent.setExecutionMaxLoop(maxExecutionLoop);
             agent.setStatus("CREATED");
             agent.setMessage("Creating agent session...");
-            agent.setLlmEndpoint(siliconFlowEndpoint);
-            agent.setLlmApiKey(siliconFlowApiKey);
+            agent.setLlmEndpoint(endpoint);
+            agent.setLlmApiKey(apiKey);
+            agent.setLlmModelName(modelName);
 
-            // 请求worker /worker/mcp/start/${agentId} 创建mcpserver
-//            boolean isMcpServerCreated = startMcpServer(agentId);
-//            if (!isMcpServerCreated) {
-//                log.error("Failed to start MCP server for agent: {}", agentId);
-//                return Response.error("Failed to create mcp server", null);
-//            }
-
-            AgentSession agentSession = new AgentSession(agent, workerUrl, sseEndpoint);
-            mcpHeartbeatService.addClient(agent.getMcpClient());
+            AgentSession agentSession = agentSessionFactory.createAgentSession(agent, workerUrl, sseEndpoint);
 
             try {
                 boolean result = globalAgentSessionManager.createSession(agentId, agentSession);
                 if (result) {
+                    String currentIp = agentSessionServerService.getCurrentServerIp();
+                    agentSessionServerService.saveOrUpdate(agentId, currentIp, Integer.valueOf(serverPort));
+
                     AgentInfo agentInfo = new AgentInfo();
                     agentInfo.setAgentId(agent.getAgentId());
                     agentInfo.setStatus(agent.getStatus());
@@ -139,7 +190,13 @@ public class AgentController {
     }
 
     @PostMapping("/{agentId}/chat")
-    public SseEmitter chat(@PathVariable String agentId, @RequestBody ChatRequest request, HttpServletResponse httpServletResponse) {
+    public SseEmitter chat(@PathVariable String agentId, @RequestBody ChatRequest request, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        if (null == currentUserInfo) {
+            throw new BusinessException("未登录", null);
+        }
+        String userId = currentUserInfo.getUserid().toString();
+
         // 让浏览器知道这是一个SSE流
         SseEmitter sseEmitter = new SseEmitter(sseTimeout);
         httpServletResponse.setContentType("text/event-stream");
@@ -153,19 +210,126 @@ public class AgentController {
             }
             if (null == agentSession) {
                 sseEmitter.completeWithError(new BusinessException("session not found for agentId: " + agentId));
+                return;
             }
+
+            // add userId in agentSession
+            agentSession.getAgent().setUserId(userId);
+
             try {
                 assert agentSession != null;
                 // configure persistence context for this chat
 //                try {
 ////                    agentSession
 //                }
+                String currentIp = agentSessionServerService.getCurrentServerIp();
+                agentSessionServerService.saveOrUpdate(agentId, currentIp, Integer.valueOf(serverPort));
+            } catch (Exception e) {
+                log.error("记录Agent Session Server信息失败", e);
+            }
+
+            try {
+                // configure persistence context for this chat
+                try {
+                    agentSession.setConversationPersistence(
+                            conversationHistoryService,
+                            request.getUserId() != null ? request.getUserId() : "anonymous",
+                            (request.getSessionId() != null && !request.getSessionId().isEmpty()) ? request.getSessionId() : agentId
+                    );
+                } catch (Exception ignore) {}
+
+                // persist user message if present
                 agentSession.reactFlow(request.getMessage(), sseEmitter);
             } catch (Exception e) {
                 sseEmitter.completeWithError(e);
             }
         });
         return sseEmitter;
+    }
+
+    @PostMapping("/{agentId}/forward")
+    public Response<String> forwardMessage(@PathVariable String agentId, @RequestBody SseMessageForwardService.ForwardRequest request) {
+        AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
+        if (agentSession == null) {
+            log.warn("收到转发消息，但session不存在: agentId={}", agentId);
+            return Response.error("Session not found", null);
+        }
+
+        log.info("收到转发的SSE消息: agentId={}, eventName={}", agentId, request.getEventName());
+
+        agentSession.sendMessage(request.getEventName(), request.getData());
+
+        return Response.success("Message forwarded successfully");
+    }
+
+    /**
+     * view file content
+     * @param agentId
+     * @param request
+     * @return
+     */
+    @PostMapping("/{agentId}/file")
+    public Response<FileViewResponse> viewFile(@PathVariable String agentId, @RequestBody Map<String, String> request) {
+        try {
+            String file = request.get("file");
+            if (StringUtils.isBlank(file)) {
+                return Response.error("File path is required", null);
+            }
+
+            // Get the agent session
+            AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
+            if (agentSession == null) {
+                return Response.error("Agent session not found", null);
+            }
+
+            // Get the native MCP client from agent
+            McpSyncClient nativeMcpClient = agentSession.getAgent().getNativeMcpClient();
+            if (nativeMcpClient == null) {
+                return Response.error("Native MCP client not initialized", null);
+            }
+
+            // Prepare arguments for file_read tool
+            Map<String, Object> arguments = new HashMap<>();
+            arguments.put("file", file);
+
+            // Call the file_read tool
+            McpSchema.CallToolResult callToolResult = nativeMcpClient.callTool(
+                    new McpSchema.CallToolRequest("file_read", arguments)
+            );
+
+            // Check for errors
+            if (callToolResult == null || (callToolResult.getIsError() != null && callToolResult.getIsError())) {
+                String errorMsg = "Failed to read file";
+                if (callToolResult != null && callToolResult.getContent() != null) {
+                    errorMsg += ": " + JSON.toJSONString(callToolResult.getContent());
+                }
+                return Response.error(errorMsg, null);
+            }
+
+            // Extract content from the result
+            String content = "";
+            if (callToolResult.getContent() != null && !callToolResult.getContent().isEmpty()) {
+                // The content is typically a list of TextContent objects
+                List<McpSchema.Content> contentList = callToolResult.getContent();
+                StringBuilder sb = new StringBuilder();
+                for (McpSchema.Content c : contentList) {
+                    if (c instanceof McpSchema.TextContent) {
+                        sb.append(((McpSchema.TextContent) c).getText());
+                    }
+                }
+                content = sb.toString();
+            }
+
+            // Build response
+            FileViewResponse response = new FileViewResponse();
+            response.setFile(file);
+            response.setContent(content);
+
+            return Response.success(response);
+        } catch (Exception e) {
+            log.error("Error viewing file for agent: {}", agentId, e);
+            return Response.error("Error viewing file: " + e.getMessage(), null);
+        }
     }
 
     private boolean startMcpServer(String agentId) {

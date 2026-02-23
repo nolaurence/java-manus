@@ -46,6 +46,53 @@ public class ReActParser {
         return "";
     }
 
+    /**
+     * 解析字符串中给定的xml标签内容，但不包含标签本身
+     * @param content xml
+     * @param tagName 标签名称
+     * @return 不包含标签本身的所有内容
+     */
+    public static String parseStringOfTag(String content, String tagName) {
+        if (StringUtils.isBlank(content)) {
+            return null;
+        }
+        // 匹配 <goal> 标签内的内容
+        Pattern goalPattern = Pattern.compile("<" + tagName + ">(.*?)</" + tagName + ">", Pattern.DOTALL);
+        Matcher goalMatcher = goalPattern.matcher(content);
+
+        if (goalMatcher.find()) {
+            return goalMatcher.group(1).trim();
+        }
+        return "";
+    }
+
+    public static List<Step> parseStepListFromContent(String content) {
+        List<Step> toolCalls = new ArrayList<>();
+        Pattern stepsPattern = Pattern.compile("<step>(.*?)</step>", Pattern.DOTALL);
+        Matcher stepsMatcher = stepsPattern.matcher(content);
+
+        while (stepsMatcher.find()) {
+            String stepBlock = stepsMatcher.group(1);
+
+            Pattern idPattern = Pattern.compile("<id>(.*?)</id>");
+            Pattern descriptionPattern = Pattern.compile("<description>(.*?)</description>", Pattern.DOTALL);
+
+            Matcher idMatcher = idPattern.matcher(stepBlock);
+            Matcher descriptionMatcher = descriptionPattern.matcher(stepBlock);
+
+            String id = idMatcher.find() ? idMatcher.group(1).trim() : null;
+            String description = descriptionMatcher.find() ? descriptionMatcher.group(1).trim() : null;
+
+            if (id != null && description != null) {
+                Step step = new Step();
+                step.setId(Integer.valueOf(id));
+                step.setDescription(description);
+                toolCalls.add(step);
+            }
+        }
+        return toolCalls;
+    }
+
     public static List<ToolCall> parseToolCallsFromContent(String content) {
         List<ToolCall> toolCalls = new ArrayList<>();
         Pattern toolUsePattern = Pattern.compile("<tool_use>(.*?)</tool_use>", Pattern.DOTALL);
@@ -109,15 +156,20 @@ public class ReActParser {
 
     }
 
-    public static Plan parsePlan(String content) throws JsonProcessingException {
-        String xmlPart = extractOuterXmlTag(content, "plan");
+    public static Plan parsePlan(String content) {
+        String planString = parseStringOfTag(content, "plan");
+        String message = parseStringOfTag(planString, "message");
+        String goal = parseStringOfTag(planString, "goal");
+        String title = parseStringOfTag(planString, "title");
+        List<Step> steps = parseStepListFromContent(planString);
 
-        if (StringUtils.isNotBlank(xmlPart)) {
-            XmlMapper mapper = new XmlMapper();
-            return mapper.readValue(xmlPart, Plan.class);
-        } else {
-            return null;
-        }
+        Plan plan = new Plan();
+        plan.setMessage(message);
+        plan.setGoal(goal);
+        plan.setTitle(title);
+        plan.setSteps(steps);
+
+        return plan;
     }
 
     /**
@@ -192,17 +244,9 @@ public class ReActParser {
         return bestMatch;
     }
 
-    public static List<String> parseStepDescriptions(String xmlContent) throws JsonProcessingException {
-        String xmlPart = extractOuterXmlTag(xmlContent, "steps");
-        if (StringUtils.isNotBlank(xmlPart)) {
-            XmlMapper mapper = new XmlMapper();
-            return mapper.readValue(xmlPart, new TypeReference<List<Step>>() {})
-                    .stream()
-                    .map(Step::getDescription)
-                    .collect(Collectors.toList());
-        } else {
-            return null;
-        }
+    public static List<String> parseStepDescriptions(String xmlContent) {
+        List<Step> steps = parseStepListFromContent(xmlContent);
+        return steps.stream().map(Step::getDescription).collect(Collectors.toList());
     }
 
     /**

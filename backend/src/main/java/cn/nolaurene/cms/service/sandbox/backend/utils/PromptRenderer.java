@@ -1,7 +1,13 @@
 package cn.nolaurene.cms.service.sandbox.backend.utils;
 
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
+import cn.nolaurene.cms.service.sandbox.backend.message.Step;
+import org.apache.commons.collections4.CollectionUtils;
+import org.springframework.core.io.ClassPathResource;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -59,5 +65,22 @@ public class PromptRenderer {
             sb.append(message.getRole().name()).append(": ").append(message.getContent()).append("\n");
         }
         return sb.toString();
+    }
+
+    public static String renderStep(List<Step> steps) {
+        if (CollectionUtils.isEmpty(steps)) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Step step : steps) {
+            sb.append(String.format("Step description: %s; Status: %s, Result: %s\n", step.getDescription(), step.getStatus(), step.getResult()));
+        }
+        return sb.toString();
+    }
+
+    public static String loadPrompt(String filePathString) throws IOException {
+        ClassPathResource resource = new ClassPathResource(filePathString);
+        InputStream inputStream = resource.getInputStream();
+        return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
     }
 }
