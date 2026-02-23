@@ -13,6 +13,13 @@ declare namespace API {
     password?: string;
   };
 
+  type RegisterParams = {
+    account?: string;
+    password?: string;
+    name?: string;
+    inviteCode?: string;
+  };
+
   type LoginResult = {
     success?: boolean;
     data?: UserInfo;

@@ -156,6 +156,10 @@ public class AgentController {
             }
             try {
                 assert agentSession != null;
+                // configure persistence context for this chat
+//                try {
+////                    agentSession
+//                }
                 agentSession.reactFlow(request.getMessage(), sseEmitter);
             } catch (Exception e) {
                 sseEmitter.completeWithError(e);

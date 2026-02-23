@@ -1,5 +1,6 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
+import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.llm.StreamResource;
@@ -9,6 +10,8 @@ import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.common.sandbox.backend.model.ToolCall;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.*;
 import cn.nolaurene.cms.common.sandbox.backend.model.message.AssistantMessageType;
+import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
+import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
@@ -74,12 +77,40 @@ public class AgentExecutor {
     // 持有当前的 SseEmitter 引用，用于后台模式下可能需要的错误通知或最终完成
     private volatile SseEmitter currentSseEmitter = null;
 
+    // 持久化上下文
+    private ConversationHistoryService conversationHistoryService;
+    private String conversationUserId = "anonymous";
+    private String conversationSessionId = null; // fallback to agentId if null
+
     public AgentExecutor(ToolRegistry tools, LlmClient llm, String systemPrompt, Agent agent) {
         this.tools = tools;
         this.llm = llm;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
         memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
+    }
+
+    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
+        this.conversationHistoryService = service;
+        if (StringUtils.isBlank(userId)) {
+            this.conversationUserId = userId;
+        }
+        this.conversationSessionId = StringUtils.isNotBlank(sessionId) ? sessionId : this.agent.getAgentId();
+    }
+
+    private void persistAssistantMessage(String content) {
+        if (conversationHistoryService == null) {
+            return;
+        }
+
+        try {
+            ConversationRequest req = new ConversationRequest();
+            req.setUserId(conversationUserId);
+            req.setSessionId(StringUtils.isNotBlank(conversationSessionId) ? conversationSessionId : agent.getAgentId());
+            req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            req.setContent(content);
+//            req.setMetadata(null);
+        }
     }
 
     public void planAct(String input, SseEmitter emitter) {

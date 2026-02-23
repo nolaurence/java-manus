@@ -27,3 +27,15 @@ export async function currentUser(options?: { [key: string]: any }) {
     ...(options || {}),
   });
 }
+
+/** 注册接口 POST /user/register */
+export async function register(body: API.RegisterParams, options?: { [key: string]: any }) {
+  return request<API.LoginResult>('/user/register', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  });
+}
