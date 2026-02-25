@@ -125,11 +125,15 @@ const UserInfoComponent: React.FC = () => {
   return (
     <>
       {isLogedIn && userInfo ? (
-        <Dropdown menu={{ items: dropdownItems }} placement="bottomRight" trigger={['click']}>
+        <Dropdown
+          menu={{ items: dropdownItems }}
+          placement="bottomRight"
+          trigger={['click']}
+        >
           <div className="flex items-center cursor-pointer gap-2 px-2 py-1 rounded hover:bg-gray-100">
             <span className="text-sm">Welcome, {userInfo.name}!</span>
-            <Avatar 
-              src={userInfo?.avatar} 
+            <Avatar
+              src={userInfo?.avatar}
               icon={!userInfo?.avatar && <UserOutlined />}
               style={{ cursor: 'pointer' }}
             />
@@ -138,114 +142,121 @@ const UserInfoComponent: React.FC = () => {
       ) : (
         <ConfigProvider theme={buttonTheme}>
           <Space>
-            <Button variant="solid" onClick={() => setLoginOpen(true)}>登录</Button>
+            <Button variant="solid" onClick={() => setLoginOpen(true)}>
+              登录
+            </Button>
             <Button onClick={() => setRegisterOpen(true)}>注册</Button>
           </Space>
         </ConfigProvider>
       )}
 
       {/* 登录弹窗 */}
-      <Modal
-        open={loginOpen}
-        title="登录"
-        onCancel={() => setLoginOpen(false)}
-        footer={null}
-      >
-        <Form
-          form={loginForm}
-          layout='vertical'
-          onFinish={handleLogin}
+      <ConfigProvider theme={buttonTheme}>
+        <Modal
+          open={loginOpen}
+          title="登录"
+          onCancel={() => setLoginOpen(false)}
+          footer={null}
         >
-          <Form.Item
-            name="username"
-            label="账号"
-            rules={[{ required: true, message: '请输入账号' }]}
-          >
-            <Input maxLength={30} placeholder="请输入账号"/>
-          </Form.Item>
-          <Form.Item
-            name="password"
-            label="密码"
-            rules={[{ required: true, message: '请输入密码' }]}
-          >
-            <Input type="password" maxLength={20} placeholder="请输入密码"/>
-          </Form.Item>
-          <Form.Item className="pt-5">
-            <Button loading={buttonLoading} size="large" block htmlType="submit">
-              登录
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
+          <Form form={loginForm} layout="vertical" onFinish={handleLogin}>
+            <Form.Item
+              name="username"
+              label="账号"
+              rules={[{ required: true, message: '请输入账号' }]}
+            >
+              <Input maxLength={30} placeholder="请输入账号" />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="密码"
+              rules={[{ required: true, message: '请输入密码' }]}
+            >
+              <Input type="password" maxLength={20} placeholder="请输入密码" />
+            </Form.Item>
+            <Form.Item className="pt-5">
+              <Button
+                // type="primary"
+                loading={buttonLoading}
+                size="large"
+                block
+                htmlType="submit"
+              >
+                登录
+              </Button>
+            </Form.Item>
+          </Form>
+        </Modal>
 
-      {/* 注册弹窗 */}
-      <Modal
-        open={registerOpen}
-        title="注册"
-        onCancel={() => setRegisterOpen(false)}
-        footer={null}
-      >
-        <Form
-          form={registerForm}
-          layout='vertical'
-          onFinish={handleRegister}
+        {/* 注册弹窗 */}
+        <Modal
+          open={registerOpen}
+          title="注册"
+          onCancel={() => setRegisterOpen(false)}
+          footer={null}
         >
-          <Form.Item
-            name="username"
-            label="账号"
-            rules={[{ required: true, message: '请输入账号' }]}
-          >
-            <Input maxLength={30} placeholder="请输入账号"/>
-          </Form.Item>
-          <Form.Item
-            name="nickname"
-            label="昵称"
-            rules={[{ required: true, message: '请输入昵称' }]}
-          >
-            <Input maxLength={20} placeholder="请输入昵称"/>
-          </Form.Item>
-          <Form.Item
-            name="password"
-            label="密码"
-            rules={[
-              { required: true, message: '请输入密码' },
-              { min: 6, message: '密码至少6位' }
-            ]}
-          >
-            <Input.Password maxLength={20} placeholder="请输入密码"/>
-          </Form.Item>
-          <Form.Item
-            name="confirmPassword"
-            label="确认密码"
-            dependencies={['password']}
-            rules={[
-              { required: true, message: '请确认密码' },
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value || getFieldValue('password') === value) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(new Error('两次输入的密码不一致'));
-                },
-              }),
-            ]}
-          >
-            <Input.Password maxLength={20} placeholder="请再次输入密码"/>
-          </Form.Item>
-          <Form.Item
-            name="inviteCode"
-            label="邀请码"
-            rules={[{ required: true, message: '请输入邀请码' }]}
-          >
-            <Input maxLength={20} placeholder="请输入邀请码"/>
-          </Form.Item>
-          <Form.Item className="pt-5">
-            <Button loading={registerLoading} size="large" block htmlType="submit">
-              注册
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
+          <Form form={registerForm} layout="vertical" onFinish={handleRegister}>
+            <Form.Item
+              name="username"
+              label="账号"
+              rules={[{ required: true, message: '请输入账号' }]}
+            >
+              <Input maxLength={30} placeholder="请输入账号" />
+            </Form.Item>
+            <Form.Item
+              name="nickname"
+              label="昵称"
+              rules={[{ required: true, message: '请输入昵称' }]}
+            >
+              <Input maxLength={20} placeholder="请输入昵称" />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="密码"
+              rules={[
+                { required: true, message: '请输入密码' },
+                { min: 6, message: '密码至少6位' },
+              ]}
+            >
+              <Input.Password maxLength={20} placeholder="请输入密码" />
+            </Form.Item>
+            <Form.Item
+              name="confirmPassword"
+              label="确认密码"
+              dependencies={['password']}
+              rules={[
+                { required: true, message: '请确认密码' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('password') === value) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(new Error('两次输入的密码不一致'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password maxLength={20} placeholder="请再次输入密码" />
+            </Form.Item>
+            <Form.Item
+              name="inviteCode"
+              label="邀请码"
+              rules={[{ required: true, message: '请输入邀请码' }]}
+            >
+              <Input maxLength={20} placeholder="请输入邀请码" />
+            </Form.Item>
+            <Form.Item className="pt-5">
+              <Button
+                loading={registerLoading}
+                size="large"
+                block
+                htmlType="submit"
+              >
+                注册
+              </Button>
+            </Form.Item>
+          </Form>
+        </Modal>
+      </ConfigProvider>
     </>
   );
 };

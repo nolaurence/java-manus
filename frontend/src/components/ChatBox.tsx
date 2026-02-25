@@ -53,8 +53,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         footer: { borderBottomLeftRadius: 12, borderBottomRightRadius: 12, overflow: 'hidden', backgroundColor: 'white' },
       }}
       onSubmit={handleSubmit}
-      actions={false}
-      footer={({ components }) => {
+      suffix={false}
+      footer={(_, { components }) => {
         const { SendButton, LoadingButton, SpeechButton } = components;
 
         return (
