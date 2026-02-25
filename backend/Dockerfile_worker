@@ -62,7 +62,7 @@ RUN add-apt-repository ppa:deadsnakes/ppa && \
 # Install Google Chrome
 RUN add-apt-repository ppa:xtradeb/apps && \
     apt-get update && \
-    apt-get install -y chromium  --no-install-recommends
+    apt-get install -y chromium
 
 # Install Chinese fonts and language support
 RUN apt-get update && apt-get install -y \
