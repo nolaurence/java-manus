@@ -60,7 +60,7 @@ RUN add-apt-repository ppa:deadsnakes/ppa && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1
 #
 # Install Google Chrome
-RUN add-apt-repository ppa:xtradeb/apps -y && \
+RUN add-apt-repository ppa:xtradeb/apps && \
     apt-get update && \
     apt-get install -y chromium  --no-install-recommends
 
