@@ -3,8 +3,8 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
-import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
-import cn.nolaurene.cms.service.sandbox.backend.llm.SiliconFlowClient;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
@@ -24,19 +24,21 @@ public class AgentExecutorFactory {
     private ToolRegistry toolRegistry;
 
     public AgentExecutor createAgentExecutor(Agent agent) {
-        // 创建专用的 LLM 客户端
-        LlmClient llmClient = createLlmClient(agent.getLlmEndpoint(), agent.getLlmApiKey(), agent.getLlmModelName());
+        ChatModel chatModel = createChatModel(
+                agent.getLlmEndpoint(), agent.getLlmApiKey(), agent.getLlmModelName());
 
-        // 使用 Spring 的 ApplicationContext 创建 AgentExecutor
         AgentExecutor executor = applicationContext.getBean(AgentExecutor.class);
 
-        // 初始化 AgentExecutor
-        executor.initialize(toolRegistry, llmClient, agent);
+        executor.initialize(toolRegistry, chatModel, agent);
 
         return executor;
     }
 
-    private LlmClient createLlmClient(String endpoint, String apiKey, String modelName) {
-        return new SiliconFlowClient(endpoint, apiKey, modelName);
+    private ChatModel createChatModel(String endpoint, String apiKey, String modelName) {
+        return OpenAiChatModel.builder()
+                .baseUrl(endpoint)
+                .apiKey(apiKey)
+                .modelName(modelName)
+                .build();
     }
 }

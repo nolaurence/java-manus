@@ -22,10 +22,9 @@ import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryServi
 import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
 import com.alibaba.fastjson2.JSON;
-import io.modelcontextprotocol.client.McpClient;
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
-import io.modelcontextprotocol.spec.McpSchema;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.mcp.client.McpClient;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -283,7 +282,7 @@ public class AgentController {
             }
 
             // Get the native MCP client from agent
-            McpSyncClient nativeMcpClient = agentSession.getAgent().getNativeMcpClient();
+            McpClient nativeMcpClient = agentSession.getAgent().getNativeMcpClient();
             if (nativeMcpClient == null) {
                 return Response.error("Native MCP client not initialized", null);
             }
@@ -292,33 +291,20 @@ public class AgentController {
             Map<String, Object> arguments = new HashMap<>();
             arguments.put("file", file);
 
-            // Call the file_read tool
-            McpSchema.CallToolResult callToolResult = nativeMcpClient.callTool(
-                    new McpSchema.CallToolRequest("file_read", arguments)
-            );
+            // Call the file_read tool via langchain4j MCP client
+            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
+                    .name("file_read")
+                    .arguments(JSON.toJSONString(arguments))
+                    .build();
+            ToolExecutionResult toolResult = nativeMcpClient.executeTool(toolRequest);
 
             // Check for errors
-            if (callToolResult == null || (callToolResult.getIsError() != null && callToolResult.getIsError())) {
-                String errorMsg = "Failed to read file";
-                if (callToolResult != null && callToolResult.getContent() != null) {
-                    errorMsg += ": " + JSON.toJSONString(callToolResult.getContent());
-                }
-                return Response.error(errorMsg, null);
+            if (toolResult.isError()) {
+                return Response.error("Failed to read file: " + toolResult.resultText(), null);
             }
 
             // Extract content from the result
-            String content = "";
-            if (callToolResult.getContent() != null && !callToolResult.getContent().isEmpty()) {
-                // The content is typically a list of TextContent objects
-                List<McpSchema.Content> contentList = callToolResult.getContent();
-                StringBuilder sb = new StringBuilder();
-                for (McpSchema.Content c : contentList) {
-                    if (c instanceof McpSchema.TextContent) {
-                        sb.append(((McpSchema.TextContent) c).getText());
-                    }
-                }
-                content = sb.toString();
-            }
+            String content = toolResult.resultText();
 
             // Build response
             FileViewResponse response = new FileViewResponse();
@@ -360,52 +346,45 @@ public class AgentController {
     // ==================================== debug area ===============================================
 
     @GetMapping("/debug/toolCall")
-    public Response<McpSchema.CallToolResult> toolCall() {
+    public Response<String> toolCall() {
         if (StringUtils.isBlank(workerUrl) || (!workerUrl.startsWith("http://") && !workerUrl.startsWith("https://"))) {
             log.error("Invalid worker URL: {}", workerUrl);
             return null;
         }
-        HttpClientSseClientTransport transport = HttpClientSseClientTransport
-                .builder(workerUrl)
-                .sseEndpoint(sseEndpoint)
+        dev.langchain4j.mcp.client.transport.McpTransport transport =
+                dev.langchain4j.mcp.client.transport.http.HttpMcpTransport.builder()
+                        .sseUrl(workerUrl + sseEndpoint)
+                        .build();
+
+        McpClient client = dev.langchain4j.mcp.client.DefaultMcpClient.builder()
+                .transport(transport)
+                .clientName("DebugToolCall")
                 .build();
 
-        McpSyncClient client = McpClient.sync(transport)
-                .requestTimeout(Duration.ofSeconds(60))
-                .capabilities(McpSchema.ClientCapabilities.builder()
-//                        .roots(true)
-                        .sampling()
-                        .build())
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .name("browser_navigate")
+                .arguments(JSON.toJSONString(Map.of("url", "https://bilibili.com")))
                 .build();
-        client.initialize();
-
-        Map<String, Object> arguments = new HashMap<>();
-        arguments.put("url", "https://bilibili.com");
-
-        return Response.success(client.callTool(new McpSchema.CallToolRequest("browser_navigate", arguments)));
+        ToolExecutionResult result = client.executeTool(request);
+        return Response.success(result.resultText());
     }
 
     @GetMapping("/debug/toollist")
-    public Response<McpSchema.ListToolsResult> listTool() {
+    public Response<List<dev.langchain4j.agent.tool.ToolSpecification>> listTool() {
         if (StringUtils.isBlank(workerUrl) || (!workerUrl.startsWith("http://") && !workerUrl.startsWith("https://"))) {
             log.error("Invalid worker URL: {}", workerUrl);
             return null;
         }
-        HttpClientSseClientTransport transport = HttpClientSseClientTransport
-                .builder(workerUrl)
-                .sseEndpoint(sseEndpoint)
-                .build();
+        dev.langchain4j.mcp.client.transport.McpTransport transport =
+                dev.langchain4j.mcp.client.transport.http.HttpMcpTransport.builder()
+                        .sseUrl(workerUrl + sseEndpoint)
+                        .build();
 
-        McpSyncClient client = McpClient.sync(transport)
-                .requestTimeout(Duration.ofSeconds(60))
-                .capabilities(McpSchema.ClientCapabilities.builder()
-//                        .roots(true)
-                        .sampling()
-                        .build())
+        McpClient client = dev.langchain4j.mcp.client.DefaultMcpClient.builder()
+                .transport(transport)
+                .clientName("DebugToolList")
                 .build();
-        client.initialize();
-        McpSchema.ListToolsResult listToolsResult = client.listTools();
-        return Response.success(listToolsResult);
+        return Response.success(client.listTools());
     }
 
     @GetMapping("/debug/start_mcp_server")

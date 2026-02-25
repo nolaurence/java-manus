@@ -2,20 +2,20 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
-import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.StepEventStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer;
-import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
-import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import com.alibaba.fastjson2.JSON;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -29,24 +29,24 @@ import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.*;
 @Slf4j
 public class Planner {
 
-    public String createPlan(LlmClient llmClient, String userInput, ChatMemory memory) throws IOException {
-        List<ChatMessage> messageListToAsk = new ArrayList<>();
-        messageListToAsk.add(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
-        messageListToAsk.addAll(memory.getHistory());
-        messageListToAsk.add(new ChatMessage(ChatMessage.Role.user, loadPrompt("prompts/createPlan.jinja")));
-        messageListToAsk.add(new ChatMessage(ChatMessage.Role.user, userInput));
+    public String createPlan(ChatModel chatModel, String userInput, ChatMemory memory) throws IOException {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(loadPrompt("prompts/system.jinja")));
+        messages.addAll(memory.toLangchain4jMessages());
+        messages.add(UserMessage.from(loadPrompt("prompts/createPlan.jinja")));
+        messages.add(UserMessage.from(userInput));
 
-        log.info("[Planner] create plan request: {}", JSON.toJSONString(messageListToAsk));
+        log.info("[Planner] create plan request, messages count: {}", messages.size());
 
-        String llmResponse = llmClient.chat(messageListToAsk);
-        return ReActParser.parseOpenAIStyleResponse(llmResponse);
+        ChatResponse response = chatModel.chat(ChatRequest.builder().messages(messages).build());
+        return response.aiMessage().text();
     }
 
-    public String updatePlan(LlmClient llmClient, ChatMemory memory, Plan plan) throws IOException {
+    public String updatePlan(ChatModel chatModel, ChatMemory memory, Plan plan) throws IOException {
 
-        List<ChatMessage> messageListToAsk = new ArrayList<>();
-        messageListToAsk.add(new ChatMessage(ChatMessage.Role.system, loadPrompt("prompts/system.jinja")));
-        messageListToAsk.addAll(memory.getHistory());
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(loadPrompt("prompts/system.jinja")));
+        messages.addAll(memory.toLangchain4jMessages());
 
         // assemble update prompt
         String updatePlanTemplate = loadPrompt("prompts/updatePlan.jinja");
@@ -57,15 +57,14 @@ public class Planner {
 
         String updatePlanPrompt = render(updatePlanTemplate, context);
 
-        messageListToAsk.add(new ChatMessage(ChatMessage.Role.user, updatePlanPrompt));
+        messages.add(UserMessage.from(updatePlanPrompt));
 
-        log.info("[Planner] update plan request: {}", JSON.toJSONString(messageListToAsk));
-        String llmResponse = llmClient.chat(messageListToAsk);
-        return ReActParser.parseOpenAIStyleResponse(llmResponse);
+        log.info("[Planner] update plan request, messages count: {}", messages.size());
+        ChatResponse response = chatModel.chat(ChatRequest.builder().messages(messages).build());
+        return response.aiMessage().text();
     }
 
     private List<Step> keepLatestResult(List<Step> stepList) {
-        // deep copy
         List<Step> newStepList = stepList.stream().map(step -> {
             Step newStep = new Step();
             newStep.setId(step.getId());
@@ -73,7 +72,6 @@ public class Planner {
             newStep.setStatus(step.getStatus());
             newStep.setResult(step.getResult());
             newStep.setError(step.getError());
-
             return newStep;
         }).collect(Collectors.toList());
 
@@ -98,8 +96,6 @@ public class Planner {
             newStep.setId(step.getId());
             newStep.setDescription(step.getDescription());
             newStep.setStatus(step.getStatus());
-            // leave result and error empty
-
             return newStep;
         }).collect(Collectors.toList());
     }

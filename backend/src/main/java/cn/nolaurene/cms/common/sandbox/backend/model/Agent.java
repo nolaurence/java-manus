@@ -4,9 +4,9 @@ package cn.nolaurene.cms.common.sandbox.backend.model;
 import cn.nolaurene.cms.service.sandbox.backend.agent.Executor;
 import cn.nolaurene.cms.service.sandbox.backend.agent.Planner;
 import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
-import com.alibaba.fastjson2.JSONObject;
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.spec.McpSchema;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.mcp.client.McpClient;
+import dev.langchain4j.mcp.McpToolProvider;
 import lombok.Data;
 
 import java.util.List;
@@ -40,15 +40,13 @@ public class Agent {
 
     private String llmModelName;
 
-    private McpSyncClient browserMcpClient;
+    private McpClient browserMcpClient;
 
-    private McpSyncClient nativeMcpClient;
+    private McpClient nativeMcpClient;
 
-    private List<JSONObject> tools;
+    private McpToolProvider toolProvider;
 
-    private List<McpSchema.Tool> mcpTools;
-
-    private String xmlToolsInfo;
+    private List<ToolSpecification> toolSpecifications;
 
     private List<Tool> vanillaTools;
 }

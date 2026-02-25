@@ -3,32 +3,21 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
-import cn.nolaurene.cms.common.sandbox.backend.llm.StreamResource;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
-import cn.nolaurene.cms.common.sandbox.backend.model.Function;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
-import cn.nolaurene.cms.common.sandbox.backend.model.ToolCall;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.*;
-import cn.nolaurene.cms.common.sandbox.backend.model.message.AssistantMessageType;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
-import cn.nolaurene.cms.service.sandbox.backend.llm.LlmClient;
-import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
 import cn.nolaurene.cms.service.AgentSessionServerService;
-import cn.nolaurene.cms.utils.Fastjson2LenientToolParser;
 import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
-import com.alibaba.fastjson2.JSONPath;
-import com.alibaba.fastjson2.TypeReference;
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.spec.McpSchema;
+import dev.langchain4j.model.chat.ChatModel;
 import io.mybatis.mapper.example.Example;
 import lombok.Getter;
 import lombok.Setter;
@@ -39,19 +28,14 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
-import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean; // 使用 AtomicBoolean
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.annotation.Resource;
 
@@ -67,20 +51,16 @@ import javax.annotation.Resource;
 public class AgentExecutor {
 
     private int MAX_ROUNDS;
-    private static final long ROUND_INTERVAL = 1000L; // 每轮间隔时间，单位毫秒
-    private static final boolean USE_STREAM = false;
-
 
     private ToolRegistry tools;
     @Setter
     @Getter
     private String systemPrompt;
-    private LlmClient llm;
+    private ChatModel chatModel;
     private Agent agent;
     private final ChatMemory memory = new ChatMemory();
     private static final String START_SIGNAL = "[START]";
     private static final String DONE_SIGNAL = "[DONE]";
-    private static final int MCP_TOOL_RETRY_TIMES = 3;
     private static final ThreadPoolExecutor executor = new ThreadPoolExecutor(
             5,
             20,
@@ -89,21 +69,16 @@ public class AgentExecutor {
             new LinkedBlockingQueue<Runnable>()
     );
 
-    // --- 新增/修改的状态管理 ---
-    // 使用 AtomicBoolean 保证线程安全
     private final AtomicBoolean frontendConnected = new AtomicBoolean(true);
-    // 持有当前的 SseEmitter 引用，用于后台模式下可能需要的错误通知或最终完成
     private volatile SseEmitter currentSseEmitter = null;
-    // 追踪当前 Step 关联的 Tool 消息 ID
     private final List<Long> currentStepToolIds = new ArrayList<>();
 
     private String localServerIp = "127.0.0.1";
 
-    // --- Persistence context ---
     @Resource
     private ConversationHistoryService conversationHistoryService;
     private String conversationUserId = "anonymous";
-    private String conversationSessionId = null; // fallback to agentId if null
+    private String conversationSessionId = null;
 
     @Resource
     private SseMessageForwardService sseMessageForwardService;
@@ -162,12 +137,11 @@ public class AgentExecutor {
         }
     }
 
-    public void initialize(ToolRegistry tools, LlmClient llm, Agent agent) {
+    public void initialize(ToolRegistry tools, ChatModel chatModel, Agent agent) {
         this.tools = tools;
-        this.llm = llm;
+        this.chatModel = chatModel;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
-//        memory.add(new ChatMessage(ChatMessage.Role.system, systemPrompt));
     }
 
     public void setConversationPersistence(ConversationHistoryService conversationHistoryService, String userId, String sessionId) {
@@ -182,15 +156,12 @@ public class AgentExecutor {
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
 
-        // 设置连接监听器
         setupSseEmitterListeners(emitter);
-        // 从数据库恢复历史对话
         ensureMemory();
         addMessageToMemory(new ChatMessage(ChatMessage.Role.user, input));
 
         AgentStatus agentStatus = AgentStatus.IDLE;
         Plan plan = new Plan();
-//        List<Step> globalSteps = new ArrayList<>();
         for (int round = 1; round <= MAX_ROUNDS; round++) {
             try {
                 switch (agentStatus) {
@@ -200,14 +171,13 @@ public class AgentExecutor {
                         break;
 
                     case PLANNING:
-                        // create plan
-                        String rawPlan = agent.getPlanner().createPlan(llm, input, memory);
+                        String rawPlan = agent.getPlanner().createPlan(chatModel, input, memory);
 
                         log.info("[PLAN ACT] Raw plan for round {}: {}", round, rawPlan);
                         if (StringUtils.isBlank(rawPlan)) {
                             log.warn("[PLAN ACT] No plan created for round {}, skipping to next round.", round);
                             agentStatus = AgentStatus.IDLE;
-                            continue; // 跳过当前轮次
+                            continue;
                         }
                         String thought = ReActParser.parseThinking(rawPlan);
                         syncRespondThought(START_SIGNAL, emitter);
@@ -215,15 +185,13 @@ public class AgentExecutor {
                         syncRespondThought(DONE_SIGNAL, emitter);
                         syncRespondContent(rawPlan, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
-                        // persist assistant plan content
                         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.MESSAGE, "**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan));
                         plan = ReActParser.parsePlan(rawPlan);
                         if (null == plan) {
                             log.error("[PLAN ACT] Failed to parse plan for round {}, skipping to next round.", round);
-                            continue; // 跳过当前轮次
+                            continue;
                         }
 
-                        // 规划出的step全部置为pending
                         plan.getSteps().forEach(step -> step.setStatus(StepEventStatus.pending.getCode()));
                         syncRespondPlan(plan, emitter);
                         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
@@ -232,14 +200,10 @@ public class AgentExecutor {
                         break;
 
                     case EXECUTING:
-                        // 根据当前 Plan 顺序执行 pending 状态的 Step。
-                        // 使用 ExecutionSubAgent 构造只基于 Plan 的精简上下文，不复用全局 memory；
-                        // shell / browser 的上下文在工具层由 MCP 实时获取。
                         Optional<Step> currentStepOpt = plan.getSteps().stream()
                                 .filter(step -> StepEventStatus.pending.getCode().equals(step.getStatus()))
                                 .findFirst();
                         if (currentStepOpt.isEmpty()) {
-                            // 没有待执行的 Step，认为当前目标已经完成，直接进入总结阶段
                             log.info("[PLAN ACT] No pending steps in EXECUTING phase for round {}, go to CONCLUDING.", round);
                             agentStatus = AgentStatus.CONCLUDING;
                             break;
@@ -248,70 +212,58 @@ public class AgentExecutor {
                         Step currentStep = currentStepOpt.get();
                         currentStep.setStatus(StepEventStatus.running.getCode());
 
-                        // 1. 更新前端/日志中的步骤状态为 running，并持久化当前 Plan
                         reportStep(StepEventStatus.running, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
                         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
 
-                        // 2. 收集之前已经完成步骤的结果，作为本次工具调用的上下文
                         List<Step> completedSteps = plan.getSteps()
                                 .stream()
                                 .filter(step -> StepEventStatus.completed.getCode().equals(step.getStatus()))
                                 .collect(Collectors.toList());
 
-                        // 只保留最近一次完成步骤的 result，其它清空，避免上下文过长
                         if (CollectionUtils.isNotEmpty(completedSteps)) {
                             for (int idx = completedSteps.size() - 2; idx >= 0; idx--) {
                                 completedSteps.get(idx).setResult("");
                             }
                         }
 
-                        // 3. 通过执行子 agent 完成「规划 + 工具执行」完整流程，返回 observation（上下文仅来源于 Plan）
+                        // Execute step via ExecutionSubAgent with native function calling
                         String observation = executionSubAgent.executeStepWithLoop(
-                                llm,
+                                chatModel,
                                 agent.getExecutor(),
                                 plan,
                                 currentStep,
                                 completedSteps,
-                                agent.getXmlToolsInfo(),
-                                agent.getExecutionMaxLoop(), // 使用 agent 配置的最大循环次数
+                                agent.getExecutionMaxLoop(),
                                 emitter,
-                                agent, // 传入 agent 对象用于 MCP 客户端访问
-                                createToolReporter()); // 传入工具报告回调
+                                agent);
 
-                        // 4. 把 observation 写回当前 Step 的 result
                         currentStep.setResult(observation);
                         currentStep.setStatus(StepEventStatus.completed.getCode());
 
-                        // 5. 上报 Step 完成状态，并同步最新 Plan 到前端 & 会话历史
                         reportStep(StepEventStatus.completed, currentStep.getDescription(), emitter);
                         syncRespondPlan(plan, emitter);
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
-                        // 6. 将最新的执行结果写入对话记忆，并做压缩
                         ensureMemory();
                         compactMemory();
 
-                        // 7. 判断是否还有未完成的 Step：
-                        //    - 有：进入 UPDATING，让 Planner 根据最新 observation 继续重规划；
-                        //    - 无：认为当前目标完成，进入 CONCLUDING 生成最终回答。
                         boolean hasMorePendingSteps = plan.getSteps().stream()
                                 .anyMatch(step -> StepEventStatus.pending.getCode().equals(step.getStatus()));
                         agentStatus = hasMorePendingSteps ? AgentStatus.UPDATING : AgentStatus.CONCLUDING;
                         break;
 
                     case UPDATING:
-                        List<Step> pendingSteps = plan.getSteps().stream().filter(step -> step.getStatus().equals(StepEventStatus.pending.getCode())).collect(Collectors.toList());
                         List<Step> finishedSteps = plan.getSteps().stream().filter(step -> !step.getStatus().equals(StepEventStatus.pending.getCode())).collect(Collectors.toList());
 
-                        String updatedStepsString = agent.getPlanner().updatePlan(llm, memory, plan);
+                        String updatedStepsString = agent.getPlanner().updatePlan(chatModel, memory, plan);
                         log.info("[PLAN ACT] Updated steps for round {}: {}", round, updatedStepsString);
 
                         List<String> newSteps = ReActParser.parseStepDescriptions(updatedStepsString);
                         if (CollectionUtils.isEmpty(newSteps)) {
                             log.warn("[PLAN ACT] No new steps found in updated steps for round {}, skipping to conclude round.", round);
                             agentStatus = AgentStatus.CONCLUDING;
-                            break; // 跳过当前轮次
+                            break;
                         }
 
                         finishedSteps.addAll(newSteps.stream().map(stepString -> {
@@ -320,29 +272,25 @@ public class AgentExecutor {
                             step.setStatus(StepEventStatus.pending.getCode());
                             return step;
                         }).collect(Collectors.toList()));
-                        // 更新新的 globalSteps
                         plan.setSteps(new ArrayList<>(finishedSteps));
                         log.info("[PLAN ACT] Updated global steps for round {}: {}", round, JSON.toJSONString(plan.getSteps()));
 
                         syncRespondPlan(plan, emitter);
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
-                        // update 后继续执行
                         agentStatus = AgentStatus.EXECUTING;
                         break;
 
                     case CONCLUDING:
-                        String conclusion = agent.getExecutor().conclude(llm, memory.getHistory());
+                        String conclusion = agent.getExecutor().conclude(chatModel, memory.getHistory());
 
-                        // response
                         syncRespondThought(START_SIGNAL, emitter);
                         syncRespondThought(DONE_SIGNAL, emitter);
                         syncRespondContent(conclusion, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
-                        // persist assistant final content for conclusion
                         saveAssistantMessage(conclusion, SSEEventType.MESSAGE);
                         agentStatus = AgentStatus.IDLE;
-                        round = MAX_ROUNDS + 1;  // 跳出for循环
+                        round = MAX_ROUNDS + 1;
                         break;
 
                     case COMPLETED:
@@ -357,164 +305,15 @@ public class AgentExecutor {
         }
     }
 
-    // --- 工具执行逻辑 (区分前台/后台) ---
-    private String executeTools(int round, List<ToolCall> toolCallsFromAI, SseEmitter sseEmitterOpt) {
-        // 实现一下从agent.getMcpTools 中获取工具名称和inputschema的所有key值，并组装成map
-        Map<String, McpSchema.JsonSchema> toolInputSchemaMap = agent.getMcpTools().stream().collect(
-                Collectors.toMap(McpSchema.Tool::getName, McpSchema.Tool::getInputSchema));
-
-        if (CollectionUtils.isNotEmpty(toolCallsFromAI)) {
-            long toolStartTime = System.currentTimeMillis();
-            try {
-                List<String> observations = new ArrayList<>();
-                for (ToolCall toolCall : toolCallsFromAI) {
-                    // --- 检查点：工具执行前检查连接状态 ---
-                    if (!frontendConnected.get() && sseEmitterOpt != null) {
-                        log.info("Frontend disconnected before executing tool {}, switching to background for tool execution.", toolCall.getFunction().getName());
-                        sseEmitterOpt = null; // 后续操作转为后台
-                    }
-
-                    String toolName = toolCall.getFunction().getName();
-                    String observation;
-                    AssistantMessageType messageType; // Default
-                    if (!toolInputSchemaMap.containsKey(toolName)) {
-                        String errorMsg = "[Tool Execution] Unknown tool: " + toolName;
-                        log.warn(errorMsg);
-                        observation = errorMsg;
-                        observations.add(observation);
-                        continue;
-                    }
-
-                    Map<String, Object> toolInput;
-                    try {
-                        String arguments = toolCall.getFunction().getArguments();
-                        if (arguments == null || arguments.trim().isEmpty()) {
-                            log.error("Tool {} has empty or null arguments", toolName);
-                            String errorMsg = "Tool " + toolName + " has empty or null arguments";
-                            reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
-                            continue;
-                        }
-                        toolInput = Fastjson2LenientToolParser.parseArguments(arguments, toolInputSchemaMap.get(toolName));
-                    } catch (Exception e) {
-                        log.error("Failed to parse tool arguments for tool {}: {}", toolName, toolCall.getFunction().getArguments(), e);
-                        String errorMsg = "Failed to parse arguments for tool: " + toolName + ". Error: " + e.getMessage() + ". The arguments may contain unescaped quotes or invalid JSON format. Please ensure the LLM generates properly escaped JSON.";
-                        reportStep(StepEventStatus.failed, errorMsg, sseEmitterOpt);
-                        
-                        // 添加观察结果，告知 Agent 需要修正参数格式
-                        observation = "Error: Failed to parse tool arguments. The JSON format is invalid. " +
-                                "Common issue: unescaped quotes in string values. " +
-                                "Example: \"print(\"Hello\")\" should be escaped as \"print(\\\"Hello\\\")\". " +
-                                "Please retry with properly escaped JSON arguments.";
-                        observations.add(observation);
-                        continue;
-                    }
-
-                    log.info("round: {}, tool call: {}, input: {}", round, toolName, JSON.toJSONString(toolInput));
-
-                    McpSyncClient mcpClient = null;
-                    if (toolName.startsWith("browser")) {
-                        messageType = AssistantMessageType.BROWSER;
-                        mcpClient = agent.getBrowserMcpClient();
-                    } else if (toolName.startsWith("shell")) {
-                        messageType = AssistantMessageType.SHELL;
-                        mcpClient = agent.getNativeMcpClient();
-                    } else if (toolName.startsWith("file")) {
-                        messageType = AssistantMessageType.FILE;
-                        mcpClient = agent.getNativeMcpClient();
-                    } else {
-                        String errorMsg = "Unknown tool: " + toolName;
-                        log.warn(errorMsg);
-                        observation = errorMsg;
-
-                        observations.add(observation);
-                        continue;
-                    }
-                    // 模拟延迟 (可选)
-                    try { Thread.sleep(200L); } catch (InterruptedException ignored) {}
-
-                    ToolEventData toolEventData = new ToolEventData();
-                    toolEventData.setTimestamp(System.currentTimeMillis());
-                    toolEventData.setName(messageType.getMessage());
-                    toolEventData.setFunction(toolCall.getFunction().getName());
-                    try {
-                        toolEventData.setArgs(JSON.parseObject(toolCall.getFunction().getArguments(), new TypeReference<>() {}));
-                    } catch (Exception ignored) {}
-                    reportTool(toolEventData, sseEmitterOpt); // 报告工具调用事件
-
-                    McpSchema.CallToolResult callToolResult = null;
-                    Exception lastException = null;
-                    for (int i = 0; i < MCP_TOOL_RETRY_TIMES; i++) {
-                        try {
-                            callToolResult = mcpClient.callTool(new McpSchema.CallToolRequest(toolName, toolInput));
-                            lastException = null;
-                            break;
-                        } catch (Exception e) {
-                            log.warn("调用mcp工具【{}】失败，第 {} 次重试", toolName, i + 1, e);
-                            lastException = e;
-                            if (i < MCP_TOOL_RETRY_TIMES - 1) {
-                                try {
-                                    Thread.sleep(500);
-                                } catch (InterruptedException ie) {
-                                    Thread.currentThread().interrupt();
-                                    throw new RuntimeException("重试被中断", ie);
-                                }
-                            }
-                        }
-                    }
-
-                    if (lastException != null) {
-                        observation = "Tool call error after retries: " + lastException.getMessage();
-                    } else if (null == callToolResult || (null != callToolResult.getIsError() && callToolResult.getIsError())) {
-                        observation = "Tool call error: " + JSON.toJSONString(callToolResult != null ? callToolResult.getContent() : "Unknown error");
-                    } else {
-                        observation = JSON.toJSONString(callToolResult.getContent());
-                    }
-
-                    log.info("add observation to memory: {}", observation);
-                    observations.add(observation);
-                }
-                return String.join("\n", observations);
-            } catch (Exception e) {
-                log.error("execute tool calls error for round {}", round, e);
-                handleError("Unexpected error during tool execution: " + e.getMessage(), round);
-            }
-            log.info("round: {}, tool calls executed in {} ms", round, System.currentTimeMillis() - toolStartTime);
-        }
-        return "";
-    }
-
-    // --- 修改 async* 方法或创建新方法来处理前台/后台 ---
-    // --- 修改后的事件处理方法 ---
-    private void asyncResponse(MessageEventData messageEvent, SseEmitter sseEmitter) {
-        if (frontendConnected.get() && sseEmitter != null) {
-            executor.submit(() -> {
-                if (frontendConnected.get()) {
-                    sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
-                }
-            });
-        } else {
-            logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
-        }
-    }
-
     private void syncRespondThought(String reasoningContent, SseEmitter sseEmitter) {
         MessageEventData messageEvent = new MessageEventData();
         messageEvent.setReasoningContentDelta(reasoningContent);
         messageEvent.setTimestamp(System.currentTimeMillis());
         if (frontendConnected.get() && sseEmitter != null) {
-            if (frontendConnected.get()) {
-                sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
-            }
+            sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
         } else {
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
-    }
-
-    private void syncRespondNonStreamContent(String content, SseEmitter emitter) {
-        syncRespondThought(START_SIGNAL, emitter);
-        syncRespondThought(DONE_SIGNAL, emitter);
-        syncRespondContent(content, emitter);
-        syncRespondContent(DONE_SIGNAL, emitter);
     }
 
     private void syncRespondContent(String content, SseEmitter sseEmitter) {
@@ -522,9 +321,7 @@ public class AgentExecutor {
         messageEvent.setContentDelta(content);
         messageEvent.setTimestamp(System.currentTimeMillis());
         if (frontendConnected.get() && sseEmitter != null) {
-            if (frontendConnected.get()) {
-                sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
-            }
+            sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
         } else {
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
@@ -569,7 +366,6 @@ public class AgentExecutor {
         }
     }
 
-    // --- 新增：统一的步骤报告方法 ---
     private void reportStep(StepEventStatus status, String description, SseEmitter sseEmitterOpt) {
         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.STEP, description));
         if (frontendConnected.get() && sseEmitterOpt != null) {
@@ -579,10 +375,9 @@ public class AgentExecutor {
             data.setTimestamp(System.currentTimeMillis());
             data.setStatus(status.getCode());
             data.setDescription(description);
-            logSseEvent(SSEEventType.STEP.getType(), data); // 后台记录
+            logSseEvent(SSEEventType.STEP.getType(), data);
         }
 
-        // save step info to database
         switch(status) {
             case running:
                 currentStepToolIds.clear();
@@ -597,105 +392,25 @@ public class AgentExecutor {
         }
     }
 
-    // --- 新增：统一的工具报告方法 ---
-    private void reportTool(ToolEventData toolEventData, SseEmitter sseEmitterOpt) {
-        if (frontendConnected.get() && sseEmitterOpt != null) {
-            executor.submit(() -> {
-                if (frontendConnected.get()) {
-                    sendOrForwardMessage(sseEmitterOpt, SSEEventType.TOOL.getType(), toolEventData);
-                }
-            });
-        } else {
-            logSseEvent(SSEEventType.TOOL.getType(), toolEventData);
-        }
-
-        Long toolMessageId = saveAssistantMessageWithId(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
-        this.memory.add(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.TOOL, JSON.toJSONString(toolEventData)));
-        if (toolMessageId != null) {
-            currentStepToolIds.add(toolMessageId);
-        }
-    }
-
-    // --- 新增：创建工具报告回调 ---
-    private ExecutionSubAgent.ToolReporter createToolReporter() {
-        return (toolCall, toolType) -> {
-            ToolEventData toolEventData = new ToolEventData();
-            toolEventData.setTimestamp(System.currentTimeMillis());
-            toolEventData.setName(toolType);
-            toolEventData.setFunction(toolCall.getFunction().getName());
-            try {
-                toolEventData.setArgs(JSON.parseObject(toolCall.getFunction().getArguments(), new TypeReference<>() {}));
-            } catch (Exception ignored) {}
-            reportTool(toolEventData, null);
-        };
-    }
-
-    // --- 新增：后台模式下的日志记录 ---
     private void logSseEvent(String eventType, Object eventData) {
-        // 可以根据需要记录到文件、数据库或简单的内存缓冲区
-        // 这里仅打印 DEBUG 日志
         if (log.isDebugEnabled()) {
             log.debug("BG Event - Type: {}, Data: {}", eventType, JSON.toJSONString(eventData));
         }
     }
 
-    // --- 新增：后台模式下的错误处理 ---
-    private void handleError(String errorMsg, int round) {
-        log.error("Background execution error in round {}: {}", round, errorMsg);
-        // 记录错误事件
-        StepEventData errorEvent = new StepEventData();
-        errorEvent.setTimestamp(System.currentTimeMillis());
-        errorEvent.setStatus(StepEventStatus.failed.getCode());
-        errorEvent.setDescription(errorMsg);
-        logSseEvent(SSEEventType.STEP.getType(), errorEvent);
-
-        // 如果前端恰好在此刻重新连接（虽然概率低），可以尝试通知
-        // 但通常后台错误不需要强制推送到前端，除非有特定需求
-        // 可以通过外部 Session 管理器的状态查询来获知
-    }
-
-
-    // --- 设置 SSE 监听器 ---
     private void setupSseEmitterListeners(SseEmitter sseEmitter) {
         sseEmitter.onCompletion(() -> {
             log.info("SSE connection completed/onCompletion (user likely left)");
-            if (frontendConnected.compareAndSet(true, false)) { // 原子性设置
+            if (frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onCompletion.");
             }
-            // 不要在这里 complete() 或 stop anything, just update state
         });
         sseEmitter.onError((Throwable t) -> {
             log.warn("SSE connection encountered error/onError", t);
-            if (frontendConnected.compareAndSet(true, false)) { // 原子性设置
+            if (frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onError.");
             }
-            // 不要在这里 stop anything, just update state
         });
-    }
-
-
-    // ... rest of the class remains largely the same ...
-    private McpSchema.CallToolResult callMcpToolWithRetry(String toolName, Map<String, Object> arguments, int retryCount) {
-        // ... implementation remains the same ...
-        int attempts = 0;
-        while (attempts < retryCount) {
-            try {
-                return agent.getBrowserMcpClient().callTool(new McpSchema.CallToolRequest(toolName, arguments));
-            } catch (Exception e) {
-                log.warn("调用mcp工具【{}】失败，第 {} 次重试", toolName, attempts + 1, e);
-                attempts++;
-                if (attempts >= retryCount) {
-                    throw e;
-                }
-                try {
-                    Thread.sleep(500); // 可根据需要调整重试间隔
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("重试被中断", ie);
-                }
-            }
-        }
-        return null;
     }
 
     private void saveUserMessage(String content) {
@@ -725,7 +440,6 @@ public class AgentExecutor {
             return null;
         }
         try {
-            // add to memory
             memory.add(new ChatMessage(ChatMessage.Role.assistant, eventType, content));
 
             ConversationRequest req = new ConversationRequest();
@@ -749,7 +463,6 @@ public class AgentExecutor {
             while (interfaces.hasMoreElements()) {
                 NetworkInterface networkInterface = interfaces.nextElement();
 
-                // 过滤掉回环接口和未启用的接口
                 if (networkInterface.isLoopback() || !networkInterface.isUp()) {
                     continue;
                 }
@@ -758,7 +471,6 @@ public class AgentExecutor {
                 while (addresses.hasMoreElements()) {
                     InetAddress address = addresses.nextElement();
 
-                    // 过滤掉 IPv6 地址和回环地址
                     if (!address.isLoopbackAddress() && address.isSiteLocalAddress()) {
                         return address.getHostAddress();
                     }
