@@ -2,11 +2,13 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
+import cn.nolaurene.cms.common.sandbox.backend.model.data.MessageEventData;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
@@ -17,6 +19,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolExecutor;
 import dev.langchain4j.service.tool.ToolProviderRequest;
 import dev.langchain4j.service.tool.ToolProviderResult;
@@ -26,6 +29,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import javax.annotation.Resource;
@@ -41,6 +45,7 @@ import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.load
 public class ExecutionSubAgent {
 
     private static final int MCP_TOOL_RETRY_TIMES = 3;
+    private static final String THINK_TOOL_NAME = "dummy-server-think";
 
     @Resource
     private ConversationHistoryService conversationHistoryService;
@@ -59,7 +64,7 @@ public class ExecutionSubAgent {
                                       SseEmitter emitterOpt,
                                       Agent agent) throws IOException {
 
-        List<ToolSpecification> toolSpecs = agent.getToolSpecifications();
+        List<ToolSpecification> toolSpecs = buildToolSpecsWithThink(agent.getToolSpecifications());
 
         // Build initial messages
         List<ChatMessage> messages = new ArrayList<>();
@@ -105,6 +110,15 @@ public class ExecutionSubAgent {
 
                     log.info("[ExecutionSubAgent] Round {}, tool call: {}, args: {}", round, toolName, arguments);
 
+                    // Handle dummy-server-think tool locally: send message to frontend and continue
+                    if (THINK_TOOL_NAME.equals(toolName)) {
+                        String thought = extractThought(arguments);
+                        log.info("[ExecutionSubAgent] Round {} - think tool invoked, thought length: {}", round, thought.length());
+                        sendMessageEvent(thought, agent, emitterOpt);
+                        messages.add(ToolExecutionResultMessage.from(toolRequest, "Thought logged."));
+                        continue;
+                    }
+
                     // Report tool event to frontend via SSE
                     reportToolEvent(toolName, arguments, agent, emitterOpt);
 
@@ -116,14 +130,21 @@ public class ExecutionSubAgent {
                     messages.add(ToolExecutionResultMessage.from(toolRequest, observation));
                 }
 
+                // Sleep 1s to prevent execution from running too fast
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+
                 // After tool execution, continue loop to let LLM process results
                 continue;
             }
 
-            // LLM returned text without tool calls - step is done
+            // LLM returned text without tool calls - task is completed, break out of loop
             if (aiMessage.text() != null) {
                 finalResult = aiMessage.text();
-                log.info("[ExecutionSubAgent] Step completed in round {}: {}", round, currentStep.getDescription());
+                log.info("[ExecutionSubAgent] Task completed in round {}: {}", round, currentStep.getDescription());
                 break;
             }
 
@@ -164,6 +185,60 @@ public class ExecutionSubAgent {
         sb.append("When the step is fully completed, respond with a summary of what was accomplished.\n");
 
         return sb.toString();
+    }
+
+    /**
+     * Build tool specifications list including the local dummy-server-think tool.
+     */
+    private List<ToolSpecification> buildToolSpecsWithThink(List<ToolSpecification> mcpToolSpecs) {
+        List<ToolSpecification> specs = new ArrayList<>(mcpToolSpecs);
+        ToolSpecification thinkSpec = ToolSpecification.builder()
+                .name(THINK_TOOL_NAME)
+                .description("Use the tool to think about something. It will not obtain new information or make any changes to the repository, but just log the thought. Use it when complex reasoning or brainstorming is needed.")
+                .parameters(JsonObjectSchema.builder()
+                        .addStringProperty("thought", "Your thoughts.")
+                        .required("thought")
+                        .build())
+                .build();
+        specs.add(thinkSpec);
+        return specs;
+    }
+
+    /**
+     * Extract the "thought" field from the think tool arguments JSON.
+     */
+    private String extractThought(String arguments) {
+        try {
+            JSONObject obj = JSON.parseObject(arguments);
+            String thought = obj.getString("thought");
+            return thought != null ? thought : arguments;
+        } catch (Exception e) {
+            return arguments;
+        }
+    }
+
+    /**
+     * Send a MESSAGE SSE event to the frontend (used for think tool output).
+     */
+    private void sendMessageEvent(String content, Agent agent, SseEmitter emitter) {
+        MessageEventData messageEventData = new MessageEventData();
+        messageEventData.setTimestamp(System.currentTimeMillis());
+        messageEventData.setContentDelta(content);
+
+        try {
+            if (emitter != null) {
+                emitter.send(SseEmitter.event()
+                        .name(SSEEventType.MESSAGE.getType())
+                        .data(JSON.toJSONString(messageEventData))
+                        .id(String.valueOf(System.currentTimeMillis())));
+            }
+        } catch (Exception e) {
+            log.error("[ExecutionSubAgent] Failed to send think message SSE event: agentId={}", agent.getAgentId(), e);
+        }
+
+        conversationHistoryService.saveAssistantMessageWithId(
+                content, SSEEventType.MESSAGE,
+                agent.getUserId(), agent.getAgentId());
     }
 
     /**
