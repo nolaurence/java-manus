@@ -12,7 +12,7 @@ public class LocalCorsConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:8000", "https://manus.proxy.nolaurence.cn", "https://nolaurence-manus.x.ddnsto.com")
+                .allowedOrigins("http://localhost:8000", "https://manus-new.proxy.nolaurence.cn", "https://nolaurence-manus.x.ddnsto.com")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowCredentials(true)
                 .maxAge(3600)
