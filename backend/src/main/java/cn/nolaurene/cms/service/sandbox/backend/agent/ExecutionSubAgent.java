@@ -16,13 +16,12 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
-import dev.langchain4j.service.tool.ToolExecutor;
-import dev.langchain4j.service.tool.ToolProviderRequest;
-import dev.langchain4j.service.tool.ToolProviderResult;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -30,7 +29,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import javax.annotation.Resource;
 
@@ -81,9 +79,6 @@ public class ExecutionSubAgent {
 
         String finalResult = "";
 
-        // Cache tool executors from McpToolProvider
-        Map<String, ToolExecutor> toolExecutorMap = buildToolExecutorMap(agent);
-
         for (int round = 1; round <= maxRounds; round++) {
             log.info("[ExecutionSubAgent] Round {}/{} for step: {}", round, maxRounds, currentStep.getDescription());
 
@@ -122,8 +117,8 @@ public class ExecutionSubAgent {
                     // Report tool event to frontend via SSE
                     reportToolEvent(toolName, arguments, agent, emitterOpt);
 
-                    // Execute tool via McpToolProvider
-                    String observation = executeToolWithRetry(toolName, toolRequest, toolExecutorMap);
+                    // Execute tool via MCP Client directly
+                    String observation = executeToolWithRetry(toolName, toolRequest, agent);
                     log.info("[ExecutionSubAgent] Round {} - Tool {} result: {}", round, toolName, observation);
 
                     // Add tool result to messages
@@ -242,43 +237,41 @@ public class ExecutionSubAgent {
     }
 
     /**
-     * Build a name -> ToolExecutor map from McpToolProvider.
+     * Select the appropriate MCP client based on tool name.
+     * - browser_xxx tools -> browserMcpClient
+     * - shell_xxx/file_xxx tools -> nativeMcpClient
      */
-    private Map<String, ToolExecutor> buildToolExecutorMap(Agent agent) {
-        try {
-            ToolProviderResult providerResult = agent.getToolProvider()
-                    .provideTools(ToolProviderRequest.builder().build());
-
-            Map<String, ToolExecutor> map = new HashMap<>();
-            for (Map.Entry<ToolSpecification, ToolExecutor> entry : providerResult.tools().entrySet()) {
-                map.put(entry.getKey().name(), entry.getValue());
-            }
-            return map;
-        } catch (Exception e) {
-            log.error("[ExecutionSubAgent] Failed to build tool executor map", e);
-            return Collections.emptyMap();
+    private McpClient selectMcpClient(String toolName, Agent agent) {
+        if (toolName.startsWith("browser")) {
+            return agent.getBrowserMcpClient();
+        } else {
+            // shell, file, and other tools use native MCP client
+            return agent.getNativeMcpClient();
         }
     }
 
     /**
-     * Execute a tool with retry logic.
+     * Execute a tool with retry logic using MCP Client directly.
      */
-    private String executeToolWithRetry(String toolName, ToolExecutionRequest request,
-                                         Map<String, ToolExecutor> toolExecutorMap) {
-        ToolExecutor toolExecutor = toolExecutorMap.get(toolName);
-        if (toolExecutor == null) {
-            String errorMsg = "Unknown tool: " + toolName;
-            log.warn("[ExecutionSubAgent] {}", errorMsg);
+    private String executeToolWithRetry(String toolName, ToolExecutionRequest request, Agent agent) {
+        McpClient mcpClient = selectMcpClient(toolName, agent);
+        if (mcpClient == null) {
+            String errorMsg = "No MCP client available for tool: " + toolName;
+            log.error("[ExecutionSubAgent] {}", errorMsg);
             return errorMsg;
         }
 
         Exception lastException = null;
         for (int i = 0; i < MCP_TOOL_RETRY_TIMES; i++) {
             try {
-                String result = toolExecutor.execute(request, null);
-                return result != null ? result : "(empty result)";
+                log.info("[ExecutionSubAgent] Executing tool [{}] via MCP Client, attempt {}/{}", 
+                        toolName, i + 1, MCP_TOOL_RETRY_TIMES);
+                ToolExecutionResult result = mcpClient.executeTool(request);
+                String resultText = result.resultText();
+                return resultText != null ? resultText : "(empty result)";
             } catch (Exception e) {
-                log.warn("[ExecutionSubAgent] Tool [{}] failed, retry {}/{}", toolName, i + 1, MCP_TOOL_RETRY_TIMES, e);
+                log.warn("[ExecutionSubAgent] Tool [{}] failed, retry {}/{}: {}", 
+                        toolName, i + 1, MCP_TOOL_RETRY_TIMES, e.getMessage());
                 lastException = e;
                 if (i < MCP_TOOL_RETRY_TIMES - 1) {
                     try {
