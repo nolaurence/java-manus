@@ -132,7 +132,18 @@ public class ExecutionSubAgent {
                     Thread.currentThread().interrupt();
                 }
 
-                // After tool execution, continue loop to let LLM process results
+                // After tool execution, check if current step is completed
+                String checkResult = checkStepCompletion(chatModel, messages, currentStep);
+                if (checkResult != null) {
+                    // Step is completed, return the result
+                    finalResult = checkResult;
+                    log.info("[ExecutionSubAgent] Step completed after tool execution in round {}: {}", 
+                            round, currentStep.getDescription());
+                    break;
+                }
+
+                // Step not completed, continue loop
+                log.info("[ExecutionSubAgent] Step not yet completed, continuing to round {}", round + 1);
                 continue;
             }
 
@@ -197,6 +208,53 @@ public class ExecutionSubAgent {
                 .build();
         specs.add(thinkSpec);
         return specs;
+    }
+
+    /**
+     * Check if the current step is completed by asking LLM.
+     * @return completion summary if step is done, null if step needs more work
+     */
+    private String checkStepCompletion(ChatModel chatModel, List<ChatMessage> messages, Step currentStep) {
+        String checkPrompt = String.format(
+                "Based on the tool execution results above, evaluate whether the current step has been completed.\n\n" +
+                "Current Step: %s\n\n" +
+                "Instructions:\n" +
+                "- If the step is COMPLETED: Respond with a brief summary starting with 'COMPLETED: ' followed by what was accomplished.\n" +
+                "- If the step is NOT COMPLETED: Respond with 'NOT_COMPLETED' and continue working on it using the available tools.\n\n" +
+                "Your response:",
+                currentStep.getDescription()
+        );
+
+        List<ChatMessage> checkMessages = new ArrayList<>(messages);
+        checkMessages.add(UserMessage.from(checkPrompt));
+
+        ChatRequest checkRequest = ChatRequest.builder()
+                .messages(checkMessages)
+                .build();
+
+        try {
+            ChatResponse checkResponse = chatModel.chat(checkRequest);
+            AiMessage checkAiMessage = checkResponse.aiMessage();
+            String responseText = checkAiMessage.text();
+
+            if (responseText != null && responseText.startsWith("COMPLETED:")) {
+                // Add the check prompt and response to main messages for context continuity
+                messages.add(UserMessage.from(checkPrompt));
+                messages.add(checkAiMessage);
+                return responseText.substring("COMPLETED:".length()).trim();
+            }
+
+            // Not completed, add to messages if LLM wants to continue with tools
+            if (checkAiMessage.hasToolExecutionRequests()) {
+                messages.add(UserMessage.from(checkPrompt));
+                messages.add(checkAiMessage);
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.warn("[ExecutionSubAgent] Failed to check step completion: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
