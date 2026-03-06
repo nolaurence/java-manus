@@ -114,11 +114,19 @@ public class ExecutionSubAgent {
                         continue;
                     }
 
+                    // For shell tools, inject agentId as the default id parameter
+                    ToolExecutionRequest finalToolRequest = toolRequest;
+                    String finalArguments = arguments;
+                    if (toolName.startsWith("shell_")) {
+                        finalToolRequest = injectAgentIdForShellTool(toolRequest, agent.getAgentId());
+                        finalArguments = finalToolRequest.arguments();
+                    }
+
                     // Report tool event to frontend via SSE
-                    reportToolEvent(toolName, arguments, agent, emitterOpt);
+                    reportToolEvent(toolName, finalArguments, agent, emitterOpt);
 
                     // Execute tool via MCP Client directly
-                    String observation = executeToolWithRetry(toolName, toolRequest, agent);
+                    String observation = executeToolWithRetry(toolName, finalToolRequest, agent);
                     log.info("[ExecutionSubAgent] Round {} - Tool {} result: {}", round, toolName, observation);
 
                     // Add tool result to messages
@@ -343,6 +351,30 @@ public class ExecutionSubAgent {
         }
 
         return "Tool call error after retries: " + (lastException != null ? lastException.getMessage() : "unknown");
+    }
+
+    /**
+     * Inject agentId as the id parameter for shell tools.
+     * If the original arguments already contain an id, it will be overwritten with agentId.
+     */
+    private ToolExecutionRequest injectAgentIdForShellTool(ToolExecutionRequest originalRequest, String agentId) {
+        try {
+            JSONObject argsJson = JSON.parseObject(originalRequest.arguments());
+            if (argsJson == null) {
+                argsJson = new JSONObject();
+            }
+            // Always set id to agentId for shell tools
+            argsJson.put("id", agentId);
+            
+            return ToolExecutionRequest.builder()
+                    .id(originalRequest.id())
+                    .name(originalRequest.name())
+                    .arguments(argsJson.toJSONString())
+                    .build();
+        } catch (Exception e) {
+            log.warn("[ExecutionSubAgent] Failed to inject agentId for shell tool: {}", e.getMessage());
+            return originalRequest;
+        }
     }
 
     /**
