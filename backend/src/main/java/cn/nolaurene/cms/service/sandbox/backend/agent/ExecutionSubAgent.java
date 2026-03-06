@@ -124,7 +124,7 @@ public class ExecutionSubAgent {
 
                     // Execute tool via McpToolProvider
                     String observation = executeToolWithRetry(toolName, toolRequest, toolExecutorMap);
-                    log.info("[ExecutionSubAgent] Round {} - Tool {} result length: {}", round, toolName, observation.length());
+                    log.info("[ExecutionSubAgent] Round {} - Tool {} result: {}", round, toolName, observation);
 
                     // Add tool result to messages
                     messages.add(ToolExecutionResultMessage.from(toolRequest, observation));
