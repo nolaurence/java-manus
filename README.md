@@ -8,8 +8,8 @@ this project is in alpha stage with active development
 - [x] conversation persistence
 - [x] multi-worker isolation mechanism
 - [x] multi-user isolation mechanism
-- [ ] multi llm api integration
-- [ ] upgrade to springboot 3.x with java 21
+- [x] multi llm api integration (using Langchain4j)
+- [x] upgrade to springboot 3.x with java 21
 
 
 ## 注意事项
