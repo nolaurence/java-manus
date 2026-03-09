@@ -468,7 +468,7 @@ const ChatComponent: React.FC = () => {
             </div>
 
             {/* message feed */}
-            <ScrollableFeed className="mx-auto max-w-full w-[768px] sm:max-w-[768px] sm:min-w-[390px] justify-center flex-grow pb-3">
+            <ScrollableFeed className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center flex-grow pb-3 px-4">
               {messages.map((message, index) => (
                 <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
               ))}
@@ -487,7 +487,7 @@ const ChatComponent: React.FC = () => {
             </ScrollableFeed>
 
             {/* input area*/}
-            <div className="mx-auto w-full max-w-full sm:max-w-[768px] sm-min:w-[390px] justify-center mt-auto">
+            <div className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center mt-auto px-4">
               {/* TODO: extract plan to a single element*/}
               {plan && plan.steps.length > 0 && (
                 <>

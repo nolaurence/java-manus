@@ -17,6 +17,7 @@ import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
 import cn.nolaurene.cms.service.AgentSessionServerService;
 import com.alibaba.fastjson2.JSON;
+import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.model.chat.ChatModel;
 import io.mybatis.mapper.example.Example;
 import lombok.Getter;
@@ -298,8 +299,23 @@ public class AgentExecutor {
                         break;
 
                 }
+            } catch (RateLimitException e) {
+                log.error("[PLAN ACT] Rate limit reached for round: {}, error: ", round, e);
+                syncRespondContent("TPM到达上限了，请稍后再试。", emitter);
+                syncRespondContent(DONE_SIGNAL, emitter);
+                break;
             } catch (Exception e) {
                 log.error("[PLAN ACT] Error when creating plan for round: {}, error: ", round, e);
+                // Check if caused by RateLimitException
+                Throwable cause = e.getCause();
+                while (cause != null) {
+                    if (cause instanceof RateLimitException) {
+                        syncRespondContent("TPM到达上限了，请稍后再试。", emitter);
+                        syncRespondContent(DONE_SIGNAL, emitter);
+                        return;
+                    }
+                    cause = cause.getCause();
+                }
                 break;
             }
         }

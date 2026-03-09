@@ -16,6 +16,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -88,7 +89,13 @@ public class ExecutionSubAgent {
                     .toolSpecifications(toolSpecs)
                     .build();
 
-            ChatResponse response = chatModel.chat(request);
+            ChatResponse response;
+            try {
+                response = chatModel.chat(request);
+            } catch (RateLimitException e) {
+                log.error("[ExecutionSubAgent] Rate limit reached in round {}: {}", round, e.getMessage());
+                throw e;
+            }
             AiMessage aiMessage = response.aiMessage();
 
             // Add AI message to conversation
