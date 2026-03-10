@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
 import ChatBox from '@/components/ChatBox';
 import { createAgent } from '@/services/api/sandbox';
-import { message as antdMessage } from 'antd';
+import { message as antdMessage, Tooltip } from 'antd';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
-import {Bot, PanelLeft, Settings} from 'lucide-react';
+import {Bot, PanelLeft, Settings, Zap} from 'lucide-react';
 import { createStyles } from 'antd-style';
 import Panel from '@/components/Panel';
 import UserInfoComponent from "@/components/LoginModal";
@@ -143,6 +143,10 @@ const Home: React.FC = () => {
     navigate('/settings');
   };
 
+  const handleGoSkills = () => {
+    navigate('/skills');
+  };
+
   return (
     <div className="relative h-screen bg-[var(--background-gray-main)]" >
       <div
@@ -170,9 +174,16 @@ const Home: React.FC = () => {
             <ManusLogoTextIcon />
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <div onClick={handleGoSettings} className={styles.settingsIcon}>
-              <Settings size={20} />
-            </div>
+            <Tooltip title="Skills">
+              <div onClick={handleGoSkills} className={styles.settingsIcon}>
+                <Zap size={20} />
+              </div>
+            </Tooltip>
+            <Tooltip title="设置">
+              <div onClick={handleGoSettings} className={styles.settingsIcon}>
+                <Settings size={20} />
+              </div>
+            </Tooltip>
             <UserInfoComponent />
           </div>
         </div>
