@@ -5,6 +5,11 @@ import cn.nolaurene.cms.common.vo.BaseWebResult;
 import cn.nolaurene.cms.exception.manus.AppException;
 import cn.nolaurene.cms.exception.manus.BadRequestException;
 import cn.nolaurene.cms.exception.manus.ResourceNotFoundException;
+import cn.nolaurene.cms.exception.skill.SkillAlreadyExistsException;
+import cn.nolaurene.cms.exception.skill.SkillDependencyException;
+import cn.nolaurene.cms.exception.skill.SkillException;
+import cn.nolaurene.cms.exception.skill.SkillExecutionException;
+import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -44,5 +49,38 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AppException.class)
     public ResponseEntity<String> handleAppException(AppException ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ex.getMessage());
+    }
+
+    /**
+     * Skill相关异常处理
+     */
+    @ExceptionHandler(SkillNotFoundException.class)
+    public BaseWebResult<?> handleSkillNotFound(SkillNotFoundException ex) {
+        log.warn("Skill not found: {}", ex.getMessage());
+        return BaseWebResult.fail(ex.getMessage(), ErrorShowType.NOTIFICATION);
+    }
+
+    @ExceptionHandler(SkillAlreadyExistsException.class)
+    public BaseWebResult<?> handleSkillAlreadyExists(SkillAlreadyExistsException ex) {
+        log.warn("Skill already exists: {}", ex.getMessage());
+        return BaseWebResult.fail(ex.getMessage(), ErrorShowType.NOTIFICATION);
+    }
+
+    @ExceptionHandler(SkillDependencyException.class)
+    public BaseWebResult<?> handleSkillDependency(SkillDependencyException ex) {
+        log.warn("Skill dependency error: {}", ex.getMessage());
+        return BaseWebResult.fail(ex.getMessage(), ErrorShowType.NOTIFICATION);
+    }
+
+    @ExceptionHandler(SkillExecutionException.class)
+    public BaseWebResult<?> handleSkillExecution(SkillExecutionException ex) {
+        log.error("Skill execution error: {}", ex.getMessage(), ex);
+        return BaseWebResult.fail(ex.getMessage(), ErrorShowType.NOTIFICATION);
+    }
+
+    @ExceptionHandler(SkillException.class)
+    public BaseWebResult<?> handleSkillException(SkillException ex) {
+        log.error("Skill error: {}", ex.getMessage(), ex);
+        return BaseWebResult.fail(ex.getMessage(), ErrorShowType.NOTIFICATION);
     }
 }

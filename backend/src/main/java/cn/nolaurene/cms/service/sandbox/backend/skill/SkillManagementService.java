@@ -1,0 +1,528 @@
+package cn.nolaurene.cms.service.sandbox.backend.skill;
+
+import cn.nolaurene.cms.common.dto.skill.*;
+import cn.nolaurene.cms.dal.entity.SkillDocumentDO;
+import cn.nolaurene.cms.dal.entity.SkillInfoDO;
+import cn.nolaurene.cms.dal.mapper.SkillDocumentMapper;
+import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
+import cn.nolaurene.cms.exception.skill.SkillAlreadyExistsException;
+import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
+import com.alibaba.fastjson2.JSON;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+
+/**
+ * Skill管理服务
+ * 负责Skill的注册、更新、删除和查询
+ *
+ * @author nolaurence
+ */
+@Slf4j
+@Service
+public class SkillManagementService {
+
+    private final SkillInfoMapper skillInfoMapper;
+    private final SkillDocumentMapper skillDocumentMapper;
+    private final SkillExecutionEngine executionEngine;
+
+    public SkillManagementService(SkillInfoMapper skillInfoMapper,
+                                  SkillDocumentMapper skillDocumentMapper,
+                                  SkillExecutionEngine executionEngine) {
+        this.skillInfoMapper = skillInfoMapper;
+        this.skillDocumentMapper = skillDocumentMapper;
+        this.executionEngine = executionEngine;
+    }
+
+    /**
+     * 注册新Skill
+     *
+     * @param request Skill注册请求
+     * @return Skill ID
+     */
+    @Transactional
+    public String registerSkill(SkillRegisterRequest request) {
+        // 生成Skill ID
+        String skillId = generateSkillId(request.getAuthor(), request.getName());
+
+        // 检查是否已存在
+        SkillInfoDO existing = skillInfoMapper.selectBySkillId(skillId);
+        if (existing != null) {
+            throw new SkillAlreadyExistsException("Skill already exists: " + skillId);
+        }
+
+        // 创建Skill信息
+        SkillInfoDO skillInfo = new SkillInfoDO();
+        skillInfo.setSkillId(skillId);
+        skillInfo.setName(request.getName());
+        skillInfo.setVersion(request.getVersion() != null ? request.getVersion() : "1.0.0");
+        skillInfo.setAuthor(request.getAuthor());
+        skillInfo.setDescription(request.getDescription());
+        skillInfo.setCategory(request.getCategory());
+        skillInfo.setPriority(request.getPriority() != null ? request.getPriority() : 0);
+        skillInfo.setStatus(1);
+        skillInfo.setUserId(request.getUserId());
+        skillInfo.setGmtCreate(new Date());
+        skillInfo.setGmtModified(new Date());
+        skillInfo.setIsDelete(false);
+
+        // 序列化JSON字段
+        if (request.getTriggers() != null) {
+            skillInfo.setTriggers(JSON.toJSONString(request.getTriggers()));
+        }
+        if (request.getTools() != null) {
+            skillInfo.setTools(JSON.toJSONString(request.getTools()));
+        }
+        if (request.getRequires() != null) {
+            skillInfo.setRequires(JSON.toJSONString(request.getRequires()));
+        }
+        if (request.getOsSupport() != null) {
+            skillInfo.setOsSupport(JSON.toJSONString(request.getOsSupport()));
+        }
+
+        skillInfoMapper.insert(skillInfo);
+
+        // 保存文档（支持多文档）
+        if (request.getDocuments() != null && !request.getDocuments().isEmpty()) {
+            int sortOrder = 0;
+            for (SkillDocumentRequest docRequest : request.getDocuments()) {
+                SkillDocumentDO document = new SkillDocumentDO();
+                document.setSkillId(skillId);
+                document.setDocType(docRequest.getDocType());
+                document.setDocName(docRequest.getDocName());
+                document.setContent(docRequest.getContent());
+                document.setFilePath(docRequest.getFilePath());
+                document.setSortOrder(sortOrder++);
+                document.setGmtCreate(new Date());
+                document.setGmtModified(new Date());
+                document.setIsDelete(false);
+                skillDocumentMapper.insert(document);
+            }
+        }
+
+        log.info("Skill registered: {}", skillId);
+        return skillId;
+    }
+
+    /**
+     * 从SKILL.md内容解析并注册Skill
+     *
+     * @param skillMdContent SKILL.md文件内容
+     * @param userId         用户ID
+     * @return Skill ID
+     */
+    @Transactional
+    public String registerFromSkillMd(String skillMdContent, Long userId) {
+        // 解析YAML frontmatter
+        SkillParseResult parseResult = parseSkillMd(skillMdContent);
+
+        SkillRegisterRequest request = new SkillRegisterRequest();
+        request.setName(parseResult.getName());
+        request.setAuthor(parseResult.getAuthor());
+        request.setVersion(parseResult.getVersion());
+        request.setDescription(parseResult.getDescription());
+        request.setCategory(parseResult.getCategory());
+        request.setTriggers(parseResult.getTriggers());
+        request.setTools(parseResult.getTools());
+        request.setRequires(parseResult.getRequires());
+        request.setOsSupport(parseResult.getOsSupport());
+        request.setUserId(userId);
+
+        // 添加SKILL.md作为文档
+        List<SkillDocumentRequest> documents = new ArrayList<>();
+        SkillDocumentRequest doc = new SkillDocumentRequest();
+        doc.setDocType("SKILL_MD");
+        doc.setDocName("SKILL.md");
+        doc.setContent(skillMdContent);
+        documents.add(doc);
+        request.setDocuments(documents);
+
+        return registerSkill(request);
+    }
+
+    /**
+     * SKILL.md解析结果
+     */
+    private static class SkillParseResult {
+        private String name;
+        private String author;
+        private String version;
+        private String description;
+        private String category;
+        private List<TriggerConfig> triggers;
+        private List<ToolDefinition> tools;
+        private RequiresConfig requires;
+        private List<String> osSupport;
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getAuthor() { return author; }
+        public void setAuthor(String author) { this.author = author; }
+        public String getVersion() { return version; }
+        public void setVersion(String version) { this.version = version; }
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+        public String getCategory() { return category; }
+        public void setCategory(String category) { this.category = category; }
+        public List<TriggerConfig> getTriggers() { return triggers; }
+        public void setTriggers(List<TriggerConfig> triggers) { this.triggers = triggers; }
+        public List<ToolDefinition> getTools() { return tools; }
+        public void setTools(List<ToolDefinition> tools) { this.tools = tools; }
+        public RequiresConfig getRequires() { return requires; }
+        public void setRequires(RequiresConfig requires) { this.requires = requires; }
+        public List<String> getOsSupport() { return osSupport; }
+        public void setOsSupport(List<String> osSupport) { this.osSupport = osSupport; }
+    }
+
+    /**
+     * 解析SKILL.md文件
+     */
+    private SkillParseResult parseSkillMd(String content) {
+        SkillParseResult result = new SkillParseResult();
+
+        if (content == null || content.isEmpty()) {
+            return result;
+        }
+
+        // 提取YAML frontmatter
+        if (content.startsWith("---")) {
+            int endIndex = content.indexOf("---", 3);
+            if (endIndex > 0) {
+                String frontmatter = content.substring(3, endIndex).trim();
+
+                // 解析YAML
+                Map<String, Object> yaml = parseYaml(frontmatter);
+
+                result.setName((String) yaml.get("name"));
+                result.setAuthor((String) yaml.get("author"));
+                result.setVersion((String) yaml.getOrDefault("version", "1.0.0"));
+                result.setDescription((String) yaml.get("description"));
+                result.setCategory((String) yaml.get("category"));
+
+                // 解析triggers
+                Object triggersObj = yaml.get("triggers");
+                if (triggersObj != null) {
+                    result.setTriggers(JSON.parseArray(JSON.toJSONString(triggersObj), TriggerConfig.class));
+                }
+
+                // 解析tools
+                Object toolsObj = yaml.get("tools");
+                if (toolsObj != null) {
+                    result.setTools(JSON.parseArray(JSON.toJSONString(toolsObj), ToolDefinition.class));
+                }
+
+                // 解析requires
+                Object requiresObj = yaml.get("requires");
+                if (requiresObj != null) {
+                    result.setRequires(JSON.parseObject(JSON.toJSONString(requiresObj), RequiresConfig.class));
+                }
+
+                // 解析os支持
+                Object osObj = yaml.get("os");
+                if (osObj != null) {
+                    result.setOsSupport(JSON.parseArray(JSON.toJSONString(osObj), String.class));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 简单YAML解析
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseYaml(String yaml) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String[] lines = yaml.split("\n");
+
+        for (String line : lines) {
+            if (StringUtils.isBlank(line)) {
+                continue;
+            }
+
+            String trimmed = line.trim();
+
+            // 跳过注释
+            if (trimmed.startsWith("#")) {
+                continue;
+            }
+
+            // 解析键值对
+            if (trimmed.contains(":")) {
+                int colonIndex = trimmed.indexOf(":");
+                String key = trimmed.substring(0, colonIndex).trim();
+                String value = trimmed.substring(colonIndex + 1).trim();
+
+                if (StringUtils.isNotBlank(value)) {
+                    // 解析值
+                    result.put(key, parseYamlValue(value));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 解析YAML值
+     */
+    private Object parseYamlValue(String value) {
+        // 移除引号
+        if ((value.startsWith("\"") && value.endsWith("\"")) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+            return value.substring(1, value.length() - 1);
+        }
+
+        // 数组格式 [a, b, c]
+        if (value.startsWith("[") && value.endsWith("]")) {
+            String inner = value.substring(1, value.length() - 1).trim();
+            if (StringUtils.isBlank(inner)) {
+                return new ArrayList<>();
+            }
+            String[] items = inner.split(",\\s*");
+            return Arrays.asList(items);
+        }
+
+        // 布尔值
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+
+        // 数字
+        try {
+            if (value.contains(".")) {
+                return Double.parseDouble(value);
+            } else {
+                return Long.parseLong(value);
+            }
+        } catch (NumberFormatException e) {
+            // 不是数字，返回字符串
+        }
+
+        return value;
+    }
+
+    /**
+     * 更新Skill
+     */
+    @Transactional
+    public void updateSkill(String skillId, SkillUpdateRequest request) {
+        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        if (skillInfo == null) {
+            throw new SkillNotFoundException("Skill not found: " + skillId);
+        }
+
+        SkillInfoDO updateDO = new SkillInfoDO();
+        updateDO.setSkillId(skillId);
+
+        if (request.getDescription() != null) {
+            updateDO.setDescription(request.getDescription());
+        }
+        if (request.getCategory() != null) {
+            updateDO.setCategory(request.getCategory());
+        }
+        if (request.getPriority() != null) {
+            updateDO.setPriority(request.getPriority());
+        }
+        if (request.getStatus() != null) {
+            updateDO.setStatus(request.getStatus());
+        }
+        if (request.getTriggers() != null) {
+            updateDO.setTriggers(JSON.toJSONString(request.getTriggers()));
+        }
+        if (request.getTools() != null) {
+            updateDO.setTools(JSON.toJSONString(request.getTools()));
+        }
+        if (request.getRequires() != null) {
+            updateDO.setRequires(JSON.toJSONString(request.getRequires()));
+        }
+        if (request.getOsSupport() != null) {
+            updateDO.setOsSupport(JSON.toJSONString(request.getOsSupport()));
+        }
+
+        skillInfoMapper.updateBySkillId(updateDO);
+
+        // 刷新缓存
+        executionEngine.refreshCache(skillId);
+
+        log.info("Skill updated: {}", skillId);
+    }
+
+    /**
+     * 删除Skill
+     */
+    @Transactional
+    public void deleteSkill(String skillId) {
+        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        if (skillInfo == null) {
+            throw new SkillNotFoundException("Skill not found: " + skillId);
+        }
+
+        skillInfoMapper.softDeleteBySkillId(skillId);
+        skillDocumentMapper.softDeleteBySkillId(skillId);
+        executionEngine.refreshCache(skillId);
+
+        log.info("Skill deleted: {}", skillId);
+    }
+
+    /**
+     * 获取Skill详情
+     */
+    public SkillDefinitionDTO getSkill(String skillId) {
+        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        if (skillInfo == null || Boolean.TRUE.equals(skillInfo.getIsDelete())) {
+            return null;
+        }
+
+        return convertToDTO(skillInfo);
+    }
+
+    /**
+     * 转换为DTO
+     */
+    private SkillDefinitionDTO convertToDTO(SkillInfoDO skillInfo) {
+        SkillDefinitionDTO dto = new SkillDefinitionDTO();
+        dto.setSkillId(skillInfo.getSkillId());
+        dto.setName(skillInfo.getName());
+        dto.setVersion(skillInfo.getVersion());
+        dto.setAuthor(skillInfo.getAuthor());
+        dto.setDescription(skillInfo.getDescription());
+        dto.setCategory(skillInfo.getCategory());
+        dto.setPriority(skillInfo.getPriority());
+        dto.setUserId(skillInfo.getUserId());
+
+        if (StringUtils.isNotBlank(skillInfo.getTriggers())) {
+            dto.setTriggers(JSON.parseArray(skillInfo.getTriggers(), TriggerConfig.class));
+        }
+        if (StringUtils.isNotBlank(skillInfo.getTools())) {
+            dto.setTools(JSON.parseArray(skillInfo.getTools(), ToolDefinition.class));
+        }
+        if (StringUtils.isNotBlank(skillInfo.getRequires())) {
+            dto.setRequires(JSON.parseObject(skillInfo.getRequires(), RequiresConfig.class));
+        }
+        if (StringUtils.isNotBlank(skillInfo.getOsSupport())) {
+            dto.setOsSupport(JSON.parseArray(skillInfo.getOsSupport(), String.class));
+        }
+
+        // 加载文档
+        List<SkillDocumentDO> documents = skillDocumentMapper.selectBySkillId(skillInfo.getSkillId());
+        dto.setDocuments(documents);
+
+        return dto;
+    }
+
+    /**
+     * 列出所有Skill
+     */
+    public List<SkillDefinitionDTO> listSkills(String category, Long userId) {
+        List<SkillInfoDO> skills;
+
+        if (category != null) {
+            skills = skillInfoMapper.selectByCategory(category);
+        } else if (userId != null) {
+            skills = skillInfoMapper.selectByUserId(userId);
+        } else {
+            skills = skillInfoMapper.selectAllActive();
+        }
+
+        List<SkillDefinitionDTO> result = new ArrayList<>();
+        for (SkillInfoDO skill : skills) {
+            result.add(convertToDTO(skill));
+        }
+        return result;
+    }
+
+    /**
+     * 添加Skill文档
+     */
+    @Transactional
+    public void addDocument(String skillId, SkillDocumentRequest request) {
+        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        if (skillInfo == null) {
+            throw new SkillNotFoundException("Skill not found: " + skillId);
+        }
+
+        SkillDocumentDO document = new SkillDocumentDO();
+        document.setSkillId(skillId);
+        document.setDocType(request.getDocType());
+        document.setDocName(request.getDocName());
+        document.setContent(request.getContent());
+        document.setFilePath(request.getFilePath());
+        document.setSortOrder(request.getSortOrder() != null ? request.getSortOrder() : 0);
+        document.setGmtCreate(new Date());
+        document.setGmtModified(new Date());
+        document.setIsDelete(false);
+
+        skillDocumentMapper.insert(document);
+
+        log.info("Document added to skill {}: {}", skillId, request.getDocName());
+    }
+
+    /**
+     * 获取Skill文档
+     */
+    public List<SkillDocumentDO> getDocuments(String skillId) {
+        return skillDocumentMapper.selectBySkillId(skillId);
+    }
+
+    /**
+     * 获取指定类型的Skill文档
+     */
+    public List<SkillDocumentDO> getDocumentsByType(String skillId, String docType) {
+        return skillDocumentMapper.selectBySkillIdAndType(skillId, docType);
+    }
+
+    /**
+     * 生成Skill ID
+     */
+    private String generateSkillId(String author, String name) {
+        if (StringUtils.isBlank(author) || StringUtils.isBlank(name)) {
+            throw new IllegalArgumentException("Author and name are required");
+        }
+        // 规范化：转小写，替换空格为连字符
+        String normalizedAuthor = author.toLowerCase().replaceAll("\\s+", "-");
+        String normalizedName = name.toLowerCase().replaceAll("\\s+", "-");
+        return normalizedAuthor + "/" + normalizedName;
+    }
+
+    /**
+     * 检查Skill是否存在
+     */
+    public boolean exists(String skillId) {
+        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        return skillInfo != null && !Boolean.TRUE.equals(skillInfo.getIsDelete());
+    }
+
+    /**
+     * 启用Skill
+     */
+    @Transactional
+    public void enableSkill(String skillId) {
+        SkillInfoDO updateDO = new SkillInfoDO();
+        updateDO.setSkillId(skillId);
+        updateDO.setStatus(1);
+        skillInfoMapper.updateBySkillId(updateDO);
+        executionEngine.refreshCache(skillId);
+        log.info("Skill enabled: {}", skillId);
+    }
+
+    /**
+     * 禁用Skill
+     */
+    @Transactional
+    public void disableSkill(String skillId) {
+        SkillInfoDO updateDO = new SkillInfoDO();
+        updateDO.setSkillId(skillId);
+        updateDO.setStatus(0);
+        skillInfoMapper.updateBySkillId(updateDO);
+        executionEngine.refreshCache(skillId);
+        log.info("Skill disabled: {}", skillId);
+    }
+}

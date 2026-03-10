@@ -5,6 +5,7 @@ import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
@@ -16,6 +17,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -46,6 +48,9 @@ public class AgentSession {
 
     @Value("${sandbox.backend.worker-mcp-url}")
     private String workerNativeMcpUrl;
+
+    @Autowired
+    private SkillToolProvider skillToolProvider;
 
     private AgentExecutor executor;
 
@@ -101,8 +106,14 @@ public class AgentSession {
         // collect all tool specifications
         List<ToolSpecification> allTools = new ArrayList<>(browserTools);
         allTools.addAll(nativeTools);
+
+        // Load Skill tools and add to tool specifications
+        List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecifications();
+        allTools.addAll(skillTools);
+        log.info("Skill tools discovered: {}", skillTools.size());
+
         agent.setToolSpecifications(allTools);
-        log.info("Total MCP tools available: {}", allTools.size());
+        log.info("Total tools available (MCP + Skills): {}", allTools.size());
 
         ToolRegistry registry = new ToolRegistry();
         registry.register(new CalculatorTool());

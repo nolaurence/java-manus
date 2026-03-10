@@ -1,5 +1,9 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
+import cn.nolaurene.cms.common.dto.skill.SkillDefinitionDTO;
+import cn.nolaurene.cms.common.dto.skill.SkillExecutionRequest;
+import cn.nolaurene.cms.common.dto.skill.SkillExecutionResult;
+import cn.nolaurene.cms.common.dto.skill.ToolDefinition;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.MessageEventData;
@@ -7,6 +11,8 @@ import cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -24,6 +30,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolExecutionResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -48,6 +55,12 @@ public class ExecutionSubAgent {
 
     @Resource
     private ConversationHistoryService conversationHistoryService;
+
+    @Autowired
+    private SkillToolProvider skillToolProvider;
+
+    @Autowired
+    private SkillExecutionEngine skillExecutionEngine;
 
     /**
      * Execute a single step with a tool-calling loop.
@@ -325,8 +338,14 @@ public class ExecutionSubAgent {
 
     /**
      * Execute a tool with retry logic using MCP Client directly.
+     * Also handles Skill tools via SkillExecutionEngine.
      */
     private String executeToolWithRetry(String toolName, ToolExecutionRequest request, Agent agent) {
+        // Check if this is a Skill tool
+        if (skillToolProvider.isSkillTool(toolName)) {
+            return executeSkillTool(toolName, request, agent);
+        }
+
         McpClient mcpClient = selectMcpClient(toolName, agent);
         if (mcpClient == null) {
             String errorMsg = "No MCP client available for tool: " + toolName;
@@ -337,13 +356,13 @@ public class ExecutionSubAgent {
         Exception lastException = null;
         for (int i = 0; i < MCP_TOOL_RETRY_TIMES; i++) {
             try {
-                log.info("[ExecutionSubAgent] Executing tool [{}] via MCP Client, attempt {}/{}", 
+                log.info("[ExecutionSubAgent] Executing tool [{}] via MCP Client, attempt {}/{}",
                         toolName, i + 1, MCP_TOOL_RETRY_TIMES);
                 ToolExecutionResult result = mcpClient.executeTool(request);
                 String resultText = result.resultText();
                 return resultText != null ? resultText : "(empty result)";
             } catch (Exception e) {
-                log.warn("[ExecutionSubAgent] Tool [{}] failed, retry {}/{}: {}", 
+                log.warn("[ExecutionSubAgent] Tool [{}] failed, retry {}/{}: {}",
                         toolName, i + 1, MCP_TOOL_RETRY_TIMES, e.getMessage());
                 lastException = e;
                 if (i < MCP_TOOL_RETRY_TIMES - 1) {
@@ -358,6 +377,65 @@ public class ExecutionSubAgent {
         }
 
         return "Tool call error after retries: " + (lastException != null ? lastException.getMessage() : "unknown");
+    }
+
+    /**
+     * Execute a Skill tool via SkillExecutionEngine.
+     * Skill tools are executed in the sandbox shell environment.
+     */
+    private String executeSkillTool(String toolName, ToolExecutionRequest request, Agent agent) {
+        String skillId = skillToolProvider.parseSkillIdFromToolName(toolName);
+        if (skillId == null) {
+            String errorMsg = "Cannot find Skill ID for tool: " + toolName;
+            log.error("[ExecutionSubAgent] {}", errorMsg);
+            return errorMsg;
+        }
+
+        log.info("[ExecutionSubAgent] Executing Skill tool: {} -> {}", toolName, skillId);
+
+        try {
+            // Parse arguments
+            JSONObject argsJson = JSON.parseObject(request.arguments());
+            if (argsJson == null) {
+                argsJson = new JSONObject();
+            }
+
+            // Extract session_id from arguments, fallback to agentId
+            String sessionId = argsJson.getString("session_id");
+            if (sessionId == null || sessionId.isEmpty()) {
+                sessionId = agent.getAgentId();
+            }
+
+            // Build skill execution request
+            SkillExecutionRequest skillRequest = new SkillExecutionRequest();
+            skillRequest.setSkillId(skillId);
+            skillRequest.setSessionId(sessionId);
+            skillRequest.setWorkingDir("/workspace");
+
+            // Convert remaining arguments to params map
+            Map<String, Object> params = new HashMap<>();
+            for (String key : argsJson.keySet()) {
+                if (!"session_id".equals(key)) {
+                    params.put(key, argsJson.get(key));
+                }
+            }
+            skillRequest.setParams(params);
+
+            // Execute skill via SkillExecutionEngine (runs in sandbox shell)
+            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest);
+
+            log.info("[ExecutionSubAgent] Skill {} execution completed with status: {}", skillId, result.getStatus());
+
+            if ("SUCCESS".equals(result.getStatus())) {
+                return result.getOutput() != null ? result.getOutput() : "(skill executed successfully)";
+            } else {
+                return "Skill execution failed: " + (result.getError() != null ? result.getError() : "unknown error");
+            }
+
+        } catch (Exception e) {
+            log.error("[ExecutionSubAgent] Failed to execute Skill tool: {}", toolName, e);
+            return "Skill execution error: " + e.getMessage();
+        }
     }
 
     /**
