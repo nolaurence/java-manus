@@ -3,6 +3,7 @@ package cn.nolaurene.cms.service.sandbox.worker.shell.tools;
 import cn.nolaurene.cms.common.sandbox.worker.resp.shell.*;
 import cn.nolaurene.cms.service.sandbox.worker.mcp.server.tool.*;
 import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
+import com.alibaba.fastjson2.JSON;
 import io.modelcontextprotocol.spec.McpSchema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -132,8 +133,7 @@ public class ShellTool {
                             ShellViewResult result = shellService.viewShell(params.getId());
 
                             List<McpSchema.Content> outputList = new ArrayList<>();
-                            outputList.add(new McpSchema.TextContent("Session ID: " + result.getSessionId()));
-                            outputList.add(new McpSchema.TextContent("Output: " + result.getOutput()));
+                            outputList.add(new McpSchema.TextContent(JSON.toJSONString(result)));
 
                             return new ToolActionResult(outputList);
                         } catch (Exception e) {

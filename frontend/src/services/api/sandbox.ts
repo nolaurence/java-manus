@@ -172,7 +172,7 @@ export interface ShellViewResponse {
 export async function viewShellSession(agentId: string, sessionId: string): Promise<ShellViewResponse> {
 
   const viewShellSessionFn = async (sessionId: string) => {
-    return request<API.Response<ShellViewResponse>>('/agents', {
+    return request<API.Response<ShellViewResponse>>(`/agents/${agentId}/shell`, {
       method: 'POST',
       data: {sessionId: sessionId}
     });

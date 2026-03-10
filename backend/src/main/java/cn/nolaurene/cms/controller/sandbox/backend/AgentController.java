@@ -5,6 +5,7 @@ import cn.nolaurene.cms.common.sandbox.Response;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
 import cn.nolaurene.cms.common.sandbox.backend.model.FileViewResponse;
+import cn.nolaurene.cms.common.sandbox.backend.model.ShellViewResponse;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
 import cn.nolaurene.cms.common.vo.User;
 import cn.nolaurene.cms.dal.entity.LlmConfigDO;
@@ -315,6 +316,64 @@ public class AgentController {
         } catch (Exception e) {
             log.error("Error viewing file for agent: {}", agentId, e);
             return Response.error("Error viewing file: " + e.getMessage(), null);
+        }
+    }
+
+    /**
+     * View shell session content
+     * @param agentId Agent ID
+     * @param request contains sessionId
+     * @return Shell session output with console records
+     */
+    @PostMapping("/{agentId}/shell")
+    public Response<ShellViewResponse> viewShell(@PathVariable String agentId, @RequestBody Map<String, String> request) {
+        try {
+            String sessionId = request.get("sessionId");
+            if (StringUtils.isBlank(sessionId)) {
+                return Response.error("Session ID is required", null);
+            }
+
+            // Get the agent session
+            AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
+            if (agentSession == null) {
+                return Response.error("Agent session not found", null);
+            }
+
+            // Get the native MCP client from agent
+            McpClient nativeMcpClient = agentSession.getAgent().getNativeMcpClient();
+            if (nativeMcpClient == null) {
+                return Response.error("Native MCP client not initialized", null);
+            }
+
+            // Prepare arguments for shell_view tool
+            Map<String, Object> arguments = new HashMap<>();
+            arguments.put("id", sessionId);
+
+            // Call the shell_view tool via langchain4j MCP client
+            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
+                    .name("shell_view")
+                    .arguments(JSON.toJSONString(arguments))
+                    .build();
+            ToolExecutionResult toolResult = nativeMcpClient.executeTool(toolRequest);
+
+            // Check for errors
+            if (toolResult.isError()) {
+                return Response.error("Failed to view shell session: " + toolResult.resultText(), null);
+            }
+
+            // Parse the JSON result from shell_view tool
+            String resultText = toolResult.resultText();
+            ShellViewResponse response = JSON.parseObject(resultText, ShellViewResponse.class);
+            if (response == null) {
+                response = new ShellViewResponse();
+                response.setOutput(resultText);
+                response.setSessionId(sessionId);
+            }
+
+            return Response.success(response);
+        } catch (Exception e) {
+            log.error("Error viewing shell session for agent: {}", agentId, e);
+            return Response.error("Error viewing shell session: " + e.getMessage(), null);
         }
     }
 
