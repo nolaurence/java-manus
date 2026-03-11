@@ -30,4 +30,9 @@ public class RegisterRequest {
     private String email;
 
     private String phone;
+
+    /**
+     * 邀请码
+     */
+    private String inviteCode;
 }
