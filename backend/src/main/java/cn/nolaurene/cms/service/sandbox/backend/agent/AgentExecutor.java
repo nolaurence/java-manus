@@ -100,6 +100,14 @@ public class AgentExecutor {
         }
     }
 
+    public void initialize(ToolRegistry tools, ChatModel chatModel, Agent agent) {
+        this.tools = tools;
+        this.chatModel = chatModel;
+        this.MAX_ROUNDS = agent.getMaxLoop();
+        this.agent = agent;
+        this.conversationUserId = agent.getUserId();
+    }
+
     private boolean shouldDirectSend(String agentId) {
         if (agent == null || agent.getAgentId() == null) {
             return true;
@@ -137,13 +145,6 @@ public class AgentExecutor {
                 log.info("发送错误，标记前端为断开连接");
             }
         }
-    }
-
-    public void initialize(ToolRegistry tools, ChatModel chatModel, Agent agent) {
-        this.tools = tools;
-        this.chatModel = chatModel;
-        this.MAX_ROUNDS = agent.getMaxLoop();
-        this.agent = agent;
     }
 
     public void setConversationPersistence(ConversationHistoryService conversationHistoryService, String userId, String sessionId) {
