@@ -84,8 +84,11 @@ const FileViewer = forwardRef<FileViewerHandle, Props>(
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           automaticLayout: true,
+          fontSize: 13,
           lineNumbers: "off",
           wordWrap: "on",
+          formatOnPaste: true,
+          formatOnType: true,
           scrollbar: {
             vertical: "auto",
             horizontal: "auto",
@@ -176,7 +179,7 @@ const FileViewer = forwardRef<FileViewerHandle, Props>(
               className="focus-visible:outline-none data-[state=inactive]:hidden flex-1 min-h-0 h-full text-sm flex flex-col py-0 outline-none overflow-auto"
             >
               <section style={{ display: "flex", position: "relative", textAlign: "initial", width: "100%", height: "100%" }}>
-                <div ref={monacoContainer} style={{ width: "100%", height: "100%" }}></div>
+                <div ref={monacoContainer} className="flex-1 min-h-[400px] border rounded-[5px] overflow-hidden"></div>
               </section>
             </div>
           </div>
