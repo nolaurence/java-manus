@@ -20,11 +20,17 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final String NOT_LOGIN_MESSAGE = "未登录";
+
     @ExceptionHandler(BusinessException.class)
     public BaseWebResult<?> businessExceptionHandler(BusinessException e) {
-        log.error("businessException: " + e.getMessage(), e);
-        BaseWebResult result = new BaseWebResult(false, null, e.getCode(), e.getMessage(), ErrorShowType.NOTIFICATION);
-        return result;
+        if (NOT_LOGIN_MESSAGE.equals(e.getMessage())) {
+            log.error("businessException: " + e.getMessage());
+            return new BaseWebResult(false, null, e.getCode(), e.getMessage(), ErrorShowType.WARN_MESSAGE);
+        } else {
+            log.error("businessException: " + e.getMessage(), e);
+            return new BaseWebResult(false, null, e.getCode(), e.getMessage(), ErrorShowType.NOTIFICATION);
+        }
     }
 
     @ExceptionHandler(RuntimeException.class)
