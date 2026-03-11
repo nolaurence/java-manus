@@ -90,7 +90,7 @@ npm i @playwright/mcp -g
 mkdir -p /app/logs
 #sudo -u ubuntu java -jar /app/target/case-management-backend-0.0.1-SNAPSHOT.jar >> /app/logs/java.log 2>&1 &
 # shellcheck disable=SC2024
-sudo env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 nohup java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -jar ${JAR_NAME} --spring.profiles.active=worker > ${JAVA_OUT} 2>&1 &
+sudo env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 TZ=Asia/Shanghai nohup java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -jar ${JAR_NAME} --spring.profiles.active=worker > ${JAVA_OUT} 2>&1 &
 #sudo env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 nohup java $JAVA_OPTS -jar ${JAR_NAME} --spring.profiles.active=worker > ${JAVA_OUT} 2>&1 &
 
 echo "Java app started"
