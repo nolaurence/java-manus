@@ -4,8 +4,10 @@ import cn.nolaurene.cms.common.dto.skill.*;
 import cn.nolaurene.cms.common.sandbox.worker.resp.shell.ShellCommandResult;
 import cn.nolaurene.cms.dal.entity.SkillExecutionLogDO;
 import cn.nolaurene.cms.dal.entity.SkillInfoDO;
+import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.dal.mapper.SkillExecutionLogMapper;
 import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
+import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import cn.nolaurene.cms.exception.skill.SkillDependencyException;
 import cn.nolaurene.cms.exception.skill.SkillExecutionException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
@@ -33,6 +35,8 @@ public class SkillExecutionEngine {
     private final ShellService shellService;
     private final SkillInfoMapper skillInfoMapper;
     private final SkillExecutionLogMapper executionLogMapper;
+    private final UserSkillStatusMapper userSkillStatusMapper;
+    private final SkillFileStorageService fileStorageService;
 
     /**
      * Skill缓存
@@ -41,10 +45,14 @@ public class SkillExecutionEngine {
 
     public SkillExecutionEngine(ShellService shellService,
                                 SkillInfoMapper skillInfoMapper,
-                                SkillExecutionLogMapper executionLogMapper) {
+                                SkillExecutionLogMapper executionLogMapper,
+                                UserSkillStatusMapper userSkillStatusMapper,
+                                SkillFileStorageService fileStorageService) {
         this.shellService = shellService;
         this.skillInfoMapper = skillInfoMapper;
         this.executionLogMapper = executionLogMapper;
+        this.userSkillStatusMapper = userSkillStatusMapper;
+        this.fileStorageService = fileStorageService;
     }
 
     /**
@@ -65,19 +73,32 @@ public class SkillExecutionEngine {
                 throw new SkillNotFoundException("Skill not found: " + request.getSkillId());
             }
 
-            // 2. 验证依赖
+            // 2. 检查用户是否启用了该Skill（如果提供了userId）
+            if (request.getUserId() != null) {
+                if (!isSkillEnabledForUser(request.getUserId(), request.getSkillId())) {
+                    throw new SkillExecutionException("Skill is disabled for user: " + request.getSkillId());
+                }
+            }
+
+            // 3. 验证依赖
             validateDependencies(skill, request.getSessionId());
 
-            // 3. 获取要执行的工具
+            // 4. 获取要执行的工具
             ToolDefinition tool = resolveTool(skill, request.getParams());
             if (tool == null) {
                 throw new SkillExecutionException("No matching tool found for skill: " + request.getSkillId());
             }
 
-            // 4. 渲染命令模板
+            // 5. 渲染命令模板
             String command = renderCommand(tool.getCommand(), request.getParams());
 
-            // 5. 通过Shell沙箱执行命令
+            // 6. 添加脚本路径环境变量（如果存在scripts目录）
+            String scriptsPath = fileStorageService.getSkillScriptsPath(request.getSkillId());
+            if (StringUtils.isNotBlank(scriptsPath)) {
+                command = "export SKILL_SCRIPTS_PATH=" + scriptsPath + " && " + command;
+            }
+
+            // 7. 通过Shell沙箱执行命令
             String workingDir = StringUtils.defaultIfEmpty(request.getWorkingDir(), "/workspace");
             ShellCommandResult shellResult = shellService.execCommand(
                     request.getSessionId(),
@@ -371,7 +392,7 @@ public class SkillExecutionEngine {
             SkillExecutionLogDO logDO = new SkillExecutionLogDO();
             logDO.setSkillId(request.getSkillId());
             logDO.setSessionId(request.getSessionId());
-            logDO.setUserId(null); // 可以从上下文获取
+            logDO.setUserId(request.getUserId()); // 从请求中获取用户ID
             logDO.setInputParams(request.getParams() != null ? JSON.toJSONString(request.getParams()) : null);
             logDO.setOutputResult(result.getOutput());
             logDO.setStatus(result.getStatus());
@@ -383,6 +404,18 @@ public class SkillExecutionEngine {
         } catch (Exception e) {
             log.error("Failed to save execution log", e);
         }
+    }
+
+    /**
+     * 检查用户是否启用了某个Skill
+     */
+    private boolean isSkillEnabledForUser(Long userId, String skillId) {
+        UserSkillStatusDO status = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        // 如果没有记录，默认启用（向后兼容）
+        if (status == null) {
+            return true;
+        }
+        return status.getStatus() != null && status.getStatus() == 1;
     }
 
     /**

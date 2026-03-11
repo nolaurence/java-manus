@@ -19,4 +19,9 @@ public class SkillExecutionRequest {
     private Map<String, Object> params;
 
     private String workingDir;
+
+    /**
+     * 执行用户ID（用于权限检查）
+     */
+    private Long userId;
 }

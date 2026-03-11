@@ -19,6 +19,7 @@ import {
   Collapse,
   Empty,
   Spin,
+  Upload,
 } from 'antd';
 import { useNavigate } from 'react-router';
 import {
@@ -33,6 +34,8 @@ import {
   Code,
   BookOpen,
   Zap,
+  Upload as UploadIcon,
+  User,
 } from 'lucide-react';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
 import { createStyles } from 'antd-style';
@@ -56,6 +59,11 @@ import {
   getSkillDocuments,
   addSkillDocument,
   refreshSkillCache,
+  importSkillFromZip,
+  getEnabledSkillsForUser,
+  enableSkillForUser,
+  disableSkillForUser,
+  initializeUserSkillStatus,
 } from '@/services/api/skill';
 
 const useStyles = createStyles((utils) => {
@@ -195,17 +203,22 @@ const SkillsPage: React.FC = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [executeModalOpen, setExecuteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [zipImportModalOpen, setZipImportModalOpen] = useState(false);
+  const [userStatusModalOpen, setUserStatusModalOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SkillDefinition | null>(null);
   const [skillDocuments, setSkillDocuments] = useState<SkillDocument[]>([]);
+  const [enabledSkillIds, setEnabledSkillIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const [registerForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [executeForm] = Form.useForm();
   const [importForm] = Form.useForm();
 
-  // 加载 Skill 列表
+  // 加载 Skill 列表和用户启用状态
   useEffect(() => {
     loadSkills();
+    loadUserEnabledSkills();
   }, []);
 
   const loadSkills = async () => {
@@ -218,6 +231,15 @@ const SkillsPage: React.FC = () => {
       message.error('加载 Skills 失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUserEnabledSkills = async () => {
+    try {
+      const data = await getEnabledSkillsForUser();
+      setEnabledSkillIds(data);
+    } catch (error) {
+      console.error('加载用户启用 Skills 失败:', error);
     }
   };
 
@@ -301,7 +323,7 @@ const SkillsPage: React.FC = () => {
     }
   };
 
-  // 启用/禁用 Skill
+  // 启用/禁用 Skill（全局）
   const handleToggleStatus = async (skill: SkillDefinition) => {
     try {
       if (skill.status === 1) {
@@ -315,6 +337,50 @@ const SkillsPage: React.FC = () => {
     } catch (error) {
       message.error('操作失败');
     }
+  };
+
+  // 为用户启用/禁用 Skill
+  const handleToggleUserStatus = async (skillId: string, enabled: boolean) => {
+    try {
+      if (enabled) {
+        await enableSkillForUser(skillId);
+        message.success('已为您启用此 Skill');
+      } else {
+        await disableSkillForUser(skillId);
+        message.success('已为您禁用此 Skill');
+      }
+      loadUserEnabledSkills();
+    } catch (error) {
+      message.error('操作失败');
+    }
+  };
+
+  // 初始化用户 Skill 状态
+  const handleInitializeUserSkills = async () => {
+    try {
+      await initializeUserSkillStatus();
+      message.success('已初始化您的 Skill 状态');
+      loadUserEnabledSkills();
+    } catch (error) {
+      message.error('初始化失败');
+    }
+  };
+
+  // 从 Zip 导入 Skill
+  const handleZipImport = async (file: File) => {
+    setUploading(true);
+    try {
+      const skillId = await importSkillFromZip(file);
+      message.success(`Skill 导入成功: ${skillId}`);
+      setZipImportModalOpen(false);
+      loadSkills();
+      loadUserEnabledSkills();
+    } catch (error: any) {
+      message.error(`导入失败: ${error.message || '未知错误'}`);
+    } finally {
+      setUploading(false);
+    }
+    return false; // 阻止默认上传行为
   };
 
   // 执行 Skill
@@ -392,9 +458,17 @@ const SkillsPage: React.FC = () => {
 
   const getStatusTag = (status?: number) => {
     if (status === 1) {
-      return <Tag color="green">启用</Tag>;
+      return <Tag color="green">全局启用</Tag>;
     }
-    return <Tag color="red">禁用</Tag>;
+    return <Tag color="red">全局禁用</Tag>;
+  };
+
+  const getUserStatusTag = (skillId: string) => {
+    const isEnabled = enabledSkillIds.includes(skillId);
+    if (isEnabled) {
+      return <Tag color="blue">已启用</Tag>;
+    }
+    return <Tag color="default">未启用</Tag>;
   };
 
   const getTriggerTypeTag = (type: string) => {
@@ -433,8 +507,14 @@ const SkillsPage: React.FC = () => {
             <Button icon={<RefreshCw size={16} />} onClick={handleRefreshCache}>
               刷新缓存
             </Button>
+            <Button icon={<User size={16} />} onClick={() => setUserStatusModalOpen(true)}>
+              我的 Skills
+            </Button>
             <Button icon={<FileText size={16} />} onClick={() => setImportModalOpen(true)}>
               导入 SKILL.md
+            </Button>
+            <Button icon={<UploadIcon size={16} />} onClick={() => setZipImportModalOpen(true)}>
+              上传 Zip
             </Button>
             <Button type="primary" icon={<Plus size={16} />} onClick={() => setRegisterModalOpen(true)}>
               注册 Skill
@@ -518,6 +598,7 @@ const SkillsPage: React.FC = () => {
                   <Tag color="blue">v{skill.version}</Tag>
                   <Tag color="cyan">{skill.author}</Tag>
                   {skill.category && <Tag color="geekblue">{skill.category}</Tag>}
+                  {getUserStatusTag(skill.skillId)}
                 </div>
                 <div className={styles.skillDescription}>{skill.description}</div>
                 {skill.triggers && skill.triggers.length > 0 && (
@@ -677,6 +758,135 @@ This is an example skill.`}
             </Button>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Zip 上传弹窗 */}
+      <Modal
+        open={zipImportModalOpen}
+        title="从 Zip 文件导入 Skill"
+        onCancel={() => setZipImportModalOpen(false)}
+        footer={null}
+        width={500}
+      >
+        <div style={{ padding: '20px 0' }}>
+          <p style={{ marginBottom: 16, color: '#666' }}>
+            上传包含 SKILL.md 的 zip 文件，系统将自动解析并注册 Skill。
+          </p>
+          <p style={{ marginBottom: 24, color: '#999', fontSize: 12 }}>
+            支持的文件结构：
+            <br />
+            skill-name/
+            <br />
+            ├── SKILL.md (必需)
+            <br />
+            ├── reference.md (可选)
+            <br />
+            ├── examples.md (可选)
+            <br />
+            └── scripts/ (可选)
+          </p>
+          <Upload.Dragger
+            name="file"
+            accept=".zip"
+            beforeUpload={handleZipImport}
+            showUploadList={false}
+            disabled={uploading}
+          >
+            <p className="ant-upload-drag-icon">
+              <UploadIcon size={48} style={{ margin: '0 auto', display: 'block' }} />
+            </p>
+            <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+            <p className="ant-upload-hint">仅支持 .zip 格式文件</p>
+          </Upload.Dragger>
+          {uploading && (
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Spin tip="正在导入..." />
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* 用户状态管理弹窗 */}
+      <Modal
+        open={userStatusModalOpen}
+        title="我的 Skills"
+        onCancel={() => setUserStatusModalOpen(false)}
+        footer={[
+          <Button key="init" onClick={handleInitializeUserSkills}>
+            初始化所有 Skill
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setUserStatusModalOpen(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={700}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ color: '#666' }}>
+            管理您启用的 Skills。只有启用的 Skills 才会在对话中生效。
+          </p>
+        </div>
+        <Table
+          dataSource={skills}
+          rowKey="skillId"
+          pagination={false}
+          size="small"
+          columns={[
+            {
+              title: 'Skill 名称',
+              dataIndex: 'name',
+              key: 'name',
+              render: (text: string, record: SkillDefinition) => (
+                <div>
+                  <div style={{ fontWeight: 500 }}>{text}</div>
+                  <div style={{ fontSize: 12, color: '#999' }}>{record.skillId}</div>
+                </div>
+              ),
+            },
+            {
+              title: '作者',
+              dataIndex: 'author',
+              key: 'author',
+              width: 120,
+            },
+            {
+              title: '分类',
+              dataIndex: 'category',
+              key: 'category',
+              width: 100,
+              render: (category: string) => category || '-',
+            },
+            {
+              title: '我的状态',
+              key: 'userStatus',
+              width: 100,
+              render: (_, record: SkillDefinition) => {
+                const isEnabled = enabledSkillIds.includes(record.skillId);
+                return isEnabled ? (
+                  <Tag color="blue">已启用</Tag>
+                ) : (
+                  <Tag color="default">未启用</Tag>
+                );
+              },
+            },
+            {
+              title: '操作',
+              key: 'action',
+              width: 100,
+              render: (_, record: SkillDefinition) => {
+                const isEnabled = enabledSkillIds.includes(record.skillId);
+                return (
+                  <Switch
+                    checked={isEnabled}
+                    onChange={(checked) => handleToggleUserStatus(record.skillId, checked)}
+                    checkedChildren="启用"
+                    unCheckedChildren="禁用"
+                  />
+                );
+              },
+            },
+          ]}
+        />
       </Modal>
 
       {/* 详情弹窗 */}

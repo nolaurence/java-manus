@@ -3,15 +3,19 @@ package cn.nolaurene.cms.controller.sandbox.backend;
 import cn.nolaurene.cms.common.dto.skill.*;
 import cn.nolaurene.cms.common.vo.BaseWebResult;
 import cn.nolaurene.cms.dal.entity.SkillDocumentDO;
+import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillManagementService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -211,5 +215,90 @@ public class SkillController {
     public BaseWebResult<Boolean> exists(@PathVariable String skillId) {
         boolean exists = skillManagementService.exists(skillId);
         return BaseWebResult.success(exists);
+    }
+
+    // ==================== Zip文件导入 ====================
+
+    /**
+     * 从Zip文件导入Skill
+     */
+    @PostMapping(value = "/import-zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "从Zip文件导入Skill")
+    public BaseWebResult<String> importSkillFromZip(
+            @RequestParam("file") MultipartFile file,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        try {
+            if (file.isEmpty()) {
+                return BaseWebResult.fail("Zip file is empty");
+            }
+            String skillId = skillManagementService.importSkillFromZip(file.getBytes(), userId);
+            return BaseWebResult.success(skillId);
+        } catch (IOException e) {
+            log.error("Failed to import skill from zip", e);
+            return BaseWebResult.fail("Failed to import skill: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return BaseWebResult.fail("Invalid skill package: " + e.getMessage());
+        }
+    }
+
+    // ==================== 用户Skill状态管理 ====================
+
+    /**
+     * 获取用户启用的Skill列表
+     */
+    @GetMapping("/user/enabled")
+    @Operation(summary = "获取用户启用的Skill列表")
+    public BaseWebResult<List<String>> getEnabledSkillsForUser(
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) {
+            return BaseWebResult.fail("User ID is required");
+        }
+        List<String> skillIds = skillManagementService.getEnabledSkillIdsForUser(userId);
+        return BaseWebResult.success(skillIds);
+    }
+
+    /**
+     * 为用户启用Skill
+     */
+    @PostMapping("/{skillId}/enable-for-user")
+    @Operation(summary = "为用户启用Skill")
+    public BaseWebResult<Void> enableSkillForUser(
+            @PathVariable String skillId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) {
+            return BaseWebResult.fail("User ID is required");
+        }
+        skillManagementService.enableSkillForUser(userId, skillId);
+        return BaseWebResult.success(null);
+    }
+
+    /**
+     * 为用户禁用Skill
+     */
+    @PostMapping("/{skillId}/disable-for-user")
+    @Operation(summary = "为用户禁用Skill")
+    public BaseWebResult<Void> disableSkillForUser(
+            @PathVariable String skillId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) {
+            return BaseWebResult.fail("User ID is required");
+        }
+        skillManagementService.disableSkillForUser(userId, skillId);
+        return BaseWebResult.success(null);
+    }
+
+    /**
+     * 初始化用户Skill状态
+     * 为新用户启用所有现有Skill
+     */
+    @PostMapping("/user/initialize")
+    @Operation(summary = "初始化用户Skill状态")
+    public BaseWebResult<Void> initializeUserSkillStatus(
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        if (userId == null) {
+            return BaseWebResult.fail("User ID is required");
+        }
+        skillManagementService.initializeUserSkillStatus(userId);
+        return BaseWebResult.success(null);
     }
 }

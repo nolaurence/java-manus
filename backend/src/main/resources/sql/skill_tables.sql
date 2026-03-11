@@ -58,3 +58,17 @@ CREATE TABLE IF NOT EXISTS `skill_execution_log` (
     KEY `idx_session_id` (`session_id`),
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill执行日志表';
+
+-- 用户Skill状态表：记录每个用户对Skill的启用/禁用状态
+CREATE TABLE IF NOT EXISTS `user_skill_status` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `skill_id` VARCHAR(128) NOT NULL COMMENT 'Skill ID',
+    `status` TINYINT DEFAULT 1 COMMENT '状态：1-启用, 0-禁用',
+    `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `gmt_modified` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_skill` (`user_id`, `skill_id`),
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_skill_id` (`skill_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户Skill状态表';

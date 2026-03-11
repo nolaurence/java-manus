@@ -3,8 +3,10 @@ package cn.nolaurene.cms.service.sandbox.backend.skill;
 import cn.nolaurene.cms.common.dto.skill.*;
 import cn.nolaurene.cms.dal.entity.SkillDocumentDO;
 import cn.nolaurene.cms.dal.entity.SkillInfoDO;
+import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.dal.mapper.SkillDocumentMapper;
 import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
+import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import cn.nolaurene.cms.exception.skill.SkillAlreadyExistsException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
 import com.alibaba.fastjson2.JSON;
@@ -13,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.util.*;
 
 /**
@@ -27,14 +30,20 @@ public class SkillManagementService {
 
     private final SkillInfoMapper skillInfoMapper;
     private final SkillDocumentMapper skillDocumentMapper;
+    private final UserSkillStatusMapper userSkillStatusMapper;
     private final SkillExecutionEngine executionEngine;
+    private final SkillFileStorageService fileStorageService;
 
     public SkillManagementService(SkillInfoMapper skillInfoMapper,
                                   SkillDocumentMapper skillDocumentMapper,
-                                  SkillExecutionEngine executionEngine) {
+                                  UserSkillStatusMapper userSkillStatusMapper,
+                                  SkillExecutionEngine executionEngine,
+                                  SkillFileStorageService fileStorageService) {
         this.skillInfoMapper = skillInfoMapper;
         this.skillDocumentMapper = skillDocumentMapper;
+        this.userSkillStatusMapper = userSkillStatusMapper;
         this.executionEngine = executionEngine;
+        this.fileStorageService = fileStorageService;
     }
 
     /**
@@ -524,5 +533,202 @@ public class SkillManagementService {
         skillInfoMapper.updateBySkillId(updateDO);
         executionEngine.refreshCache(skillId);
         log.info("Skill disabled: {}", skillId);
+    }
+
+    // ==================== 用户Skill状态管理 ====================
+
+    /**
+     * 初始化用户的Skill状态
+     * 当新用户注册或新Skill添加时调用，默认启用所有Skill
+     */
+    @Transactional
+    public void initializeUserSkillStatus(Long userId) {
+        List<SkillInfoDO> allSkills = skillInfoMapper.selectAllActive();
+        for (SkillInfoDO skill : allSkills) {
+            UserSkillStatusDO existing = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skill.getSkillId());
+            if (existing == null) {
+                UserSkillStatusDO status = new UserSkillStatusDO();
+                status.setUserId(userId);
+                status.setSkillId(skill.getSkillId());
+                status.setStatus(1); // 默认启用
+                status.setGmtCreate(new Date());
+                status.setGmtModified(new Date());
+                userSkillStatusMapper.insert(status);
+            }
+        }
+        log.info("Initialized skill status for user: {}", userId);
+    }
+
+    /**
+     * 为用户启用Skill
+     */
+    @Transactional
+    public void enableSkillForUser(Long userId, String skillId) {
+        UserSkillStatusDO existing = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        if (existing != null) {
+            userSkillStatusMapper.updateStatus(userId, skillId, 1);
+        } else {
+            UserSkillStatusDO status = new UserSkillStatusDO();
+            status.setUserId(userId);
+            status.setSkillId(skillId);
+            status.setStatus(1);
+            status.setGmtCreate(new Date());
+            status.setGmtModified(new Date());
+            userSkillStatusMapper.insert(status);
+        }
+        log.info("Enabled skill {} for user {}", skillId, userId);
+    }
+
+    /**
+     * 为用户禁用Skill
+     */
+    @Transactional
+    public void disableSkillForUser(Long userId, String skillId) {
+        UserSkillStatusDO existing = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        if (existing != null) {
+            userSkillStatusMapper.updateStatus(userId, skillId, 0);
+        } else {
+            UserSkillStatusDO status = new UserSkillStatusDO();
+            status.setUserId(userId);
+            status.setSkillId(skillId);
+            status.setStatus(0);
+            status.setGmtCreate(new Date());
+            status.setGmtModified(new Date());
+            userSkillStatusMapper.insert(status);
+        }
+        log.info("Disabled skill {} for user {}", skillId, userId);
+    }
+
+    /**
+     * 获取用户启用的Skill列表
+     */
+    public List<String> getEnabledSkillIdsForUser(Long userId) {
+        return userSkillStatusMapper.selectEnabledSkillIdsByUserId(userId);
+    }
+
+    /**
+     * 检查用户是否启用了某个Skill
+     */
+    public boolean isSkillEnabledForUser(Long userId, String skillId) {
+        UserSkillStatusDO status = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        return status != null && status.getStatus() != null && status.getStatus() == 1;
+    }
+
+    // ==================== Zip文件导入 ====================
+
+    /**
+     * 从Zip文件导入Skill
+     *
+     * @param zipData  zip文件数据
+     * @param userId   上传用户ID
+     * @return Skill ID
+     */
+    @Transactional
+    public String importSkillFromZip(byte[] zipData, Long userId) throws IOException {
+        // 1. 先保存到临时位置
+        String tempId = UUID.randomUUID().toString();
+        String tempZipPath = fileStorageService.saveUploadedZip("temp-" + tempId, zipData);
+
+        // 2. 解压到临时目录
+        String tempExtractPath = fileStorageService.extractSkillZip("temp-" + tempId);
+
+        try {
+            // 3. 读取 SKILL.md 内容
+            String skillMdContent = fileStorageService.readSkillFile("temp-" + tempId, "SKILL.md");
+            if (StringUtils.isBlank(skillMdContent)) {
+                throw new IllegalArgumentException("SKILL.md not found in zip file");
+            }
+
+            // 4. 解析 SKILL.md
+            SkillParseResult parseResult = parseSkillMd(skillMdContent);
+            if (StringUtils.isBlank(parseResult.getName()) || StringUtils.isBlank(parseResult.getAuthor())) {
+                throw new IllegalArgumentException("SKILL.md must contain 'name' and 'author' fields");
+            }
+
+            String skillId = generateSkillId(parseResult.getAuthor(), parseResult.getName());
+
+            // 5. 检查是否已存在
+            if (exists(skillId)) {
+                throw new SkillAlreadyExistsException("Skill already exists: " + skillId);
+            }
+
+            // 6. 移动到正式目录
+            String finalPath = fileStorageService.moveToExtracted(skillId, tempExtractPath);
+
+            // 7. 保存zip文件
+            fileStorageService.saveUploadedZip(skillId, zipData);
+
+            // 8. 注册到数据库
+            SkillRegisterRequest request = new SkillRegisterRequest();
+            request.setName(parseResult.getName());
+            request.setAuthor(parseResult.getAuthor());
+            request.setVersion(parseResult.getVersion());
+            request.setDescription(parseResult.getDescription());
+            request.setCategory(parseResult.getCategory());
+            request.setTriggers(parseResult.getTriggers());
+            request.setTools(parseResult.getTools());
+            request.setRequires(parseResult.getRequires());
+            request.setOsSupport(parseResult.getOsSupport());
+            request.setUserId(userId);
+
+            // 添加文档
+            List<SkillDocumentRequest> documents = new ArrayList<>();
+
+            // SKILL.md
+            SkillDocumentRequest skillDoc = new SkillDocumentRequest();
+            skillDoc.setDocType("SKILL_MD");
+            skillDoc.setDocName("SKILL.md");
+            skillDoc.setContent(skillMdContent);
+            documents.add(skillDoc);
+
+            // 读取其他文档
+            addDocumentIfExists(documents, skillId, "reference.md", "REFERENCE");
+            addDocumentIfExists(documents, skillId, "examples.md", "EXAMPLE");
+            addDocumentIfExists(documents, skillId, "README.md", "README");
+
+            request.setDocuments(documents);
+
+            registerSkill(request);
+
+            // 9. 为新Skill初始化所有用户的状态（默认启用）
+            initializeSkillStatusForAllUsers(skillId);
+
+            log.info("Successfully imported skill {} from zip", skillId);
+            return skillId;
+
+        } finally {
+            // 清理临时文件
+            try {
+                fileStorageService.deleteSkillFiles("temp-" + tempId);
+            } catch (Exception e) {
+                log.warn("Failed to cleanup temp files for: temp-{}", tempId, e);
+            }
+        }
+    }
+
+    /**
+     * 如果文档存在，添加到列表
+     */
+    private void addDocumentIfExists(List<SkillDocumentRequest> documents, String skillId,
+                                     String fileName, String docType) {
+        String content = fileStorageService.readSkillFile(skillId, fileName);
+        if (StringUtils.isNotBlank(content)) {
+            SkillDocumentRequest doc = new SkillDocumentRequest();
+            doc.setDocType(docType);
+            doc.setDocName(fileName);
+            doc.setContent(content);
+            documents.add(doc);
+        }
+    }
+
+    /**
+     * 为新Skill初始化所有现有用户的状态
+     */
+    @Transactional
+    public void initializeSkillStatusForAllUsers(String skillId) {
+        // 这里假设有一个方法可以获取所有用户ID
+        // 实际实现中可能需要注入UserService
+        // 简化处理：当用户首次获取Skill列表时，再初始化其状态
+        log.info("Skill {} registered, user statuses will be initialized on first access", skillId);
     }
 }

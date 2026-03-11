@@ -5,6 +5,7 @@ import cn.nolaurene.cms.common.dto.skill.ToolDefinition;
 import cn.nolaurene.cms.common.dto.skill.TriggerConfig;
 import cn.nolaurene.cms.dal.entity.SkillInfoDO;
 import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
+import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import com.alibaba.fastjson2.JSON;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
@@ -16,6 +17,7 @@ import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Skill 工具提供者
@@ -29,6 +31,9 @@ public class SkillToolProvider {
 
     @Resource
     private SkillInfoMapper skillInfoMapper;
+
+    @Resource
+    private UserSkillStatusMapper userSkillStatusMapper;
 
     @Resource
     private SkillExecutionEngine skillExecutionEngine;
@@ -252,5 +257,115 @@ public class SkillToolProvider {
     public void refreshCache(String skillId) {
         skillCache.remove(skillId);
         loadSkillFromDB(skillId);
+    }
+
+    // ==================== 用户级Skill工具获取 ====================
+
+    /**
+     * 获取用户启用的所有 Skill 工具
+     *
+     * @param userId 用户ID
+     * @return ToolSpecification 列表
+     */
+    public List<ToolSpecification> getSkillToolSpecificationsForUser(Long userId) {
+        // 获取用户启用的Skill ID列表
+        List<String> enabledSkillIds = userSkillStatusMapper.selectEnabledSkillIdsByUserId(userId);
+
+        if (enabledSkillIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<ToolSpecification> specs = new ArrayList<>();
+
+        for (String skillId : enabledSkillIds) {
+            SkillDefinitionDTO skill = getSkillDefinition(skillId);
+            if (skill != null) {
+                try {
+                    // 从缓存获取或转换
+                    SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+                    if (skillInfo != null && skillInfo.getStatus() != null && skillInfo.getStatus() == 1) {
+                        ToolSpecification spec = convertToToolSpecification(skillInfo);
+                        if (spec != null) {
+                            specs.add(spec);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to convert skill {} to ToolSpecification for user {}", skillId, userId, e);
+                }
+            }
+        }
+
+        log.info("Loaded {} skill tool specifications for user {}", specs.size(), userId);
+        return specs;
+    }
+
+    /**
+     * 根据用户输入匹配用户启用的Skill
+     *
+     * @param input  用户输入
+     * @param userId 用户ID
+     * @return 匹配的Skill列表
+     */
+    public List<SkillDefinitionDTO> matchSkillsForUser(String input, Long userId) {
+        List<String> enabledSkillIds = userSkillStatusMapper.selectEnabledSkillIdsByUserId(userId);
+
+        List<SkillDefinitionDTO> matchedSkills = new ArrayList<>();
+
+        for (String skillId : enabledSkillIds) {
+            SkillDefinitionDTO skill = getSkillDefinition(skillId);
+            if (skill != null && matchesTrigger(skill, input)) {
+                matchedSkills.add(skill);
+            }
+        }
+
+        // 按优先级排序
+        matchedSkills.sort((a, b) -> {
+            int priorityA = a.getPriority() != null ? a.getPriority() : 0;
+            int priorityB = b.getPriority() != null ? b.getPriority() : 0;
+            return Integer.compare(priorityB, priorityA);
+        });
+
+        return matchedSkills;
+    }
+
+    /**
+     * 检查输入是否匹配触发器
+     */
+    private boolean matchesTrigger(SkillDefinitionDTO skill, String input) {
+        if (skill.getTriggers() == null || skill.getTriggers().isEmpty()) {
+            return false;
+        }
+
+        String lowerInput = input.toLowerCase();
+
+        for (TriggerConfig trigger : skill.getTriggers()) {
+            if (trigger.getType() == null || trigger.getPattern() == null) {
+                continue;
+            }
+
+            switch (trigger.getType().toLowerCase()) {
+                case "keyword":
+                    if (lowerInput.contains(trigger.getPattern().toLowerCase())) {
+                        return true;
+                    }
+                    break;
+                case "regex":
+                    try {
+                        if (input.matches(trigger.getPattern())) {
+                            return true;
+                        }
+                    } catch (Exception e) {
+                        log.warn("Invalid regex pattern: {}", trigger.getPattern(), e);
+                    }
+                    break;
+                case "intent":
+                    log.debug("Intent trigger not implemented yet");
+                    break;
+                default:
+                    log.warn("Unknown trigger type: {}", trigger.getType());
+            }
+        }
+
+        return false;
     }
 }

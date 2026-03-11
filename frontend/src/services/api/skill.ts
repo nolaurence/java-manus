@@ -230,3 +230,78 @@ export async function warmupSkillCache(): Promise<void> {
     return Promise.reject(res?.message || 'Failed to warmup cache');
   }
 }
+
+// ===================== Zip Import =====================
+
+/**
+ * 从 Zip 文件导入 Skill
+ */
+export async function importSkillFromZip(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await request<API.Response<string>>('/api/skills/import-zip', {
+    method: 'POST',
+    data: formData,
+    headers: {
+      // 不要设置 Content-Type，让浏览器自动设置
+    },
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to import skill from zip');
+  }
+  // @ts-ignore
+  return res.data;
+}
+
+// ===================== User Skill Status =====================
+
+/**
+ * 获取用户启用的 Skill 列表
+ */
+export async function getEnabledSkillsForUser(): Promise<string[]> {
+  const res = await request<API.Response<string[]>>('/api/skills/user/enabled', {
+    method: 'GET',
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to get enabled skills');
+  }
+  // @ts-ignore
+  return res.data || [];
+}
+
+/**
+ * 为用户启用 Skill
+ */
+export async function enableSkillForUser(skillId: string): Promise<void> {
+  const res = await request<API.Response<void>>(`/api/skills/${skillId}/enable-for-user`, {
+    method: 'POST',
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to enable skill for user');
+  }
+}
+
+/**
+ * 为用户禁用 Skill
+ */
+export async function disableSkillForUser(skillId: string): Promise<void> {
+  const res = await request<API.Response<void>>(`/api/skills/${skillId}/disable-for-user`, {
+    method: 'POST',
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to disable skill for user');
+  }
+}
+
+/**
+ * 初始化用户 Skill 状态
+ */
+export async function initializeUserSkillStatus(): Promise<void> {
+  const res = await request<API.Response<void>>('/api/skills/user/initialize', {
+    method: 'POST',
+  });
+  if (!res || !res.success) {
+    return Promise.reject(res?.message || 'Failed to initialize user skill status');
+  }
+}
