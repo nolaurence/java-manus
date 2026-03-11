@@ -71,15 +71,15 @@ const UserInfoComponent: React.FC = () => {
   };
 
   const handleGoSettings = () => {
+    history.push('/settings');
+  };
+
+  const handleGoSkills = () => {
     Modal.warning({
       title: '测试中',
       content: 'skill功能还在测试，后续开放~',
     });
-    // history.push('/settings');
-  };
-
-  const handleGoSkills = () => {
-    history.push('/skills');
+    // history.push('/skills');
   };
 
   useEffect(() => {
