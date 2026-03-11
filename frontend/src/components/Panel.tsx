@@ -1,6 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import {useStyles} from '@/assets/panel';
-import {PanelLeft, Plus, Search} from 'lucide-react';
+import {PanelLeft, Plus, Search, Ellipsis, MessageSquare} from 'lucide-react';
 import {useNavigate} from 'react-router';
 import {currentUser} from '@/services/api/login';
 import {fetchUserSessions, type SessionSummary} from '@/services/api/sandbox';
@@ -147,36 +147,27 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
 
         {/* Chat List */}
         <div className="flex flex-col flex-1 min-h-0 overflow-auto pb-5 overflow-x-hidden hide-scroll-bar">
-          <div className="px-1">
+          <div className="px-2">
             {loading && (
               <div className="text-center text-xs text-[var(--text-tertiary)] py-2">加载中...</div>
             )}
             {!loading && sessions.map((s) => (
               <div key={s.sessionId}
-                   className="group flex h-14 cursor-pointer items-center gap-2 rounded-[10px] px-2 transition-colors hover:bg-[var(--fill-tsp-gray-main)]"
+                   className="group flex cursor-pointer items-center gap-3 rounded-[12px] px-3 py-3 transition-colors hover:bg-[var(--fill-tsp-gray-main)]"
                    onClick={() => navigate(`/chat/${encodeURIComponent(s.sessionId)}`)}>
-                <div className="relative">
-                  <div className="h-8 w-8 rounded-full flex items-center justify-center relative bg-[var(--fill-tsp-white-dark)]">
-                    <div className="relative overflow-hidden h-4 w-4 object-cover brightness-0 opacity-75 dark:opacity-100 dark:brightness-100">
-                      <img alt={s.lastMessage || s.sessionId}
-                           className="w-full h-full object-cover"
-                           referrerPolicy="no-referrer"
-                           src="https://files.manuscdn.com/assets/icon/session/cloud-star.svg"/>
-                    </div>
-                  </div>
+                <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
+                  <MessageSquare size={20} />
                 </div>
-                <div className="min-w-20 flex-1">
-                  <div className="flex items-center gap-1 overflow-x-hidden">
-                    <span className="truncate text-sm font-medium text-[var(--text-primary)] flex-1 min-w-0"
-                          title={s.lastMessage || s.sessionId}>
-                      {s.lastMessage || s.sessionId}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 h-[18px] relative">
-                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-tertiary)]"
-                          title={s.sessionId}>
-                      {s.sessionId}
-                    </span>
+                <div className="flex-1 min-w-0">
+                  <span className="block truncate text-[15px] font-medium leading-[22px] text-[var(--text-primary)]"
+                        title={s.lastMessage || s.sessionId}>
+                    {s.lastMessage || s.sessionId}
+                  </span>
+                </div>
+                <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--fill-tsp-white-dark)]"
+                       onClick={(e) => { e.stopPropagation(); }}>
+                    <Ellipsis size={18} className="text-[var(--icon-secondary)]" />
                   </div>
                 </div>
               </div>
