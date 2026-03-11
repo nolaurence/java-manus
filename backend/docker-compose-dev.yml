@@ -9,6 +9,7 @@ services:
     volumes:
       - ./:/app  # Mount source code directory
       - ./skills-data:/app/skills  # Skill文件共享存储
+      - /etc/timezone:/etc/timezone  # sync time zone
 #      - /var/run/docker.sock:/var/run/docker.sock:ro
 #      - /app/__pycache__  # Avoid overwriting cache files
 #      - /app/.venv  # Avoid overwriting virtual environment
@@ -37,6 +38,7 @@ services:
     volumes:
       - ./:/app  # Mount source code directory
       - ./skills-data:/app/skills  # Skill文件共享存储（与backend共享）
+      - /etc/timezone:/etc/timezone  # sync time zone
 #      - ./supervisord.conf:/etc/supervisor/conf.d/app.conf
 #      - /app/__pycache__  # Avoid overwriting cache files
 #      - /app/.venv  # Avoid overwriting virtual environment
