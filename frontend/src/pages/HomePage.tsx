@@ -153,7 +153,10 @@ const Home: React.FC = () => {
       </div>
       <div
         className={`container mx-auto flex min-h-screen w-full max-w-full flex-col justify-center gap-2 bg-[var(--background-gray-main)] px-5`}
-        style={{ paddingLeft: panelFixed ? historyPanelWidth + 20 : 20 }}
+        style={{
+          marginLeft: panelFixed ? historyPanelWidth : 0,
+          width: `calc(100% - ${panelFixed ? historyPanelWidth : 0}px)`,
+        }}
       >
         <div className="flex mt-4 ml-5 items-center justify-between w-full" style={{ marginLeft: panelFixed ? historyPanelWidth : 0 }}>
           <div className="flex items-center space-x-4">
