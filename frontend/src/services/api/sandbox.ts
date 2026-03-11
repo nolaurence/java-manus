@@ -146,6 +146,11 @@ export const chatWithAgent = async (
       body: JSON.stringify({message, timestamp: Math.floor(Date.now() / 1000)}),
       onmessage(event: EventSourceMessage) {
         if (event.event && event.event.trim() !== '') {
+          // 处理心跳消息，不传递给上层
+          if (event.event === 'heartbeat') {
+            console.debug('SSE heartbeat received:', event.data);
+            return;
+          }
           onMessage({
             event: event.event as SSEEvent['event'],
             data: JSON.parse(event.data) as SSEEvent['data']

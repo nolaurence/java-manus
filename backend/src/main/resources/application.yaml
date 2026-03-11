@@ -51,7 +51,8 @@ sandbox:
   backend:
     max-loop: 30
     max-execution-loop: 20
-    sse-timeout-ms: 1200000
+    sse-timeout-ms: 1800000
+    heartbeat-interval-ms: 30000
     max-threads: 10
     worker-url: http://worker:7500
     worker-mcp-url: http://worker:7002

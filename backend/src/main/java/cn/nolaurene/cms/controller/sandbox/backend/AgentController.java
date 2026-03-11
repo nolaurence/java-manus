@@ -46,8 +46,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @author nolau
@@ -69,6 +72,9 @@ public class AgentController {
 
     @Value("${sandbox.backend.sse-timeout-ms}")
     private long sseTimeout;
+
+    @Value("${sandbox.backend.heartbeat-interval-ms:30000}")
+    private long heartbeatInterval;
 
     @Value("${sandbox.backend.max-threads}")
     private int maxThreads;
@@ -200,6 +206,52 @@ public class AgentController {
         // 让浏览器知道这是一个SSE流
         SseEmitter sseEmitter = new SseEmitter(sseTimeout);
         httpServletResponse.setContentType("text/event-stream");
+        httpServletResponse.setHeader("Cache-Control", "no-cache");
+        httpServletResponse.setHeader("Connection", "keep-alive");
+
+        // 创建心跳机制
+        ScheduledExecutorService heartbeatExecutor = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r);
+            t.setName("sse-heartbeat-" + agentId);
+            t.setDaemon(true);
+            return t;
+        });
+        AtomicBoolean isActive = new AtomicBoolean(true);
+
+        // 定期发送心跳
+        heartbeatExecutor.scheduleAtFixedRate(() -> {
+            if (isActive.get()) {
+                try {
+                    sseEmitter.send(SseEmitter.event()
+                            .name("heartbeat")
+                            .data("{\"type\":\"ping\",\"timestamp\":" + System.currentTimeMillis() + "}"));
+                    log.debug("SSE heartbeat sent for agent: {}", agentId);
+                } catch (Exception e) {
+                    log.warn("SSE heartbeat failed for agent: {}, connection may be closed", agentId);
+                    isActive.set(false);
+                    heartbeatExecutor.shutdown();
+                }
+            }
+        }, heartbeatInterval, heartbeatInterval, TimeUnit.MILLISECONDS);
+
+        // 连接关闭时清理心跳
+        sseEmitter.onCompletion(() -> {
+            log.info("SSE connection completed for agent: {}", agentId);
+            isActive.set(false);
+            heartbeatExecutor.shutdown();
+        });
+
+        sseEmitter.onTimeout(() -> {
+            log.warn("SSE connection timeout for agent: {}", agentId);
+            isActive.set(false);
+            heartbeatExecutor.shutdown();
+        });
+
+        sseEmitter.onError((e) -> {
+            log.error("SSE connection error for agent: {}", agentId, e);
+            isActive.set(false);
+            heartbeatExecutor.shutdown();
+        });
 
         executor.submit(() -> {
             AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
