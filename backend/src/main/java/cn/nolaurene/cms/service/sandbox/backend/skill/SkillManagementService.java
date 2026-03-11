@@ -766,7 +766,7 @@ public class SkillManagementService {
 
         try {
             // 3. 读取 SKILL.md 内容
-            String skillMdContent = fileStorageService.readSkillFile("temp-" + tempId, "SKILL.md");
+            String skillMdContent = fileStorageService.readSkillFile(tempExtractPath, "SKILL.md");
             if (StringUtils.isBlank(skillMdContent)) {
                 throw new IllegalArgumentException("SKILL.md not found in zip file");
             }
