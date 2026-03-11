@@ -9,7 +9,8 @@
     "start": "npm run dev"
   },
   "dependencies": {
-    "@ant-design/x": "^2.2.2",
+    "@ant-design/x": "^2.3.0",
+    "@ant-design/x-markdown": "^2.3.0",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@radix-ui/react-tabs": "^1.1.13",
     "@types/hls.js": "^1.0.0",

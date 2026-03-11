@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { XMarkdown } from '@ant-design/x-markdown';
 import ManusTextIcon from './icons/ManusTextIcon';
 import ToolUse from './ToolUse';
 import { marked } from 'marked';
@@ -89,11 +90,15 @@ const ChatMessage: React.FC<{
             </div>
           </div>
         </div>
-        <div
+        {/* <div
           className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
           dangerouslySetInnerHTML={{
             __html: renderMarkdown(asUserContent().content),
           }}
+        /> */}
+        <XMarkdown 
+          content={asUserContent().content}
+          className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
         />
       </div>
     );
@@ -146,13 +151,17 @@ const ChatMessage: React.FC<{
               <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center border border-[var(--border-dark)] rounded-[15px]"></div>
             )}
 
-            <div
+            {/* <div
               className="truncate font-medium markdown-content"
               dangerouslySetInnerHTML={{
                 __html: content.description
                   ? renderMarkdown(content.description)
                   : '',
               }}
+            /> */}
+            <XMarkdown 
+              content={content.description || ''}
+              className="truncate font-medium markdown-content"
             />
 
             <span
