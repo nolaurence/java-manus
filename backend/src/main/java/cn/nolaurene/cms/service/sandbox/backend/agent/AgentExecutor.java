@@ -106,6 +106,7 @@ public class AgentExecutor {
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
         this.conversationUserId = agent.getUserId();
+        this.conversationSessionId = agent.getAgentId();
     }
 
     private boolean shouldDirectSend(String agentId) {
@@ -145,14 +146,6 @@ public class AgentExecutor {
                 log.info("发送错误，标记前端为断开连接");
             }
         }
-    }
-
-    public void setConversationPersistence(ConversationHistoryService conversationHistoryService, String userId, String sessionId) {
-        this.conversationHistoryService = conversationHistoryService;
-        if (userId != null && !userId.isEmpty()) {
-            this.conversationUserId = userId;
-        }
-        this.conversationSessionId = (sessionId != null && !sessionId.isEmpty()) ? sessionId : this.agent.getAgentId();
     }
 
     public void planAct(String input, SseEmitter emitter) {
@@ -434,7 +427,9 @@ public class AgentExecutor {
         try {
             ConversationInfoDO info = new ConversationInfoDO();
             info.setSessionId(conversationSessionId);
-            info.setUserId(conversationUserId);
+            // 优先使用 agent 中的 userId，如果为空则使用 conversationUserId
+            String userId = (agent != null && StringUtils.isNotBlank(agent.getUserId())) ? agent.getUserId() : conversationUserId;
+            info.setUserId(userId);
             if (title != null) {
                 info.setTitle(title);
             }

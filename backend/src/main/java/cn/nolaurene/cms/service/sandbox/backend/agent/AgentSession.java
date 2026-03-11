@@ -272,8 +272,4 @@ public class AgentSession {
                     this.agent.getAgentId(), eventName, this.currentSseEmitter != null, this.frontendConnected.get());
         }
     }
-
-    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
-        this.executor.setConversationPersistence(service, userId, sessionId);
-    }
 }

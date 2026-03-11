@@ -281,15 +281,6 @@ public class AgentController {
             }
 
             try {
-                // configure persistence context for this chat
-                try {
-                    agentSession.setConversationPersistence(
-                            conversationHistoryService,
-                            request.getUserId() != null ? request.getUserId() : "anonymous",
-                            (request.getSessionId() != null && !request.getSessionId().isEmpty()) ? request.getSessionId() : agentId
-                    );
-                } catch (Exception ignore) {}
-
                 // persist user message if present
                 agentSession.reactFlow(request.getMessage(), sseEmitter);
             } catch (Exception e) {
