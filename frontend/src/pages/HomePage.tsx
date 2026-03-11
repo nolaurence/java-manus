@@ -139,14 +139,6 @@ const Home: React.FC = () => {
     }
   };
 
-  const handleGoSettings = () => {
-    navigate('/settings');
-  };
-
-  const handleGoSkills = () => {
-    navigate('/skills');
-  };
-
   return (
     <div className="relative h-screen bg-[var(--background-gray-main)]" >
       <div
@@ -174,16 +166,6 @@ const Home: React.FC = () => {
             <ManusLogoTextIcon />
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <Tooltip title="Skills">
-              <div onClick={handleGoSkills} className={styles.settingsIcon}>
-                <Zap size={20} />
-              </div>
-            </Tooltip>
-            <Tooltip title="设置">
-              <div onClick={handleGoSettings} className={styles.settingsIcon}>
-                <Settings size={20} />
-              </div>
-            </Tooltip>
             <UserInfoComponent />
           </div>
         </div>
