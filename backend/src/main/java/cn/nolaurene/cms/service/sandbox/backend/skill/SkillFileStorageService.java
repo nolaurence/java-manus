@@ -198,15 +198,13 @@ public class SkillFileStorageService {
         }
     }
 
-    /**
-     * 检查Skill文件是否存在
-     *
-     * @param skillId Skill ID
-     * @param relativePath 相对路径
-     * @return 是否存在
-     */
-    public boolean skillFileExists(String skillId, String relativePath) {
-        return getSkillFilePath(skillId, relativePath) != null;
+    public String readTempSkillFile(String tempExtractPath) {
+        try {
+            return new String(Files.readAllBytes(Paths.get(tempExtractPath + "/SKILL.md")), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.error("Failed to read skill file: {}", tempExtractPath + "/SKILL.md", e);
+            return null;
+        }
     }
 
     /**
