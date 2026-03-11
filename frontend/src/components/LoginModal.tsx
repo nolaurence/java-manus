@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Form, Input, ConfigProvider, message, Avatar, Dropdown, Space } from 'antd';
+import { Modal, Button, Form, Input, Select, ConfigProvider, message, Avatar, Dropdown, Space } from 'antd';
 import { SettingOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { login, logout, currentUser, register } from '@/services/api/login';
 import { Zap } from 'lucide-react';
 import { history } from 'umi';
-
-// 固定的邀请码
-const VALID_INVITE_CODE = 'MANUS2024';
 
 const UserInfoComponent: React.FC = () => {
 
@@ -40,18 +37,16 @@ const UserInfoComponent: React.FC = () => {
   };
 
   const handleRegister = async (values: any) => {
-    // 验证邀请码
-    if (values.inviteCode !== VALID_INVITE_CODE) {
-      message.error("邀请码无效");
-      return;
-    }
-    
     setRegisterLoading(true);
     const response = await register({
       account: values.username,
       password: values.password,
+      checkPassword: values.confirmPassword,
       name: values.nickname,
       inviteCode: values.inviteCode,
+      gender: values.gender,
+      email: values.email,
+      phone: values.phone,
     });
     if (response.success) {
       message.success("注册成功，请登录");
@@ -255,6 +250,27 @@ const UserInfoComponent: React.FC = () => {
               rules={[{ required: true, message: '请输入邀请码' }]}
             >
               <Input maxLength={20} placeholder="请输入邀请码" />
+            </Form.Item>
+            <Form.Item
+              name="gender"
+              label="性别"
+            >
+              <Select placeholder="请选择性别" allowClear>
+                <Select.Option value={1}>男</Select.Option>
+                <Select.Option value={2}>女</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="email"
+              label="邮箱"
+            >
+              <Input maxLength={50} placeholder="请输入邮箱" />
+            </Form.Item>
+            <Form.Item
+              name="phone"
+              label="手机号"
+            >
+              <Input maxLength={20} placeholder="请输入手机号" />
             </Form.Item>
             <Form.Item className="pt-5">
               <Button

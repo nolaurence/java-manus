@@ -46,10 +46,16 @@ public class UserLoginService {
     @Resource
     UserMapper userMapper;
 
+    private static final String VALID_INVITE_CODE = "MANUS2024";
+
     public long register(RegisterRequest request) {
         // 1. 参数校验
         if (StringUtils.isAnyBlank(request.getAccount(), request.getPassword(), request.getCheckPassword())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR.getCode(), "参数为空");
+        }
+        // 校验邀请码
+        if (StringUtils.isBlank(request.getInviteCode()) || !VALID_INVITE_CODE.equals(request.getInviteCode())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR.getCode(), "邀请码无效");
         }
         if (request.getAccount().length() < 4) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR.getCode(), "账号过段");
