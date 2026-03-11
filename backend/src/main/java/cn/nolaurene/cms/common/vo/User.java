@@ -8,6 +8,8 @@ import lombok.Data;
 @Data
 public class User {
 
+    private long userId;
+
     /**
      * 登录用的账号，请求里一般是username
      */

@@ -14,7 +14,10 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import cn.nolaurene.cms.service.UserLoginService;
+
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.List;
 
@@ -34,6 +37,9 @@ public class SkillController {
 
     @Resource
     private SkillExecutionEngine skillExecutionEngine;
+
+    @Resource
+    private UserLoginService userLoginService;
 
     /**
      * 注册新Skill
@@ -249,11 +255,15 @@ public class SkillController {
     @GetMapping("/user/enabled")
     @Operation(summary = "获取用户启用的Skill列表")
     public BaseWebResult<List<String>> getEnabledSkillsForUser(
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            HttpServletRequest httpServletRequest) {
+        long finalUserId;
         if (userId == null) {
-            return BaseWebResult.fail("User ID is required");
+            finalUserId = userLoginService.getCurrentUserInfo(httpServletRequest).getUserid();
+        } else {
+            finalUserId = userId;
         }
-        List<String> skillIds = skillManagementService.getEnabledSkillIdsForUser(userId);
+        List<String> skillIds = skillManagementService.getEnabledSkillIdsForUser(finalUserId);
         return BaseWebResult.success(skillIds);
     }
 
@@ -264,11 +274,15 @@ public class SkillController {
     @Operation(summary = "为用户启用Skill")
     public BaseWebResult<Void> enableSkillForUser(
             @PathVariable String skillId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            HttpServletRequest httpServletRequest) {
+        long finalUserId;
         if (userId == null) {
-            return BaseWebResult.fail("User ID is required");
+            finalUserId = userLoginService.getCurrentUserInfo(httpServletRequest).getUserid();
+        } else {
+            finalUserId = userId;
         }
-        skillManagementService.enableSkillForUser(userId, skillId);
+        skillManagementService.enableSkillForUser(finalUserId, skillId);
         return BaseWebResult.success(null);
     }
 
@@ -279,11 +293,15 @@ public class SkillController {
     @Operation(summary = "为用户禁用Skill")
     public BaseWebResult<Void> disableSkillForUser(
             @PathVariable String skillId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            HttpServletRequest httpServletRequest) {
+        long finalUserId;
         if (userId == null) {
-            return BaseWebResult.fail("User ID is required");
+            finalUserId = userLoginService.getCurrentUserInfo(httpServletRequest).getUserid();
+        } else {
+            finalUserId = userId;
         }
-        skillManagementService.disableSkillForUser(userId, skillId);
+        skillManagementService.disableSkillForUser(finalUserId, skillId);
         return BaseWebResult.success(null);
     }
 
@@ -294,11 +312,15 @@ public class SkillController {
     @PostMapping("/user/initialize")
     @Operation(summary = "初始化用户Skill状态")
     public BaseWebResult<Void> initializeUserSkillStatus(
-            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            HttpServletRequest httpServletRequest) {
+        long finalUserId;
         if (userId == null) {
-            return BaseWebResult.fail("User ID is required");
+            finalUserId = userLoginService.getCurrentUserInfo(httpServletRequest).getUserid();
+        } else {
+            finalUserId = userId;
         }
-        skillManagementService.initializeUserSkillStatus(userId);
+        skillManagementService.initializeUserSkillStatus(finalUserId);
         return BaseWebResult.success(null);
     }
 }
