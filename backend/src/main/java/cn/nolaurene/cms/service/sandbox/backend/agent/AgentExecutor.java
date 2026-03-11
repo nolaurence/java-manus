@@ -383,7 +383,7 @@ public class AgentExecutor {
     }
 
     private void reportStep(StepEventStatus status, String description, SseEmitter sseEmitterOpt) {
-        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.STEP, description));
+        this.memory.add(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.STEP, description));
         if (frontendConnected.get() && sseEmitterOpt != null) {
             asyncStep(status, description, sseEmitterOpt);
         } else {
