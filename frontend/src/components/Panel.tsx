@@ -46,8 +46,15 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
 
   return (
     <div
-      className={fixed ? "h-full flex flex-col" : "h-full flex flex-col fixed top-0 start-0 bottom-0 z-[1]"}
-      style={{width: fixed ? panelWidth : 24, transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)'}}
+      className={
+        fixed
+          ? 'h-full flex flex-col'
+          : 'h-full flex flex-col fixed top-0 start-0 bottom-0 z-[1]'
+      }
+      style={{
+        width: fixed ? panelWidth : 24,
+        transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+      }}
     >
       <div
         style={{
@@ -64,12 +71,14 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
           borderStyle: 'solid',
           borderColor: 'var(--border-main)',
           borderRadius: fixed ? 0 : '12px', // rounded-xl
-          boxShadow: fixed ? undefined : '0px 8px 32px 0px rgba(0,0,0,0.16),0px 0px 0px 1px rgba(0,0,0,0.06)',
-          width: (isOpen || fixed) ? panelWidth : '0px',
+          boxShadow: fixed
+            ? undefined
+            : '0px 8px 32px 0px rgba(0,0,0,0.16),0px 0px 0px 1px rgba(0,0,0,0.06)',
+          width: isOpen || fixed ? panelWidth : '0px',
           transition: 'opacity 0.2s, transform 0.2s, width 0.2s',
-          opacity: (isOpen || fixed) ? 1 : 0,
-          pointerEvents: (isOpen || fixed) ? 'auto' : 'none',
-          transform: (isOpen || fixed) ? 'translateX(0)' : 'translateX(-40px)',
+          opacity: isOpen || fixed ? 1 : 0,
+          pointerEvents: isOpen || fixed ? 'auto' : 'none',
+          transform: isOpen || fixed ? 'translateX(0)' : 'translateX(-40px)',
         }}
         onMouseLeave={() => {
           if (!fixed) {
@@ -78,22 +87,22 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
         }}
       >
         {/* header new */}
-        <div className="flex" >
-          <div className="flex items-center px-3 py-3 flex-row h-[52px] gap justify-end w-full" >
+        <div className="flex">
+          <div className="flex items-center px-3 py-3 flex-row h-[52px] gap justify-end w-full">
             <div className="flex justify-between w-full px-1 pt-2">
-              <div className="relative flex items-center" >
+              <div className="relative flex items-center">
                 {/*加一层hover效果*/}
                 <div
                   className="flex h-7 w-7 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
                   onClick={() => setFixed?.(!fixed)}
                 >
-                  <PanelLeft color={'var(--icon-secondary'} size={24}/>
+                  <PanelLeft color={'var(--icon-secondary'} size={24} />
                 </div>
               </div>
-              <div className="flex flex-row gap-1" >
+              <div className="flex flex-row gap-1">
                 {/* hover效果*/}
                 <div className="flex h-7 w-7 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md">
-                  <Search size={24} color={'var(--icon-secondary)'}/>
+                  <Search size={24} color={'var(--icon-secondary)'} />
                 </div>
               </div>
             </div>
@@ -107,16 +116,18 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
             type="button"
             onClick={() => navigate('/')}
           >
-            <Plus size={24} color={'var(--icon-primary)'}/>
+            <Plus size={24} color={'var(--icon-primary)'} />
             新建任务
           </button>
 
           {/* Tabs */}
-          <div style={{
-            display: "flex",
-            gap: 6,
-            paddingBottom: 8,
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              paddingBottom: 8,
+            }}
+          >
             <button
               type="button"
               className={`flex justify-center items-center clickable rounded-[999px] px-[12px] py-[7px] border-none outline-offset-0 outline-[var(--border-dark)] text-[13px] leading-[18px] ${
@@ -149,39 +160,59 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
         <div className="flex flex-col flex-1 min-h-0 overflow-auto pb-5 overflow-x-hidden hide-scroll-bar">
           <div className="px-2">
             {loading && (
-              <div className="text-center text-xs text-[var(--text-tertiary)] py-2">加载中...</div>
+              <div className="text-center text-xs text-[var(--text-tertiary)] py-2">
+                加载中...
+              </div>
             )}
-            {!loading && sessions.map((s) => (
-              <div key={s.sessionId}
-                   className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
-                   onClick={() => navigate(`/chat/${encodeURIComponent(s.sessionId)}`)}>
-                <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
-                  <MessageSquare size={20} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="block truncate text-[15px] font-medium leading-[22px] text-[var(--text-primary)]"
-                        title={s.lastMessage || s.sessionId}>
-                    {s.lastMessage || s.sessionId}
-                  </span>
-                </div>
-                <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--fill-tsp-white-dark)]"
-                       onClick={(e) => { e.stopPropagation(); }}>
-                    <Ellipsis size={18} className="text-[var(--icon-secondary)]" />
+            {!loading &&
+              sessions.map((s) => (
+                <div
+                  key={s.sessionId}
+                  className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
+                  onClick={() =>
+                    navigate(`/chat/${encodeURIComponent(s.sessionId)}`)
+                  }
+                >
+                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
+                    <MessageSquare size={20} />
+                  </div>
+                  <div
+                    className="flex-1 min-w-0 flex gap-[4px] items-center text-[14px] text-[var(--text-primary)]"
+                    style={{ opacity: 1, width: 'auto' }}
+                  >
+                    <span
+                      className="truncate"
+                      title={s.lastMessage || s.sessionId}
+                    >
+                      {s.lastMessage || s.sessionId}
+                    </span>
+                  </div>
+                  <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div
+                      className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--fill-tsp-white-dark)]"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    >
+                      <Ellipsis
+                        size={18}
+                        className="text-[var(--icon-secondary)]"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
 
         {/* Footer */}
         <footer className="mt-0 px-3 overflow-x-hidden border-t border-[var(--border-main)]">
           <div className="w-full py-4 gap-4 flex flex-col justify-between items-center">
-            <button type="button"
-                    className="relative w-full rounded-[12px] border border-[var(--border-light)] clickable hover:opacity-90 text-sm text-[var(--text-primary)] whitespace-nowrap">
-              <div
-                className="flex w-full items-center justify-between gap-1 px-[12px] py-[8px] bg-[var(--background-menu-white)] rounded-[12px]">
+            <button
+              type="button"
+              className="relative w-full rounded-[12px] border border-[var(--border-light)] clickable hover:opacity-90 text-sm text-[var(--text-primary)] whitespace-nowrap"
+            >
+              <div className="flex w-full items-center justify-between gap-1 px-[12px] py-[8px] bg-[var(--background-menu-white)] rounded-[12px]">
                 <div className="flex-1 min-w-0 flex items-center gap-2">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -196,18 +227,17 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                     className="lucide lucide-hand-heart flex-shrink-0"
                   >
                     <path d="M11 14h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 16"></path>
-                    <path
-                      d="m7 20 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"></path>
+                    <path d="m7 20 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"></path>
                     <path d="m2 15 6 6"></path>
-                    <path
-                      d="M19.5 8.5c.7-.7 1.5-1.6 1.5-2.7A2.73 2.73 0 0 0 16 4a2.78 2.78 0 0 0-5 1.8c0 1.2.8 2 1.5 2.8L16 12Z"></path>
+                    <path d="M19.5 8.5c.7-.7 1.5-1.6 1.5-2.7A2.73 2.73 0 0 0 16 4a2.78 2.78 0 0 0-5 1.8c0 1.2.8 2 1.5 2.8L16 12Z"></path>
                   </svg>
                   <div className="flex flex-col text-left w-full overflow-hidden">
                     <span className="text-[var(--text-primary)] font-georgia text-sm leading-[22px] truncate w-full">
                       与好友分享 Manus
                     </span>
-                    <span
-                      className="text-[var(--text-tertiary)] text-[13px] leading-[18px] truncate w-full">各得 500 积分</span>
+                    <span className="text-[var(--text-tertiary)] text-[13px] leading-[18px] truncate w-full">
+                      各得 500 积分
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -231,25 +261,32 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
 
             {/* User Info & Icons */}
             <div className="w-full flex justify-between items-center">
-              <div className="flex items-center gap-[6px] cursor-pointer flex-1 min-w-0 max-w-fit" aria-expanded="false"
-                   aria-haspopup="dialog">
+              <div
+                className="flex items-center gap-[6px] cursor-pointer flex-1 min-w-0 max-w-fit"
+                aria-expanded="false"
+                aria-haspopup="dialog"
+              >
                 <div
                   className="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden"
-                  style={{width: '24px', height: '24px'}}>
+                  style={{ width: '24px', height: '24px' }}
+                >
                   <img
                     className="w-full h-full object-cover overflow-hidden"
                     src="https://lh3.googleusercontent.com/a/ACg8ocLlk4s4LmeoNYI8UxGXQA7Gp67dvd4bhDyxKBzbx_DjRaBaMPA=s96-c"
                     alt="User Avatar"
                   />
                 </div>
-                <span className="text-sm leading-5 font-medium text-[var(--text-primary)] truncate">Laurence Guo</span>
+                <span className="text-sm leading-5 font-medium text-[var(--text-primary)] truncate">
+                  Laurence Guo
+                </span>
               </div>
 
               <div className="flex items-center gap-1">
                 <div className="relative">
                   <div
                     className="flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md w-8 h-8"
-                    id="js-update-notification-button">
+                    id="js-update-notification-button"
+                  >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       width="24"
@@ -263,16 +300,21 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                       className="lucide lucide-bell size-5 text-[var(--icon-secondary)]"
                     >
                       <path d="M10.268 21a2 2 0 0 0 3.464 0"></path>
-                      <path
-                        d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path>
+                      <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path>
                     </svg>
                   </div>
                 </div>
                 <div
                   className="flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md w-8 h-8"
-                  aria-expanded="false" aria-haspopup="dialog">
-                  <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"
-                       className="size-5 text-[var(--icon-secondary)]">
+                  aria-expanded="false"
+                  aria-haspopup="dialog"
+                >
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="size-5 text-[var(--icon-secondary)]"
+                  >
                     <g id="phone-02">
                       <path
                         id="Backup (Stroke)"
@@ -284,8 +326,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                     </g>
                   </svg>
                 </div>
-                <div
-                  className="flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md w-8 h-8">
+                <div className="flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md w-8 h-8">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 20 20"
