@@ -158,7 +158,10 @@ const Home: React.FC = () => {
           width: `calc(100% - ${panelFixed ? historyPanelWidth : 0}px)`,
         }}
       >
-        <div className="flex mt-4 ml-5 items-center justify-between w-full" style={{ marginLeft: panelFixed ? historyPanelWidth : 0 }}>
+        <div
+          className="flex mt-4 ml-5 items-center justify-between w-full"
+          style={{ marginLeft: panelFixed ? historyPanelWidth : 0 }}
+        >
           <div className="flex items-center space-x-4">
             { !panelFixed && (
               <div onClick={() => setPanelFixed(!panelFixed)} className={styles.panelLeftIcon}>
