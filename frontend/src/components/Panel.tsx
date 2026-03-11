@@ -1,6 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {useStyles} from '@/assets/panel';
 import {PanelLeft, Plus, Search, Ellipsis, MessageSquare} from 'lucide-react';
+import { history } from 'umi';
 import {useNavigate} from 'react-router';
 import {currentUser} from '@/services/api/login';
 import {fetchUserSessions, type SessionSummary} from '@/services/api/sandbox';
@@ -170,7 +171,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                   key={s.sessionId}
                   className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
                   onClick={() =>
-                    navigate(`/chat/${encodeURIComponent(s.sessionId)}`)
+                    history.push(`/chat/${encodeURIComponent(s.sessionId)}`)
                   }
                 >
                   <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
