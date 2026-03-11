@@ -3,6 +3,8 @@ import { Modal, Button, Form, Input, ConfigProvider, message, Avatar, Dropdown, 
 import { SettingOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { login, logout, currentUser, register } from '@/services/api/login';
+import { Zap } from 'lucide-react';
+import { history } from 'umi';
 
 // 固定的邀请码
 const VALID_INVITE_CODE = 'MANUS2024';
@@ -73,8 +75,12 @@ const UserInfoComponent: React.FC = () => {
     }
   };
 
-  const handleSettings = () => {
-    message.info("设置功能开发中");
+  const handleGoSettings = () => {
+    history.push('/settings');
+  };
+
+  const handleGoSkills = () => {
+    history.push('/skills');
   };
 
   useEffect(() => {
@@ -92,10 +98,16 @@ const UserInfoComponent: React.FC = () => {
   // 下拉菜单项
   const dropdownItems: MenuProps['items'] = [
     {
+      key: 'skill',
+      label: '技能',
+      icon: <Zap size={16} />,
+      onClick: handleGoSkills,
+    },
+    {
       key: 'settings',
       label: '设置',
       icon: <SettingOutlined />,
-      onClick: handleSettings,
+      onClick: handleGoSettings,
     },
     {
       type: 'divider',
