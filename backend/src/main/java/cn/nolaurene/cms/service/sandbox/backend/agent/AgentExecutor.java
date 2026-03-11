@@ -14,6 +14,7 @@ import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryServi
 import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
+import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
 import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
 import cn.nolaurene.cms.service.AgentSessionServerService;
 import com.alibaba.fastjson2.JSON;
@@ -197,7 +198,17 @@ public class AgentExecutor {
                         syncRespondPlan(plan, emitter);
                         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
 
+                        // 写入 plan title 到 conversation_info
+                        syncConversationInfo(plan.getTitle(), AgentStatus.PLANNING);
+
+                        // 发送 title SSE 事件给前端
+                        TitleEventData titleEvent = new TitleEventData();
+                        titleEvent.setTitle(plan.getTitle());
+                        titleEvent.setTimestamp(System.currentTimeMillis());
+                        sendOrForwardMessage(emitter, SSEEventType.TITLE.getType(), titleEvent);
+
                         agentStatus = AgentStatus.EXECUTING;
+                        syncAgentStatusToConversationInfo(agentStatus);
                         break;
 
                     case EXECUTING:
@@ -252,6 +263,7 @@ public class AgentExecutor {
                         boolean hasMorePendingSteps = plan.getSteps().stream()
                                 .anyMatch(step -> StepEventStatus.pending.getCode().equals(step.getStatus()));
                         agentStatus = hasMorePendingSteps ? AgentStatus.UPDATING : AgentStatus.CONCLUDING;
+                        syncAgentStatusToConversationInfo(agentStatus);
                         break;
 
                     case UPDATING:
@@ -280,6 +292,7 @@ public class AgentExecutor {
                         conversationHistoryService.updateLastPlan(agent.getAgentId(), plan);
 
                         agentStatus = AgentStatus.EXECUTING;
+                        syncAgentStatusToConversationInfo(agentStatus);
                         break;
 
                     case CONCLUDING:
@@ -291,6 +304,7 @@ public class AgentExecutor {
                         syncRespondContent(DONE_SIGNAL, emitter);
                         saveAssistantMessage(conclusion, SSEEventType.MESSAGE);
                         agentStatus = AgentStatus.IDLE;
+                        syncAgentStatusToConversationInfo(AgentStatus.COMPLETED);
                         round = MAX_ROUNDS + 1;
                         break;
 
@@ -411,6 +425,36 @@ public class AgentExecutor {
     private void logSseEvent(String eventType, Object eventData) {
         if (log.isDebugEnabled()) {
             log.debug("BG Event - Type: {}, Data: {}", eventType, JSON.toJSONString(eventData));
+        }
+    }
+
+    private void syncConversationInfo(String title, AgentStatus status) {
+        if (conversationHistoryService == null || conversationSessionId == null) return;
+        try {
+            ConversationInfoDO info = new ConversationInfoDO();
+            info.setSessionId(conversationSessionId);
+            info.setUserId(conversationUserId);
+            if (title != null) {
+                info.setTitle(title);
+            }
+            if (status != null) {
+                info.setStatus(status.getCode());
+            }
+            conversationHistoryService.upsertConversationInfo(info);
+        } catch (Exception e) {
+            log.warn("failed to sync conversation info", e);
+        }
+    }
+
+    private void syncAgentStatusToConversationInfo(AgentStatus status) {
+        if (conversationHistoryService == null || conversationSessionId == null) return;
+        try {
+            ConversationInfoDO info = new ConversationInfoDO();
+            info.setSessionId(conversationSessionId);
+            info.setStatus(status.getCode());
+            conversationHistoryService.upsertConversationInfo(info);
+        } catch (Exception e) {
+            log.warn("failed to sync agent status to conversation info", e);
         }
     }
 

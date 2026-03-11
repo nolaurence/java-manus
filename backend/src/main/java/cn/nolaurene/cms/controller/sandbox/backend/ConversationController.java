@@ -20,6 +20,7 @@ import javax.annotation.Resource;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -34,14 +35,22 @@ public class ConversationController {
     private ConversationInfoMapper conversationInfoMapper;
 
     /**
-     * 获取某个用户的所有会话摘要
+     * 获取某个用户的所有会话摘要（从 conversation_info 获取）
      */
     @GetMapping("/sessions")
     public Response<List<SessionSummary>> getUserSessions(@RequestParam("userId") String userId) {
         if (StringUtils.isBlank(userId)) {
             return Response.error("userId is required", Collections.emptyList());
         }
-        List<SessionSummary> summaries = conversationHistoryService.getUserSessionSummaries(userId);
+        List<ConversationInfoDO> infoList = conversationHistoryService.getUserConversationInfoList(userId);
+        List<SessionSummary> summaries = infoList.stream()
+                .map(info -> SessionSummary.builder()
+                        .sessionId(info.getSessionId())
+                        .userId(info.getUserId())
+                        .title(info.getTitle())
+                        .status(info.getStatus())
+                        .build())
+                .collect(Collectors.toList());
         return Response.success(summaries);
     }
 

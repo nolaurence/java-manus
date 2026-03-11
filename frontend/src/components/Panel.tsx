@@ -182,9 +182,9 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                   >
                     <span
                       className="truncate"
-                      title={s.lastMessage || s.sessionId}
+                      title={s.title || s.lastMessage || s.sessionId}
                     >
-                      {s.lastMessage || s.sessionId}
+                      {s.title || s.lastMessage || s.sessionId}
                     </span>
                   </div>
                   <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

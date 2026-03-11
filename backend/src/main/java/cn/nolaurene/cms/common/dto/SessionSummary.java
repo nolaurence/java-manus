@@ -18,4 +18,6 @@ public class SessionSummary {
     private Long messageCount;
     private LocalDateTime lastMessageTime;
     private String lastMessage;
+    private String title;
+    private String status;
 }

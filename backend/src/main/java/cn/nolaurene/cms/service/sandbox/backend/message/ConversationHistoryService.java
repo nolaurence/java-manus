@@ -359,20 +359,41 @@ public class ConversationHistoryService {
 
             ConversationInfoDO newDataObject = new ConversationInfoDO();
             newDataObject.setSessionId(dataObject.getSessionId());
-            newDataObject.setTitle(conversationInfo.getTitle());
-            newDataObject.setStatus(conversationInfo.getStatus());
+            if (conversationInfo.getTitle() != null) {
+                newDataObject.setTitle(conversationInfo.getTitle());
+            }
+            if (conversationInfo.getStatus() != null) {
+                newDataObject.setStatus(conversationInfo.getStatus());
+            }
+            if (conversationInfo.getUserId() != null) {
+                newDataObject.setUserId(conversationInfo.getUserId());
+            }
             newDataObject.setGmtModified(new Date());
 
             conversationInfoMapper.updateByPrimaryKeySelective(newDataObject);
+            return;
         }
 
         ConversationInfoDO newDataObject = new ConversationInfoDO();
         newDataObject.setSessionId(conversationInfo.getSessionId());
         newDataObject.setTitle(conversationInfo.getTitle());
         newDataObject.setStatus(conversationInfo.getStatus());
+        newDataObject.setUserId(conversationInfo.getUserId());
         newDataObject.setGmtCreate(new Date());
         newDataObject.setGmtModified(new Date());
         conversationInfoMapper.insertSelective(newDataObject);
+    }
+
+    /**
+     * 获取用户的对话信息列表（从 conversation_info 表）
+     */
+    public List<ConversationInfoDO> getUserConversationInfoList(String userId) {
+        Example<ConversationInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(ConversationInfoDO::getUserId, userId)
+                .andIsNull(ConversationInfoDO::getGmtDeleted);
+        example.orderByDesc(ConversationInfoDO::getGmtModified);
+        return conversationInfoMapper.selectByExample(example);
     }
 
     /**

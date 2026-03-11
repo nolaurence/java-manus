@@ -22,6 +22,12 @@ public class ConversationInfoDO {
     private String sessionId;
 
     /**
+     * 用户ID
+     */
+    @Column("user_id")
+    private String userId;
+
+    /**
      * 对话标题
      */
     @Column("title")

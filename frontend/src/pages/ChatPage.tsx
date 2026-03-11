@@ -3,7 +3,7 @@ import ChatBox from '@/components/ChatBox';
 import ChatMessage from '@/components/ChatMessage';
 import SimpleBar, {type ScrollableContentRef} from '@/components/SimpleBar';
 import ToolPanel from '@/components/ToolPanel';
-import {chatWithAgent, fetchSessionMessages, type ConversationMessage} from '@/services/api/sandbox';
+import {chatWithAgent, fetchSessionMessages, fetchConversationTitle, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
 // @ts-ignore
 import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from 'lucide-react';
@@ -353,7 +353,13 @@ const ChatComponent: React.FC = () => {
 
           console.log('mapped message',  attachedMessages);
           setMessages(attachedMessages);
-          setTitle('History');
+          // 从 conversation_info 获取标题
+          const titleInfo = await fetchConversationTitle(agentId);
+          if (titleInfo?.title) {
+            setTitle(titleInfo.title);
+          } else {
+            setTitle('History');
+          }
           return;
         } catch (e) {
           console.error('load history failed', e);
@@ -460,9 +466,6 @@ const ChatComponent: React.FC = () => {
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-3">
-                <div onClick={handleGoSettings} className={styles.settingsIcon}>
-                  <Settings size={20} />
-                </div>
                 <LoginModal />
               </div>
             </div>
