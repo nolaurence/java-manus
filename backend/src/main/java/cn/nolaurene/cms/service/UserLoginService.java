@@ -217,7 +217,6 @@ public class UserLoginService {
 
     private User getSafetyUser(UserDO userDO) {
         User user = new User();
-        user.setUserId(userDO.getId());
         user.setName(userDO.getUserName());
         user.setAvatar(userDO.getAvatarUrl());
         user.setPhone(userDO.getPhone());
