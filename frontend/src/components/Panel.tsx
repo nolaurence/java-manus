@@ -153,7 +153,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
             )}
             {!loading && sessions.map((s) => (
               <div key={s.sessionId}
-                   className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] bg-[var(--fill-tsp-white-main)] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
+                   className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
                    onClick={() => navigate(`/chat/${encodeURIComponent(s.sessionId)}`)}>
                 <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
                   <MessageSquare size={20} />
