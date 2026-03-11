@@ -108,9 +108,9 @@ const FileViewer = forwardRef<FileViewerHandle, Props>(
           if (editorRef.current) {
             const model = editorRef.current.getModel();
             if (model) {
-              model.setValue(fileContent);
+              model.setValue(response.content);
             } else {
-              editorRef.current.setValue(fileContent);
+              editorRef.current.setValue(response.content);
             }
             monaco.editor.setModelLanguage(
               editorRef.current.getModel()!,
