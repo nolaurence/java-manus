@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import ChatBox from '@/components/ChatBox';
 import { createAgent } from '@/services/api/sandbox';
+import { currentUser } from '@/services/api/login';
 import { message as antdMessage, Tooltip } from 'antd';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
 import {Bot, PanelLeft, Settings, Zap} from 'lucide-react';
@@ -118,6 +119,17 @@ const Home: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelFixed, setPanelFixed] = useState(false);
+  const [userInfo, setUserInfo] = useState<API.UserInfo | null>(null);
+
+  useEffect(() => {
+    const init = async () => {
+      const loginInfo = await currentUser();
+      if (loginInfo && loginInfo.success && loginInfo.data) {
+        setUserInfo(loginInfo.data);
+      }
+    };
+    init();
+  }, []);
 
   const handleSubmit = async () => {
     if (message.trim() && !isSubmitting) {
@@ -179,7 +191,7 @@ const Home: React.FC = () => {
         <div className={styles.chatBoxRoot}>
           <div className={styles.greetingContainer}>
           <span className={styles.greetingTextSpan}>
-            你好,<br />
+            你好{userInfo?.name ? `, ${userInfo.name}` : ''}<br />
             <span style={{ color: 'var(--icon-tertiary)' }}>
               我能为你做什么？
             </span>

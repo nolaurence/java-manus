@@ -16,6 +16,7 @@ declare namespace API {
   type RegisterParams = {
     account?: string;
     password?: string;
+    
     name?: string;
     inviteCode?: string;
   };
