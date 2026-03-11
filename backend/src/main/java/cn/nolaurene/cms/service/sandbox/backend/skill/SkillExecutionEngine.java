@@ -13,6 +13,7 @@ import cn.nolaurene.cms.exception.skill.SkillExecutionException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
 import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
 import com.alibaba.fastjson2.JSON;
+import io.mybatis.mapper.example.Example;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -142,7 +143,11 @@ public class SkillExecutionEngine {
      * 从数据库加载Skill定义
      */
     private SkillDefinitionDTO loadSkillFromDB(String skillId) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(example).orElse(null);
         if (skillInfo == null) {
             return null;
         }
@@ -323,7 +328,12 @@ public class SkillExecutionEngine {
         List<SkillDefinitionDTO> matchedSkills = new ArrayList<>();
 
         // 加载所有活跃的Skill
-        List<SkillInfoDO> allSkills = skillInfoMapper.selectAllActive();
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        example.orderByDesc(SkillInfoDO::getPriority);
+        List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
 
         for (SkillInfoDO skillInfo : allSkills) {
             SkillDefinitionDTO skill = loadSkill(skillInfo.getSkillId());
@@ -410,7 +420,11 @@ public class SkillExecutionEngine {
      * 检查用户是否启用了某个Skill
      */
     private boolean isSkillEnabledForUser(Long userId, String skillId) {
-        UserSkillStatusDO status = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        Example<UserSkillStatusDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getSkillId, skillId);
+        UserSkillStatusDO status = userSkillStatusMapper.selectOneByExample(example).orElse(null);
         // 如果没有记录，默认启用（向后兼容）
         if (status == null) {
             return true;
@@ -438,7 +452,12 @@ public class SkillExecutionEngine {
      * 预热缓存
      */
     public void warmUpCache() {
-        List<SkillInfoDO> allSkills = skillInfoMapper.selectAllActive();
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        example.orderByDesc(SkillInfoDO::getPriority);
+        List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
         for (SkillInfoDO skillInfo : allSkills) {
             loadSkill(skillInfo.getSkillId());
         }

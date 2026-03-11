@@ -4,11 +4,13 @@ import cn.nolaurene.cms.common.dto.skill.SkillDefinitionDTO;
 import cn.nolaurene.cms.common.dto.skill.ToolDefinition;
 import cn.nolaurene.cms.common.dto.skill.TriggerConfig;
 import cn.nolaurene.cms.dal.entity.SkillInfoDO;
+import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
 import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import com.alibaba.fastjson2.JSON;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import io.mybatis.mapper.example.Example;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
@@ -62,7 +64,13 @@ public class SkillToolProvider {
     public List<ToolSpecification> getSkillToolSpecifications() {
         List<ToolSpecification> specs = new ArrayList<>();
 
-        List<SkillInfoDO> activeSkills = skillInfoMapper.selectAllActive();
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        example.orderByDesc(SkillInfoDO::getPriority);
+        List<SkillInfoDO> activeSkills = skillInfoMapper.selectByExample(example);
+
         for (SkillInfoDO skillInfo : activeSkills) {
             try {
                 ToolSpecification spec = convertToToolSpecification(skillInfo);
@@ -180,7 +188,11 @@ public class SkillToolProvider {
         }
 
         // 如果缓存中没有，尝试从数据库查找
-        List<SkillInfoDO> allSkills = skillInfoMapper.selectAllActive();
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
         for (SkillInfoDO skill : allSkills) {
             if (normalizeToolName(skill.getSkillId()).equals(normalized)) {
                 return skill.getSkillId();
@@ -201,7 +213,11 @@ public class SkillToolProvider {
      * 从数据库加载 Skill
      */
     private SkillDefinitionDTO loadSkillFromDB(String skillId) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(example).orElse(null);
         if (skillInfo == null) {
             return null;
         }
@@ -236,7 +252,11 @@ public class SkillToolProvider {
      * 预热缓存
      */
     public void warmUpCache() {
-        List<SkillInfoDO> allSkills = skillInfoMapper.selectAllActive();
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
         for (SkillInfoDO skillInfo : allSkills) {
             loadSkillFromDB(skillInfo.getSkillId());
         }
@@ -269,7 +289,13 @@ public class SkillToolProvider {
      */
     public List<ToolSpecification> getSkillToolSpecificationsForUser(Long userId) {
         // 获取用户启用的Skill ID列表
-        List<String> enabledSkillIds = userSkillStatusMapper.selectEnabledSkillIdsByUserId(userId);
+        Example<UserSkillStatusDO> statusExample = new Example<>();
+        statusExample.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getStatus, 1);
+        List<String> enabledSkillIds = userSkillStatusMapper.selectByExample(statusExample).stream()
+                .map(UserSkillStatusDO::getSkillId)
+                .collect(Collectors.toList());
 
         if (enabledSkillIds.isEmpty()) {
             return new ArrayList<>();
@@ -282,7 +308,11 @@ public class SkillToolProvider {
             if (skill != null) {
                 try {
                     // 从缓存获取或转换
-                    SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+                    Example<SkillInfoDO> infoExample = new Example<>();
+                    infoExample.createCriteria()
+                            .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                            .andEqualTo(SkillInfoDO::getIsDelete, false);
+                    SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(infoExample).orElse(null);
                     if (skillInfo != null && skillInfo.getStatus() != null && skillInfo.getStatus() == 1) {
                         ToolSpecification spec = convertToToolSpecification(skillInfo);
                         if (spec != null) {
@@ -307,7 +337,13 @@ public class SkillToolProvider {
      * @return 匹配的Skill列表
      */
     public List<SkillDefinitionDTO> matchSkillsForUser(String input, Long userId) {
-        List<String> enabledSkillIds = userSkillStatusMapper.selectEnabledSkillIdsByUserId(userId);
+        Example<UserSkillStatusDO> statusExample = new Example<>();
+        statusExample.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getStatus, 1);
+        List<String> enabledSkillIds = userSkillStatusMapper.selectByExample(statusExample).stream()
+                .map(UserSkillStatusDO::getSkillId)
+                .collect(Collectors.toList());
 
         List<SkillDefinitionDTO> matchedSkills = new ArrayList<>();
 

@@ -10,6 +10,7 @@ import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import cn.nolaurene.cms.exception.skill.SkillAlreadyExistsException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
 import com.alibaba.fastjson2.JSON;
+import io.mybatis.mapper.example.Example;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Skill管理服务
@@ -58,7 +60,11 @@ public class SkillManagementService {
         String skillId = generateSkillId(request.getAuthor(), request.getName());
 
         // 检查是否已存在
-        SkillInfoDO existing = skillInfoMapper.selectBySkillId(skillId);
+        Example<SkillInfoDO> checkExample = new Example<>();
+        checkExample.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO existing = skillInfoMapper.selectOneByExample(checkExample).orElse(null);
         if (existing != null) {
             throw new SkillAlreadyExistsException("Skill already exists: " + skillId);
         }
@@ -323,13 +329,17 @@ public class SkillManagementService {
      */
     @Transactional
     public void updateSkill(String skillId, SkillUpdateRequest request) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        Example<SkillInfoDO> findExample = new Example<>();
+        findExample.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(findExample).orElse(null);
         if (skillInfo == null) {
             throw new SkillNotFoundException("Skill not found: " + skillId);
         }
 
         SkillInfoDO updateDO = new SkillInfoDO();
-        updateDO.setSkillId(skillId);
+        updateDO.setGmtModified(new Date());
 
         if (request.getDescription() != null) {
             updateDO.setDescription(request.getDescription());
@@ -356,7 +366,11 @@ public class SkillManagementService {
             updateDO.setOsSupport(JSON.toJSONString(request.getOsSupport()));
         }
 
-        skillInfoMapper.updateBySkillId(updateDO);
+        Example<SkillInfoDO> updateExample = new Example<>();
+        updateExample.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        skillInfoMapper.updateByExampleSelective(updateDO, updateExample);
 
         // 刷新缓存
         executionEngine.refreshCache(skillId);
@@ -369,13 +383,31 @@ public class SkillManagementService {
      */
     @Transactional
     public void deleteSkill(String skillId) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        Example<SkillInfoDO> findExample = new Example<>();
+        findExample.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(findExample).orElse(null);
         if (skillInfo == null) {
             throw new SkillNotFoundException("Skill not found: " + skillId);
         }
 
-        skillInfoMapper.softDeleteBySkillId(skillId);
-        skillDocumentMapper.softDeleteBySkillId(skillId);
+        // 软删除 skill_info
+        SkillInfoDO skillUpdate = new SkillInfoDO();
+        skillUpdate.setIsDelete(true);
+        skillUpdate.setGmtModified(new Date());
+        Example<SkillInfoDO> skillDeleteExample = new Example<>();
+        skillDeleteExample.createCriteria().andEqualTo(SkillInfoDO::getSkillId, skillId);
+        skillInfoMapper.updateByExampleSelective(skillUpdate, skillDeleteExample);
+
+        // 软删除 skill_document
+        SkillDocumentDO docUpdate = new SkillDocumentDO();
+        docUpdate.setIsDelete(true);
+        docUpdate.setGmtModified(new Date());
+        Example<SkillDocumentDO> docDeleteExample = new Example<>();
+        docDeleteExample.createCriteria().andEqualTo(SkillDocumentDO::getSkillId, skillId);
+        skillDocumentMapper.updateByExampleSelective(docUpdate, docDeleteExample);
+
         executionEngine.refreshCache(skillId);
 
         log.info("Skill deleted: {}", skillId);
@@ -385,8 +417,12 @@ public class SkillManagementService {
      * 获取Skill详情
      */
     public SkillDefinitionDTO getSkill(String skillId) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
-        if (skillInfo == null || Boolean.TRUE.equals(skillInfo.getIsDelete())) {
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(example).orElse(null);
+        if (skillInfo == null) {
             return null;
         }
 
@@ -421,7 +457,12 @@ public class SkillManagementService {
         }
 
         // 加载文档
-        List<SkillDocumentDO> documents = skillDocumentMapper.selectBySkillId(skillInfo.getSkillId());
+        Example<SkillDocumentDO> docExample = new Example<>();
+        docExample.createCriteria()
+                .andEqualTo(SkillDocumentDO::getSkillId, skillInfo.getSkillId())
+                .andEqualTo(SkillDocumentDO::getIsDelete, false);
+        docExample.orderBy(SkillDocumentDO::getSortOrder, Example.Order.ASC);
+        List<SkillDocumentDO> documents = skillDocumentMapper.selectByExample(docExample);
         dto.setDocuments(documents);
 
         return dto;
@@ -434,11 +475,28 @@ public class SkillManagementService {
         List<SkillInfoDO> skills;
 
         if (category != null) {
-            skills = skillInfoMapper.selectByCategory(category);
+            Example<SkillInfoDO> example = new Example<>();
+            example.createCriteria()
+                    .andEqualTo(SkillInfoDO::getCategory, category)
+                    .andEqualTo(SkillInfoDO::getStatus, 1)
+                    .andEqualTo(SkillInfoDO::getIsDelete, false);
+            example.orderByDesc(SkillInfoDO::getPriority);
+            skills = skillInfoMapper.selectByExample(example);
         } else if (userId != null) {
-            skills = skillInfoMapper.selectByUserId(userId);
+            Example<SkillInfoDO> example = new Example<>();
+            example.createCriteria()
+                    .andEqualTo(SkillInfoDO::getUserId, userId)
+                    .andEqualTo(SkillInfoDO::getIsDelete, false);
+            example.orderByDesc(SkillInfoDO::getPriority);
+            example.orderByDesc(SkillInfoDO::getGmtCreate);
+            skills = skillInfoMapper.selectByExample(example);
         } else {
-            skills = skillInfoMapper.selectAllActive();
+            Example<SkillInfoDO> example = new Example<>();
+            example.createCriteria()
+                    .andEqualTo(SkillInfoDO::getStatus, 1)
+                    .andEqualTo(SkillInfoDO::getIsDelete, false);
+            example.orderByDesc(SkillInfoDO::getPriority);
+            skills = skillInfoMapper.selectByExample(example);
         }
 
         List<SkillDefinitionDTO> result = new ArrayList<>();
@@ -453,7 +511,11 @@ public class SkillManagementService {
      */
     @Transactional
     public void addDocument(String skillId, SkillDocumentRequest request) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(example).orElse(null);
         if (skillInfo == null) {
             throw new SkillNotFoundException("Skill not found: " + skillId);
         }
@@ -478,14 +540,25 @@ public class SkillManagementService {
      * 获取Skill文档
      */
     public List<SkillDocumentDO> getDocuments(String skillId) {
-        return skillDocumentMapper.selectBySkillId(skillId);
+        Example<SkillDocumentDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillDocumentDO::getSkillId, skillId)
+                .andEqualTo(SkillDocumentDO::getIsDelete, false);
+        example.orderBy(SkillDocumentDO::getSortOrder, Example.Order.ASC);
+        return skillDocumentMapper.selectByExample(example);
     }
 
     /**
      * 获取指定类型的Skill文档
      */
     public List<SkillDocumentDO> getDocumentsByType(String skillId, String docType) {
-        return skillDocumentMapper.selectBySkillIdAndType(skillId, docType);
+        Example<SkillDocumentDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillDocumentDO::getSkillId, skillId)
+                .andEqualTo(SkillDocumentDO::getDocType, docType)
+                .andEqualTo(SkillDocumentDO::getIsDelete, false);
+        example.orderBy(SkillDocumentDO::getSortOrder, Example.Order.ASC);
+        return skillDocumentMapper.selectByExample(example);
     }
 
     /**
@@ -505,8 +578,11 @@ public class SkillManagementService {
      * 检查Skill是否存在
      */
     public boolean exists(String skillId) {
-        SkillInfoDO skillInfo = skillInfoMapper.selectBySkillId(skillId);
-        return skillInfo != null && !Boolean.TRUE.equals(skillInfo.getIsDelete());
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        return skillInfoMapper.selectOneByExample(example).isPresent();
     }
 
     /**
@@ -515,9 +591,13 @@ public class SkillManagementService {
     @Transactional
     public void enableSkill(String skillId) {
         SkillInfoDO updateDO = new SkillInfoDO();
-        updateDO.setSkillId(skillId);
         updateDO.setStatus(1);
-        skillInfoMapper.updateBySkillId(updateDO);
+        updateDO.setGmtModified(new Date());
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        skillInfoMapper.updateByExampleSelective(updateDO, example);
         executionEngine.refreshCache(skillId);
         log.info("Skill enabled: {}", skillId);
     }
@@ -528,9 +608,13 @@ public class SkillManagementService {
     @Transactional
     public void disableSkill(String skillId) {
         SkillInfoDO updateDO = new SkillInfoDO();
-        updateDO.setSkillId(skillId);
         updateDO.setStatus(0);
-        skillInfoMapper.updateBySkillId(updateDO);
+        updateDO.setGmtModified(new Date());
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        skillInfoMapper.updateByExampleSelective(updateDO, example);
         executionEngine.refreshCache(skillId);
         log.info("Skill disabled: {}", skillId);
     }
@@ -543,9 +627,19 @@ public class SkillManagementService {
      */
     @Transactional
     public void initializeUserSkillStatus(Long userId) {
-        List<SkillInfoDO> allSkills = skillInfoMapper.selectAllActive();
+        Example<SkillInfoDO> activeExample = new Example<>();
+        activeExample.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        activeExample.orderByDesc(SkillInfoDO::getPriority);
+        List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(activeExample);
+
         for (SkillInfoDO skill : allSkills) {
-            UserSkillStatusDO existing = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skill.getSkillId());
+            Example<UserSkillStatusDO> statusExample = new Example<>();
+            statusExample.createCriteria()
+                    .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                    .andEqualTo(UserSkillStatusDO::getSkillId, skill.getSkillId());
+            UserSkillStatusDO existing = userSkillStatusMapper.selectOneByExample(statusExample).orElse(null);
             if (existing == null) {
                 UserSkillStatusDO status = new UserSkillStatusDO();
                 status.setUserId(userId);
@@ -564,9 +658,21 @@ public class SkillManagementService {
      */
     @Transactional
     public void enableSkillForUser(Long userId, String skillId) {
-        UserSkillStatusDO existing = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        Example<UserSkillStatusDO> findExample = new Example<>();
+        findExample.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getSkillId, skillId)
+;
+        UserSkillStatusDO existing = userSkillStatusMapper.selectOneByExample(findExample).orElse(null);
         if (existing != null) {
-            userSkillStatusMapper.updateStatus(userId, skillId, 1);
+            UserSkillStatusDO updateDO = new UserSkillStatusDO();
+            updateDO.setStatus(1);
+            updateDO.setGmtModified(new Date());
+            Example<UserSkillStatusDO> updateExample = new Example<>();
+            updateExample.createCriteria()
+                    .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                    .andEqualTo(UserSkillStatusDO::getSkillId, skillId);
+            userSkillStatusMapper.updateByExampleSelective(updateDO, updateExample);
         } else {
             UserSkillStatusDO status = new UserSkillStatusDO();
             status.setUserId(userId);
@@ -574,6 +680,7 @@ public class SkillManagementService {
             status.setStatus(1);
             status.setGmtCreate(new Date());
             status.setGmtModified(new Date());
+
             userSkillStatusMapper.insert(status);
         }
         log.info("Enabled skill {} for user {}", skillId, userId);
@@ -584,9 +691,21 @@ public class SkillManagementService {
      */
     @Transactional
     public void disableSkillForUser(Long userId, String skillId) {
-        UserSkillStatusDO existing = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        Example<UserSkillStatusDO> findExample = new Example<>();
+        findExample.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getSkillId, skillId)
+;
+        UserSkillStatusDO existing = userSkillStatusMapper.selectOneByExample(findExample).orElse(null);
         if (existing != null) {
-            userSkillStatusMapper.updateStatus(userId, skillId, 0);
+            UserSkillStatusDO updateDO = new UserSkillStatusDO();
+            updateDO.setStatus(0);
+            updateDO.setGmtModified(new Date());
+            Example<UserSkillStatusDO> updateExample = new Example<>();
+            updateExample.createCriteria()
+                    .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                    .andEqualTo(UserSkillStatusDO::getSkillId, skillId);
+            userSkillStatusMapper.updateByExampleSelective(updateDO, updateExample);
         } else {
             UserSkillStatusDO status = new UserSkillStatusDO();
             status.setUserId(userId);
@@ -594,6 +713,7 @@ public class SkillManagementService {
             status.setStatus(0);
             status.setGmtCreate(new Date());
             status.setGmtModified(new Date());
+
             userSkillStatusMapper.insert(status);
         }
         log.info("Disabled skill {} for user {}", skillId, userId);
@@ -603,14 +723,26 @@ public class SkillManagementService {
      * 获取用户启用的Skill列表
      */
     public List<String> getEnabledSkillIdsForUser(Long userId) {
-        return userSkillStatusMapper.selectEnabledSkillIdsByUserId(userId);
+        Example<UserSkillStatusDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getStatus, 1)
+;
+        return userSkillStatusMapper.selectByExample(example).stream()
+                .map(UserSkillStatusDO::getSkillId)
+                .collect(Collectors.toList());
     }
 
     /**
      * 检查用户是否启用了某个Skill
      */
     public boolean isSkillEnabledForUser(Long userId, String skillId) {
-        UserSkillStatusDO status = userSkillStatusMapper.selectByUserIdAndSkillId(userId, skillId);
+        Example<UserSkillStatusDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getSkillId, skillId)
+;
+        UserSkillStatusDO status = userSkillStatusMapper.selectOneByExample(example).orElse(null);
         return status != null && status.getStatus() != null && status.getStatus() == 1;
     }
 
