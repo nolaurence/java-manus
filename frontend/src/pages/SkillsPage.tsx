@@ -21,6 +21,7 @@ import {
   Spin,
   Upload,
 } from 'antd';
+import { BookOutlined, FileMarkdownOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router';
 import {
   ArrowLeft,
@@ -31,7 +32,6 @@ import {
   RefreshCw,
   Search,
   Code,
-  BookOpen,
   Zap,
   Upload as UploadIcon,
   User,
@@ -812,7 +812,7 @@ This is an example skill.`}
             {
               key: 'basic',
               label: '基本信息',
-              icon: <BookOpen size={16} />,
+              icon: <BookOutlined />,
               children: (
                 <div>
                   <div className={styles.detailSection}>
@@ -841,7 +841,7 @@ This is an example skill.`}
             {
               key: 'documents',
               label: '文档',
-              icon: <FileText size={16} />,
+              icon: <FileMarkdownOutlined />,
               children: (
                 <div>
                   {skillDocuments.length > 0 ? (
