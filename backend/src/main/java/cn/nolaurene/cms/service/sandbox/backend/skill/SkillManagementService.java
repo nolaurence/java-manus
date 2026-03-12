@@ -57,7 +57,7 @@ public class SkillManagementService {
     @Transactional
     public String registerSkill(SkillRegisterRequest request) {
         // 生成Skill ID
-        String skillId = generateSkillId(request.getAuthor(), request.getName());
+        String skillId = generateSkillId(request.getName());
 
         // 检查是否已存在
         Example<SkillInfoDO> checkExample = new Example<>();
@@ -526,14 +526,12 @@ public class SkillManagementService {
     /**
      * 生成Skill ID
      */
-    private String generateSkillId(String author, String name) {
-        if (StringUtils.isBlank(author) || StringUtils.isBlank(name)) {
-            throw new IllegalArgumentException("Author and name are required");
+    private String generateSkillId(String name) {
+        if (StringUtils.isBlank(name)) {
+            throw new IllegalArgumentException("Name is required");
         }
         // 规范化：转小写，替换空格为连字符
-        String normalizedAuthor = author.toLowerCase().replaceAll("\\s+", "-");
-        String normalizedName = name.toLowerCase().replaceAll("\\s+", "-");
-        return normalizedAuthor + "/" + normalizedName;
+        return name.toLowerCase().replaceAll("\\s+", "-");
     }
 
     /**
@@ -735,11 +733,11 @@ public class SkillManagementService {
 
             // 4. 解析 SKILL.md
             SkillParseResult parseResult = parseSkillMd(skillMdContent);
-            if (StringUtils.isBlank(parseResult.getName()) || StringUtils.isBlank(parseResult.getAuthor())) {
-                throw new IllegalArgumentException("SKILL.md must contain 'name' and 'author' fields");
+            if (StringUtils.isBlank(parseResult.getName()) || StringUtils.isBlank(parseResult.getDescription())) {
+                throw new IllegalArgumentException("SKILL.md must contain 'name' and 'description' fields");
             }
 
-            String skillId = generateSkillId(parseResult.getAuthor(), parseResult.getName());
+            String skillId = generateSkillId(parseResult.getName());
 
             // 5. 检查是否已存在
             if (exists(skillId)) {
