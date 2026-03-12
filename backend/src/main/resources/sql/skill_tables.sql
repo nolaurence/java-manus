@@ -1,17 +1,18 @@
 -- Skill 主表：存储 skill 基本信息
+-- 遵循 https://agentskills.io/specification 规范
 CREATE TABLE IF NOT EXISTS `skill_info` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
     `skill_id` VARCHAR(128) NOT NULL COMMENT 'Skill唯一标识符（如：author/skill-name）',
-    `name` VARCHAR(128) NOT NULL COMMENT 'Skill名称',
+    -- 核心字段（遵循 agentskills.io 规范）
+    `name` VARCHAR(64) NOT NULL COMMENT 'Skill名称：小写字母、数字、连字符，1-64字符',
+    `description` VARCHAR(1024) NOT NULL COMMENT 'Skill描述：1-1024字符，描述功能和何时使用',
     `version` VARCHAR(32) NOT NULL DEFAULT '1.0.0' COMMENT '版本号',
     `author` VARCHAR(64) NOT NULL COMMENT '作者',
-    `description` TEXT COMMENT 'Skill描述',
-    `category` VARCHAR(64) COMMENT '分类标签',
-    `triggers` JSON COMMENT '触发器配置（JSON数组）',
-    `tools` JSON COMMENT '工具定义（JSON数组）',
-    `requires` JSON COMMENT '依赖配置（bins, env, config）',
-    `os_support` JSON COMMENT '支持的操作系统列表',
-    `priority` INT DEFAULT 0 COMMENT '优先级（Workspace > Local > Bundled）',
+    `license` VARCHAR(64) COMMENT '许可证（可选）',
+    `compatibility` VARCHAR(500) COMMENT '兼容性说明：环境要求、系统包、网络访问等（可选，最多500字符）',
+    `metadata` JSON COMMENT '元数据：任意键值对（可选）',
+    `allowed_tools` VARCHAR(512) COMMENT '允许使用的工具列表：空格分隔（可选，实验性）',
+    -- 系统字段
     `status` TINYINT DEFAULT 1 COMMENT '状态：1-启用, 0-禁用',
     `user_id` BIGINT COMMENT '所属用户ID（NULL表示系统级）',
     `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -20,7 +21,6 @@ CREATE TABLE IF NOT EXISTS `skill_info` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_skill_id` (`skill_id`),
     KEY `idx_author` (`author`),
-    KEY `idx_category` (`category`),
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill信息表';
 

@@ -8,6 +8,7 @@ import java.util.Date;
 
 /**
  * Skill信息实体类
+ * 遵循 https://agentskills.io/specification 规范
  *
  * @author nolaurence
  */
@@ -29,9 +30,21 @@ public class SkillInfoDO {
 
     /**
      * Skill名称
+     * - 1-64 字符
+     * - 只能包含小写字母、数字和连字符
+     * - 不能以连字符开头或结尾
+     * - 不能包含连续连字符
      */
     @Column("name")
     private String name;
+
+    /**
+     * Skill描述
+     * - 1-1024 字符
+     * - 描述技能功能和何时使用
+     */
+    @Column("description")
+    private String description;
 
     /**
      * 版本号
@@ -46,46 +59,32 @@ public class SkillInfoDO {
     private String author;
 
     /**
-     * Skill描述
+     * 许可证（可选）
      */
-    @Column("description")
-    private String description;
+    @Column("license")
+    private String license;
 
     /**
-     * 分类标签
+     * 兼容性说明（可选）
+     * - 最多 500 字符
+     * - 说明环境要求、系统包、网络访问等
      */
-    @Column("category")
-    private String category;
+    @Column("compatibility")
+    private String compatibility;
 
     /**
-     * 触发器配置（JSON数组）
+     * 元数据（可选）：任意键值对，JSON格式
      */
-    @Column("triggers")
-    private String triggers;
+    @Column("metadata")
+    private String metadata;
 
     /**
-     * 工具定义（JSON数组）
+     * 允许使用的工具列表（可选，实验性）
+     * - 空格分隔的工具列表
+     * - 例如: "Bash(git:*) Bash(jq:*) Read"
      */
-    @Column("tools")
-    private String tools;
-
-    /**
-     * 依赖配置（bins, env, config）
-     */
-    @Column("requires")
-    private String requires;
-
-    /**
-     * 支持的操作系统列表
-     */
-    @Column("os_support")
-    private String osSupport;
-
-    /**
-     * 优先级（Workspace > Local > Bundled）
-     */
-    @Column("priority")
-    private Integer priority;
+    @Column("allowed_tools")
+    private String allowedTools;
 
     /**
      * 状态：1-启用, 0-禁用
