@@ -381,7 +381,7 @@ const ChatComponent: React.FC = () => {
       }
     };
     init();
-  }, []);
+  }, [agentId]);
 
 
   // 计划相关计算
