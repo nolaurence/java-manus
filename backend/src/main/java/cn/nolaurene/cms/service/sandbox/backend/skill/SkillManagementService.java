@@ -56,7 +56,7 @@ public class SkillManagementService {
      */
     @Transactional
     public String registerSkill(SkillRegisterRequest request) {
-        // 生成Skill ID
+        // 生成Skill ID（使用规范化后的name）
         String skillId = generateSkillId(request.getName());
 
         // 检查是否已存在
@@ -321,8 +321,10 @@ public class SkillManagementService {
         SkillInfoDO updateDO = new SkillInfoDO();
         updateDO.setGmtModified(new Date());
 
+        // 注意：不允许修改name，因为name是skillId的一部分
+        // 如果需要修改name，应该删除旧skill并创建新skill
         if (request.getName() != null) {
-            updateDO.setName(request.getName());
+            log.warn("Ignoring name update for skill {}, name modification is not allowed", skillId);
         }
         if (request.getDescription() != null) {
             updateDO.setDescription(request.getDescription());
@@ -524,14 +526,65 @@ public class SkillManagementService {
     }
 
     /**
+     * Skill名称验证正则：小写字母、数字、连字符，1-64字符，不能以连字符开头或结尾
+     */
+    private static final java.util.regex.Pattern SKILL_NAME_PATTERN = java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$");
+
+    /**
      * 生成Skill ID
+     * 直接使用规范化后的 name 作为 skillId
      */
     private String generateSkillId(String name) {
-        if (StringUtils.isBlank(name)) {
+        String normalizedName = normalizeName(name);
+        validateSkillName(normalizedName);
+        return normalizedName;
+    }
+
+    /**
+     * 规范化名称：转小写，替换空格和特殊字符为连字符，去除首尾连字符，合并连续连字符
+     */
+    private String normalizeName(String input) {
+        if (StringUtils.isBlank(input)) {
             throw new IllegalArgumentException("Name is required");
         }
-        // 规范化：转小写，替换空格为连字符
-        return name.toLowerCase().replaceAll("\\s+", "-");
+        // 转小写
+        String normalized = input.toLowerCase();
+        // 替换非字母数字字符为连字符
+        normalized = normalized.replaceAll("[^a-z0-9]+", "-");
+        // 去除首尾连字符
+        normalized = normalized.replaceAll("^-+|-+$", "");
+        // 限制长度为64字符
+        if (normalized.length() > 64) {
+            normalized = normalized.substring(0, 64);
+            // 去除末尾可能的连字符
+            normalized = normalized.replaceAll("-+$", "");
+        }
+        
+        if (StringUtils.isBlank(normalized)) {
+            throw new IllegalArgumentException("Name cannot be empty after normalization");
+        }
+        return normalized;
+    }
+
+    /**
+     * 验证Skill名称是否符合规范
+     * 规范：小写字母、数字、连字符，1-64字符，不能以连字符开头或结尾，不能有连续连字符
+     */
+    private void validateSkillName(String name) {
+        if (StringUtils.isBlank(name)) {
+            throw new IllegalArgumentException("Skill name is required");
+        }
+        if (name.length() > 64) {
+            throw new IllegalArgumentException("Skill name must be 1-64 characters");
+        }
+        if (!SKILL_NAME_PATTERN.matcher(name).matches()) {
+            throw new IllegalArgumentException(
+                "Skill name must contain only lowercase letters, numbers, and hyphens, " +
+                "cannot start or end with hyphen: " + name);
+        }
+        if (name.contains("--")) {
+            throw new IllegalArgumentException("Skill name cannot contain consecutive hyphens: " + name);
+        }
     }
 
     /**

@@ -106,22 +106,30 @@ public class SkillFileStorageService {
     }
 
     /**
+     * 解析skillId为路径
+     * skillId 直接作为目录名
+     * 
+     * @param skillId Skill ID
+     * @return 解析后的路径
+     */
+    private Path resolveSkillPath(String skillId) {
+        if (StringUtils.isBlank(skillId)) {
+            throw new IllegalArgumentException("skillId is required");
+        }
+        // 直接使用 skillId 作为目录名
+        return extractedPath.resolve(skillId);
+    }
+
+    /**
      * 移动解压后的Skill到正式目录
      *
-     * @param skillId Skill ID (格式: author/name)
+     * @param skillId Skill ID (格式: author/name 或 name)
      * @param tempExtractPath 临时解压路径
      * @return 正式目录路径
      */
     public String moveToExtracted(String skillId, String tempExtractPath) throws IOException {
         Path sourcePath = Paths.get(tempExtractPath);
-
-        // 解析 skillId 获取 author 和 name
-        String[] parts = skillId.split("/");
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("Invalid skillId format, expected 'author/name': " + skillId);
-        }
-
-        Path targetPath = extractedPath.resolve(parts[0]).resolve(parts[1]);
+        Path targetPath = resolveSkillPath(skillId);
 
         // 删除已存在的目录
         if (Files.exists(targetPath)) {
@@ -141,18 +149,17 @@ public class SkillFileStorageService {
     /**
      * 获取Skill脚本目录
      *
-     * @param skillId Skill ID
+     * @param skillId Skill ID (格式: author/name 或 name)
      * @return 脚本目录路径，如果不存在返回null
      */
     public String getSkillScriptsPath(String skillId) {
-        String[] parts = skillId.split("/");
-        if (parts.length != 2) {
-            return null;
-        }
-
-        Path scriptsPath = extractedPath.resolve(parts[0]).resolve(parts[1]).resolve("scripts");
-        if (Files.exists(scriptsPath) && Files.isDirectory(scriptsPath)) {
-            return scriptsPath.toString();
+        try {
+            Path scriptsPath = resolveSkillPath(skillId).resolve("scripts");
+            if (Files.exists(scriptsPath) && Files.isDirectory(scriptsPath)) {
+                return scriptsPath.toString();
+            }
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid skillId format: {}", skillId);
         }
         return null;
     }
@@ -160,19 +167,18 @@ public class SkillFileStorageService {
     /**
      * 获取Skill文件路径
      *
-     * @param skillId Skill ID
+     * @param skillId Skill ID (格式: author/name 或 name)
      * @param relativePath 相对路径 (如 "scripts/validate.py")
      * @return 完整路径，如果不存在返回null
      */
     public String getSkillFilePath(String skillId, String relativePath) {
-        String[] parts = skillId.split("/");
-        if (parts.length != 2) {
-            return null;
-        }
-
-        Path filePath = extractedPath.resolve(parts[0]).resolve(parts[1]).resolve(relativePath);
-        if (Files.exists(filePath)) {
-            return filePath.toString();
+        try {
+            Path filePath = resolveSkillPath(skillId).resolve(relativePath);
+            if (Files.exists(filePath)) {
+                return filePath.toString();
+            }
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid skillId format: {}", skillId);
         }
         return null;
     }
@@ -210,27 +216,26 @@ public class SkillFileStorageService {
     /**
      * 删除Skill的所有文件
      *
-     * @param skillId Skill ID
+     * @param skillId Skill ID (格式: author/name 或 name)
      */
     public void deleteSkillFiles(String skillId) throws IOException {
-        String[] parts = skillId.split("/");
-        if (parts.length != 2) {
-            return;
-        }
+        try {
+            // 删除解压目录
+            Path skillPath = resolveSkillPath(skillId);
+            if (Files.exists(skillPath)) {
+                deleteDirectory(skillPath);
+            }
 
-        // 删除解压目录
-        Path skillPath = extractedPath.resolve(parts[0]).resolve(parts[1]);
-        if (Files.exists(skillPath)) {
-            deleteDirectory(skillPath);
-        }
+            // 删除上传的zip
+            Path zipPath = uploadedPath.resolve(skillId + ".zip");
+            if (Files.exists(zipPath)) {
+                Files.delete(zipPath);
+            }
 
-        // 删除上传的zip
-        Path zipPath = uploadedPath.resolve(skillId + ".zip");
-        if (Files.exists(zipPath)) {
-            Files.delete(zipPath);
+            log.info("Deleted skill files for: {}", skillId);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid skillId format when deleting files: {}", skillId);
         }
-
-        log.info("Deleted skill files for: {}", skillId);
     }
 
     /**
