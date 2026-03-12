@@ -434,12 +434,13 @@ public class SkillManagementService {
             dto.setMetadata(metadata);
             // 从 metadata 中读取 author，符合 Agent Skills 规范
             String author = metadata != null ? metadata.get("author") : null;
-            dto.setAuthor(author != null ? author : "anonymous");
+            dto.setAuthor(author != null ? author : "SYSTEM_WIDE");
         } else {
             dto.setAuthor("anonymous");
         }
         dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
+        dto.setStatus(skillInfo.getStatus());
 
         // 加载文档
         Example<SkillDocumentDO> docExample = new Example<>();

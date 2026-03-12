@@ -56,4 +56,9 @@ public class SkillDefinitionDTO {
      * 文档列表（可选）
      */
     private Object documents;
+
+    /**
+     * 1-启用 0-禁用
+     */
+    private int status;
 }
