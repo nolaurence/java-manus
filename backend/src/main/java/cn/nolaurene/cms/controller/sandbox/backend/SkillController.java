@@ -3,7 +3,6 @@ package cn.nolaurene.cms.controller.sandbox.backend;
 import cn.nolaurene.cms.common.dto.skill.*;
 import cn.nolaurene.cms.common.vo.BaseWebResult;
 import cn.nolaurene.cms.dal.entity.SkillDocumentDO;
-import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillManagementService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -107,19 +106,6 @@ public class SkillController {
             @Parameter(description = "用户ID") @RequestParam(required = false) Long userId) {
         List<SkillDefinitionDTO> skills = skillManagementService.listSkills(userId);
         return BaseWebResult.success(skills);
-    }
-
-    /**
-     * 执行Skill
-     */
-    @PostMapping("/{skillId}/execute")
-    @Operation(summary = "执行Skill")
-    public BaseWebResult<SkillExecutionResult> executeSkill(
-            @PathVariable String skillId,
-            @RequestBody SkillExecutionRequest request) {
-        request.setSkillId(skillId);
-        SkillExecutionResult result = skillExecutionEngine.execute(request);
-        return BaseWebResult.success(result);
     }
 
     /**

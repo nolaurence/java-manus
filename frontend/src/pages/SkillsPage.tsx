@@ -27,7 +27,6 @@ import {
   Plus,
   Trash2,
   Edit,
-  Play,
   FileText,
   RefreshCw,
   Search,
@@ -53,7 +52,6 @@ import {
   deleteSkill,
   enableSkill,
   disableSkill,
-  executeSkill,
   getSkillDocuments,
   addSkillDocument,
   refreshSkillCache,
@@ -199,7 +197,6 @@ const SkillsPage: React.FC = () => {
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [executeModalOpen, setExecuteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [zipImportModalOpen, setZipImportModalOpen] = useState(false);
   const [userStatusModalOpen, setUserStatusModalOpen] = useState(false);
@@ -210,7 +207,6 @@ const SkillsPage: React.FC = () => {
 
   const [registerForm] = Form.useForm();
   const [editForm] = Form.useForm();
-  const [executeForm] = Form.useForm();
   const [importForm] = Form.useForm();
 
   // 加载 Skill 列表和用户启用状态
@@ -386,37 +382,6 @@ const SkillsPage: React.FC = () => {
     return false; // 阻止默认上传行为
   };
 
-  // 执行 Skill
-  const handleExecute = async (values: any) => {
-    if (!selectedSkill) return;
-    try {
-      const result = await executeSkill({
-        skillId: selectedSkill.skillId,
-        toolName: values.toolName,
-        params: values.params ? JSON.parse(values.params) : {},
-      });
-      if (result.status === 'success') {
-        message.success('执行成功');
-        Modal.success({
-          title: '执行结果',
-          content: (
-            <div>
-              <p><strong>输出:</strong></p>
-              <pre style={{ maxHeight: 300, overflow: 'auto' }}>{result.output}</pre>
-              <p><strong>耗时:</strong> {result.durationMs}ms</p>
-            </div>
-          ),
-        });
-      } else {
-        message.error(`执行失败: ${result.error}`);
-      }
-      setExecuteModalOpen(false);
-      executeForm.resetFields();
-    } catch (error) {
-      message.error('执行失败');
-    }
-  };
-
   // 查看详情
   const handleViewDetail = async (skill: SkillDefinition) => {
     setSelectedSkill(skill);
@@ -536,17 +501,6 @@ const SkillsPage: React.FC = () => {
                   <span className={styles.skillTitle}>{skill.name}</span>
                   <Space onClick={(e) => e.stopPropagation()}>
                     {getStatusTag(skill.status)}
-                    <Tooltip title="执行">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<Play size={16} />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openExecuteModal(skill);
-                        }}
-                      />
-                    </Tooltip>
                     <Tooltip title="编辑">
                       <Button
                         type="text"
@@ -716,39 +670,6 @@ This is an example skill.`}
         </Form>
       </Modal>
 
-      {/* 执行弹窗 */}
-      <Modal
-        open={executeModalOpen}
-        title={`执行 Skill: ${selectedSkill?.name}`}
-        onCancel={() => setExecuteModalOpen(false)}
-        footer={null}
-        width={600}
-      >
-        <Form form={executeForm} layout="vertical" onFinish={handleExecute}>
-          <Form.Item name="toolName" label="工具名称">
-            <Select placeholder="选择要执行的工具">
-              {selectedSkill?.tools?.map((tool) => (
-                <Select.Option key={tool.name} value={tool.name}>
-                  {tool.name} - {tool.description}
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item name="params" label="参数 (JSON 格式)">
-            <Input.TextArea
-              rows={5}
-              placeholder='{"key": "value"}'
-              className={styles.codeEditor}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block icon={<Play size={16} />}>
-              执行
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
-
       {/* Zip 上传弹窗 */}
       <Modal
         open={zipImportModalOpen}
@@ -903,12 +824,6 @@ This is an example skill.`}
                     <div className={styles.detailContent}>{selectedSkill?.description}</div>
                   </div>
                   <div className={styles.detailSection}>
-                    <div className={styles.detailLabel}>版本 / 作者</div>
-                    <div className={styles.detailContent}>
-                      v{selectedSkill?.version} by {selectedSkill?.metadata?.author || 'anonymous'}
-                    </div>
-                  </div>
-                  <div className={styles.detailSection}>
                     <div className={styles.detailLabel}>许可证</div>
                     <div className={styles.detailContent}>{selectedSkill?.license || '-'}</div>
                   </div>
@@ -935,8 +850,8 @@ This is an example skill.`}
                         <div style={{ fontWeight: 600, marginBottom: 8 }}>
                           <Tag>{doc.docType}</Tag>
                         </div>
-                        <pre style={{ maxHeight: 200, overflow: 'auto', fontSize: 12 }}>
-                          {doc.content.length > 500 ? doc.content.slice(0, 500) + '...' : doc.content}
+                        <pre style={{ maxHeight: 400, overflow: 'auto', fontSize: 12 }}>
+                          {doc.content}
                         </pre>
                       </Card>
                     ))
