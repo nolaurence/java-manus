@@ -203,7 +203,10 @@ public class SkillToolProvider {
         if (skillInfo == null) {
             return null;
         }
+        return convertToDefinitionDTO(skillInfo);
+    }
 
+    private SkillDefinitionDTO convertToDefinitionDTO(SkillInfoDO skillInfo) {
         SkillDefinitionDTO dto = new SkillDefinitionDTO();
         dto.setSkillId(skillInfo.getSkillId());
         dto.setName(skillInfo.getName());
@@ -222,7 +225,6 @@ public class SkillToolProvider {
         }
         dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
-
         return dto;
     }
 
@@ -236,7 +238,8 @@ public class SkillToolProvider {
                 .andEqualTo(SkillInfoDO::getIsDelete, false);
         List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
         for (SkillInfoDO skillInfo : allSkills) {
-            loadSkillFromDB(skillInfo.getSkillId());
+            SkillDefinitionDTO skillDefinitionDTO = convertToDefinitionDTO(skillInfo);
+            skillCache.put(skillDefinitionDTO.getSkillId(), skillDefinitionDTO);
         }
         log.info("Skill cache warmed up with {} skills", allSkills.size());
     }

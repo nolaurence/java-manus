@@ -687,8 +687,8 @@ public class SkillManagementService {
         Example<UserSkillStatusDO> findExample = new Example<>();
         findExample.createCriteria()
                 .andEqualTo(UserSkillStatusDO::getUserId, userId)
-                .andEqualTo(UserSkillStatusDO::getSkillId, skillId)
-;
+                .andEqualTo(UserSkillStatusDO::getSkillId, skillId);
+
         UserSkillStatusDO existing = userSkillStatusMapper.selectOneByExample(findExample).orElse(null);
         if (existing != null) {
             UserSkillStatusDO updateDO = new UserSkillStatusDO();
