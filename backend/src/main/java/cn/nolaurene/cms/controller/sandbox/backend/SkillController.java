@@ -104,9 +104,8 @@ public class SkillController {
     @GetMapping
     @Operation(summary = "列出所有Skill")
     public BaseWebResult<List<SkillDefinitionDTO>> listSkills(
-            @Parameter(description = "分类") @RequestParam(required = false) String category,
             @Parameter(description = "用户ID") @RequestParam(required = false) Long userId) {
-        List<SkillDefinitionDTO> skills = skillManagementService.listSkills(category, userId);
+        List<SkillDefinitionDTO> skills = skillManagementService.listSkills(userId);
         return BaseWebResult.success(skills);
     }
 

@@ -68,7 +68,7 @@ public class SkillToolProvider {
         example.createCriteria()
                 .andEqualTo(SkillInfoDO::getStatus, 1)
                 .andEqualTo(SkillInfoDO::getIsDelete, false);
-        example.orderByDesc(SkillInfoDO::getPriority);
+        example.orderByDesc(SkillInfoDO::getGmtCreate);
         List<SkillInfoDO> activeSkills = skillInfoMapper.selectByExample(example);
 
         for (SkillInfoDO skillInfo : activeSkills) {
@@ -99,36 +99,8 @@ public class SkillToolProvider {
         description.append("\nAuthor: ").append(skillInfo.getAuthor());
         description.append("\nVersion: ").append(skillInfo.getVersion());
 
-        // 添加触发器信息到描述
-        if (StringUtils.isNotBlank(skillInfo.getTriggers())) {
-            List<TriggerConfig> triggers = JSON.parseArray(skillInfo.getTriggers(), TriggerConfig.class);
-            if (triggers != null && !triggers.isEmpty()) {
-                description.append("\n\nTriggers: ");
-                for (TriggerConfig trigger : triggers) {
-                    description.append(trigger.getPattern()).append(" ");
-                }
-            }
-        }
-
         // 构建参数 schema
         JsonObjectSchema.Builder schemaBuilder = JsonObjectSchema.builder();
-
-        // 解析工具定义，提取参数
-        if (StringUtils.isNotBlank(skillInfo.getTools())) {
-            List<ToolDefinition> tools = JSON.parseArray(skillInfo.getTools(), ToolDefinition.class);
-            if (tools != null && !tools.isEmpty()) {
-                ToolDefinition firstTool = tools.get(0);
-                if (firstTool.getParameters() != null) {
-                    for (Map.Entry<String, Object> entry : firstTool.getParameters().entrySet()) {
-                        String paramName = entry.getKey();
-                        Object paramDef = entry.getValue();
-
-                        String paramDescription = extractParamDescription(paramDef);
-                        schemaBuilder.addStringProperty(paramName, paramDescription);
-                    }
-                }
-            }
-        }
 
         // 添加必需的 session_id 参数
         schemaBuilder.addStringProperty("session_id", "The session ID for shell command execution");
@@ -225,25 +197,16 @@ public class SkillToolProvider {
         SkillDefinitionDTO dto = new SkillDefinitionDTO();
         dto.setSkillId(skillInfo.getSkillId());
         dto.setName(skillInfo.getName());
+        dto.setDescription(skillInfo.getDescription());
         dto.setVersion(skillInfo.getVersion());
         dto.setAuthor(skillInfo.getAuthor());
-        dto.setDescription(skillInfo.getDescription());
-        dto.setCategory(skillInfo.getCategory());
-        dto.setPriority(skillInfo.getPriority());
+        dto.setLicense(skillInfo.getLicense());
+        dto.setCompatibility(skillInfo.getCompatibility());
+        if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
+            dto.setMetadata(JSON.parseObject(skillInfo.getMetadata(), Map.class));
+        }
+        dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
-
-        if (StringUtils.isNotBlank(skillInfo.getTriggers())) {
-            dto.setTriggers(JSON.parseArray(skillInfo.getTriggers(), TriggerConfig.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getTools())) {
-            dto.setTools(JSON.parseArray(skillInfo.getTools(), ToolDefinition.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getRequires())) {
-            dto.setRequires(JSON.parseObject(skillInfo.getRequires(), cn.nolaurene.cms.common.dto.skill.RequiresConfig.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getOsSupport())) {
-            dto.setOsSupport(JSON.parseArray(skillInfo.getOsSupport(), String.class));
-        }
 
         return dto;
     }
@@ -327,81 +290,5 @@ public class SkillToolProvider {
 
         log.info("Loaded {} skill tool specifications for user {}", specs.size(), userId);
         return specs;
-    }
-
-    /**
-     * 根据用户输入匹配用户启用的Skill
-     *
-     * @param input  用户输入
-     * @param userId 用户ID
-     * @return 匹配的Skill列表
-     */
-    public List<SkillDefinitionDTO> matchSkillsForUser(String input, Long userId) {
-        Example<UserSkillStatusDO> statusExample = new Example<>();
-        statusExample.createCriteria()
-                .andEqualTo(UserSkillStatusDO::getUserId, userId)
-                .andEqualTo(UserSkillStatusDO::getStatus, 1);
-        List<String> enabledSkillIds = userSkillStatusMapper.selectByExample(statusExample).stream()
-                .map(UserSkillStatusDO::getSkillId)
-                .collect(Collectors.toList());
-
-        List<SkillDefinitionDTO> matchedSkills = new ArrayList<>();
-
-        for (String skillId : enabledSkillIds) {
-            SkillDefinitionDTO skill = getSkillDefinition(skillId);
-            if (skill != null && matchesTrigger(skill, input)) {
-                matchedSkills.add(skill);
-            }
-        }
-
-        // 按优先级排序
-        matchedSkills.sort((a, b) -> {
-            int priorityA = a.getPriority() != null ? a.getPriority() : 0;
-            int priorityB = b.getPriority() != null ? b.getPriority() : 0;
-            return Integer.compare(priorityB, priorityA);
-        });
-
-        return matchedSkills;
-    }
-
-    /**
-     * 检查输入是否匹配触发器
-     */
-    private boolean matchesTrigger(SkillDefinitionDTO skill, String input) {
-        if (skill.getTriggers() == null || skill.getTriggers().isEmpty()) {
-            return false;
-        }
-
-        String lowerInput = input.toLowerCase();
-
-        for (TriggerConfig trigger : skill.getTriggers()) {
-            if (trigger.getType() == null || trigger.getPattern() == null) {
-                continue;
-            }
-
-            switch (trigger.getType().toLowerCase()) {
-                case "keyword":
-                    if (lowerInput.contains(trigger.getPattern().toLowerCase())) {
-                        return true;
-                    }
-                    break;
-                case "regex":
-                    try {
-                        if (input.matches(trigger.getPattern())) {
-                            return true;
-                        }
-                    } catch (Exception e) {
-                        log.warn("Invalid regex pattern: {}", trigger.getPattern(), e);
-                    }
-                    break;
-                case "intent":
-                    log.debug("Intent trigger not implemented yet");
-                    break;
-                default:
-                    log.warn("Unknown trigger type: {}", trigger.getType());
-            }
-        }
-
-        return false;
     }
 }

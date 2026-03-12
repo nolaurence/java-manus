@@ -155,26 +155,16 @@ public class SkillExecutionEngine {
         SkillDefinitionDTO dto = new SkillDefinitionDTO();
         dto.setSkillId(skillInfo.getSkillId());
         dto.setName(skillInfo.getName());
+        dto.setDescription(skillInfo.getDescription());
         dto.setVersion(skillInfo.getVersion());
         dto.setAuthor(skillInfo.getAuthor());
-        dto.setDescription(skillInfo.getDescription());
-        dto.setCategory(skillInfo.getCategory());
-        dto.setPriority(skillInfo.getPriority());
+        dto.setLicense(skillInfo.getLicense());
+        dto.setCompatibility(skillInfo.getCompatibility());
+        if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
+            dto.setMetadata(JSON.parseObject(skillInfo.getMetadata(), Map.class));
+        }
+        dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
-
-        // 解析JSON字段
-        if (StringUtils.isNotBlank(skillInfo.getTriggers())) {
-            dto.setTriggers(JSON.parseArray(skillInfo.getTriggers(), TriggerConfig.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getTools())) {
-            dto.setTools(JSON.parseArray(skillInfo.getTools(), ToolDefinition.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getRequires())) {
-            dto.setRequires(JSON.parseObject(skillInfo.getRequires(), RequiresConfig.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getOsSupport())) {
-            dto.setOsSupport(JSON.parseArray(skillInfo.getOsSupport(), String.class));
-        }
 
         return dto;
     }
@@ -184,90 +174,15 @@ public class SkillExecutionEngine {
      * 通过Shell沙箱检查依赖是否存在
      */
     private void validateDependencies(SkillDefinitionDTO skill, String sessionId) {
-        RequiresConfig requires = skill.getRequires();
-        if (requires == null) {
-            return;
-        }
-
-        List<String> missingBins = new ArrayList<>();
-
-        // 检查二进制依赖
-        if (requires.getBins() != null) {
-            for (String bin : requires.getBins()) {
-                String checkCmd = String.format("which %s 2>/dev/null || command -v %s 2>/dev/null", bin, bin);
-                try {
-                    ShellCommandResult result = shellService.execCommand(sessionId, "/", checkCmd);
-                    if (result.getReturncode() != 0 || StringUtils.isBlank(result.getOutput())) {
-                        missingBins.add(bin);
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to check binary dependency: {}", bin, e);
-                    missingBins.add(bin);
-                }
-            }
-        }
-
-        if (!missingBins.isEmpty()) {
-            throw new SkillDependencyException(
-                    "Missing required binaries: " + String.join(", ", missingBins)
-            );
-        }
-
-        // 检查环境变量（仅警告，不阻止执行）
-        if (requires.getEnv() != null) {
-            for (Map.Entry<String, String> entry : requires.getEnv().entrySet()) {
-                String checkCmd = String.format("echo $%s", entry.getKey());
-                try {
-                    ShellCommandResult result = shellService.execCommand(sessionId, "/", checkCmd);
-                    String value = result.getOutput() != null ? result.getOutput().trim() : "";
-                    if (StringUtils.isBlank(value)) {
-                        log.warn("Environment variable {} is not set", entry.getKey());
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to check environment variable: {}", entry.getKey(), e);
-                }
-            }
-        }
+        // 依赖检查已移除 - 遵循 agentskills.io 规范
     }
 
     /**
      * 解析要执行的工具
      */
     private ToolDefinition resolveTool(SkillDefinitionDTO skill, Map<String, Object> params) {
-        if (skill.getTools() == null || skill.getTools().isEmpty()) {
-            return null;
-        }
-
-        // 如果只有一个工具，直接返回
-        if (skill.getTools().size() == 1) {
-            return skill.getTools().get(0);
-        }
-
-        // 根据参数匹配工具
-        for (ToolDefinition tool : skill.getTools()) {
-            if (matchesTool(tool, params)) {
-                return tool;
-            }
-        }
-
-        // 默认返回第一个工具
-        return skill.getTools().get(0);
-    }
-
-    /**
-     * 检查参数是否匹配工具
-     */
-    private boolean matchesTool(ToolDefinition tool, Map<String, Object> params) {
-        if (tool.getParameters() == null || tool.getParameters().isEmpty()) {
-            return true;
-        }
-
-        for (String paramKey : tool.getParameters().keySet()) {
-            if (params == null || !params.containsKey(paramKey)) {
-                return false;
-            }
-        }
-        return true;
+        // 工具解析已简化 - 遵循 agentskills.io 规范
+        return null;
     }
 
     /**
@@ -332,7 +247,7 @@ public class SkillExecutionEngine {
         example.createCriteria()
                 .andEqualTo(SkillInfoDO::getStatus, 1)
                 .andEqualTo(SkillInfoDO::getIsDelete, false);
-        example.orderByDesc(SkillInfoDO::getPriority);
+        example.orderByDesc(SkillInfoDO::getGmtCreate);
         List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
 
         for (SkillInfoDO skillInfo : allSkills) {
@@ -342,13 +257,6 @@ public class SkillExecutionEngine {
             }
         }
 
-        // 按优先级排序
-        matchedSkills.sort((a, b) -> {
-            int priorityA = a.getPriority() != null ? a.getPriority() : 0;
-            int priorityB = b.getPriority() != null ? b.getPriority() : 0;
-            return Integer.compare(priorityB, priorityA);
-        });
-
         return matchedSkills;
     }
 
@@ -356,41 +264,14 @@ public class SkillExecutionEngine {
      * 检查输入是否匹配触发器
      */
     private boolean matchesTrigger(SkillDefinitionDTO skill, String input) {
-        if (skill.getTriggers() == null || skill.getTriggers().isEmpty()) {
-            return false;
+        // 触发器匹配已简化 - 遵循 agentskills.io 规范
+        // 可以根据 name 和 description 进行简单匹配
+        if (skill.getName() != null && input.toLowerCase().contains(skill.getName().toLowerCase())) {
+            return true;
         }
-
-        String lowerInput = input.toLowerCase();
-
-        for (TriggerConfig trigger : skill.getTriggers()) {
-            if (trigger.getType() == null || trigger.getPattern() == null) {
-                continue;
-            }
-
-            switch (trigger.getType().toLowerCase()) {
-                case "keyword":
-                    if (lowerInput.contains(trigger.getPattern().toLowerCase())) {
-                        return true;
-                    }
-                    break;
-                case "regex":
-                    try {
-                        if (Pattern.matches(trigger.getPattern(), input)) {
-                            return true;
-                        }
-                    } catch (Exception e) {
-                        log.warn("Invalid regex pattern: {}", trigger.getPattern(), e);
-                    }
-                    break;
-                case "intent":
-                    // 可以接入意图识别模型
-                    log.debug("Intent trigger not implemented yet");
-                    break;
-                default:
-                    log.warn("Unknown trigger type: {}", trigger.getType());
-            }
+        if (skill.getDescription() != null && input.toLowerCase().contains(skill.getDescription().toLowerCase())) {
+            return true;
         }
-
         return false;
     }
 
@@ -456,7 +337,7 @@ public class SkillExecutionEngine {
         example.createCriteria()
                 .andEqualTo(SkillInfoDO::getStatus, 1)
                 .andEqualTo(SkillInfoDO::getIsDelete, false);
-        example.orderByDesc(SkillInfoDO::getPriority);
+        example.orderByDesc(SkillInfoDO::getGmtCreate);
         List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(example);
         for (SkillInfoDO skillInfo : allSkills) {
             loadSkill(skillInfo.getSkillId());

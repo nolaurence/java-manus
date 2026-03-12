@@ -73,30 +73,20 @@ public class SkillManagementService {
         SkillInfoDO skillInfo = new SkillInfoDO();
         skillInfo.setSkillId(skillId);
         skillInfo.setName(request.getName());
+        skillInfo.setDescription(request.getDescription());
         skillInfo.setVersion(request.getVersion() != null ? request.getVersion() : "1.0.0");
         skillInfo.setAuthor(request.getAuthor());
-        skillInfo.setDescription(request.getDescription());
-        skillInfo.setCategory(request.getCategory());
-        skillInfo.setPriority(request.getPriority() != null ? request.getPriority() : 0);
+        skillInfo.setLicense(request.getLicense());
+        skillInfo.setCompatibility(request.getCompatibility());
+        if (request.getMetadata() != null) {
+            skillInfo.setMetadata(JSON.toJSONString(request.getMetadata()));
+        }
+        skillInfo.setAllowedTools(request.getAllowedTools());
         skillInfo.setStatus(1);
         skillInfo.setUserId(request.getUserId());
         skillInfo.setGmtCreate(new Date());
         skillInfo.setGmtModified(new Date());
         skillInfo.setIsDelete(false);
-
-        // 序列化JSON字段
-        if (request.getTriggers() != null) {
-            skillInfo.setTriggers(JSON.toJSONString(request.getTriggers()));
-        }
-        if (request.getTools() != null) {
-            skillInfo.setTools(JSON.toJSONString(request.getTools()));
-        }
-        if (request.getRequires() != null) {
-            skillInfo.setRequires(JSON.toJSONString(request.getRequires()));
-        }
-        if (request.getOsSupport() != null) {
-            skillInfo.setOsSupport(JSON.toJSONString(request.getOsSupport()));
-        }
 
         skillInfoMapper.insert(skillInfo);
 
@@ -136,14 +126,13 @@ public class SkillManagementService {
 
         SkillRegisterRequest request = new SkillRegisterRequest();
         request.setName(parseResult.getName());
-        request.setAuthor(parseResult.getAuthor());
-        request.setVersion(parseResult.getVersion());
         request.setDescription(parseResult.getDescription());
-        request.setCategory(parseResult.getCategory());
-        request.setTriggers(parseResult.getTriggers());
-        request.setTools(parseResult.getTools());
-        request.setRequires(parseResult.getRequires());
-        request.setOsSupport(parseResult.getOsSupport());
+        request.setVersion(parseResult.getVersion());
+        request.setAuthor(parseResult.getAuthor());
+        request.setLicense(parseResult.getLicense());
+        request.setCompatibility(parseResult.getCompatibility());
+        request.setMetadata(parseResult.getMetadata());
+        request.setAllowedTools(parseResult.getAllowedTools());
         request.setUserId(userId);
 
         // 添加SKILL.md作为文档
@@ -163,33 +152,30 @@ public class SkillManagementService {
      */
     private static class SkillParseResult {
         private String name;
-        private String author;
-        private String version;
         private String description;
-        private String category;
-        private List<TriggerConfig> triggers;
-        private List<ToolDefinition> tools;
-        private RequiresConfig requires;
-        private List<String> osSupport;
+        private String version;
+        private String author;
+        private String license;
+        private String compatibility;
+        private Map<String, String> metadata;
+        private String allowedTools;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
-        public String getAuthor() { return author; }
-        public void setAuthor(String author) { this.author = author; }
-        public String getVersion() { return version; }
-        public void setVersion(String version) { this.version = version; }
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
-        public String getCategory() { return category; }
-        public void setCategory(String category) { this.category = category; }
-        public List<TriggerConfig> getTriggers() { return triggers; }
-        public void setTriggers(List<TriggerConfig> triggers) { this.triggers = triggers; }
-        public List<ToolDefinition> getTools() { return tools; }
-        public void setTools(List<ToolDefinition> tools) { this.tools = tools; }
-        public RequiresConfig getRequires() { return requires; }
-        public void setRequires(RequiresConfig requires) { this.requires = requires; }
-        public List<String> getOsSupport() { return osSupport; }
-        public void setOsSupport(List<String> osSupport) { this.osSupport = osSupport; }
+        public String getVersion() { return version; }
+        public void setVersion(String version) { this.version = version; }
+        public String getAuthor() { return author; }
+        public void setAuthor(String author) { this.author = author; }
+        public String getLicense() { return license; }
+        public void setLicense(String license) { this.license = license; }
+        public String getCompatibility() { return compatibility; }
+        public void setCompatibility(String compatibility) { this.compatibility = compatibility; }
+        public Map<String, String> getMetadata() { return metadata; }
+        public void setMetadata(Map<String, String> metadata) { this.metadata = metadata; }
+        public String getAllowedTools() { return allowedTools; }
+        public void setAllowedTools(String allowedTools) { this.allowedTools = allowedTools; }
     }
 
     /**
@@ -212,33 +198,27 @@ public class SkillManagementService {
                 Map<String, Object> yaml = parseYaml(frontmatter);
 
                 result.setName((String) yaml.get("name"));
-                result.setAuthor((String) yaml.get("author"));
-                result.setVersion((String) yaml.getOrDefault("version", "1.0.0"));
                 result.setDescription((String) yaml.get("description"));
-                result.setCategory((String) yaml.get("category"));
+                result.setVersion((String) yaml.getOrDefault("version", "1.0.0"));
+                result.setAuthor((String) yaml.get("author"));
+                result.setLicense((String) yaml.get("license"));
+                result.setCompatibility((String) yaml.get("compatibility"));
 
-                // 解析triggers
-                Object triggersObj = yaml.get("triggers");
-                if (triggersObj != null) {
-                    result.setTriggers(JSON.parseArray(JSON.toJSONString(triggersObj), TriggerConfig.class));
+                // 解析metadata
+                Object metadataObj = yaml.get("metadata");
+                if (metadataObj instanceof Map) {
+                    Map<String, String> metadata = new HashMap<>();
+                    ((Map<?, ?>) metadataObj).forEach((k, v) -> metadata.put(String.valueOf(k), String.valueOf(v)));
+                    result.setMetadata(metadata);
                 }
 
-                // 解析tools
-                Object toolsObj = yaml.get("tools");
-                if (toolsObj != null) {
-                    result.setTools(JSON.parseArray(JSON.toJSONString(toolsObj), ToolDefinition.class));
+                // 解析allowed-tools (YAML中可能是 allowed-tools 或 allowedTools)
+                Object allowedToolsObj = yaml.get("allowed-tools");
+                if (allowedToolsObj == null) {
+                    allowedToolsObj = yaml.get("allowedTools");
                 }
-
-                // 解析requires
-                Object requiresObj = yaml.get("requires");
-                if (requiresObj != null) {
-                    result.setRequires(JSON.parseObject(JSON.toJSONString(requiresObj), RequiresConfig.class));
-                }
-
-                // 解析os支持
-                Object osObj = yaml.get("os");
-                if (osObj != null) {
-                    result.setOsSupport(JSON.parseArray(JSON.toJSONString(osObj), String.class));
+                if (allowedToolsObj != null) {
+                    result.setAllowedTools(String.valueOf(allowedToolsObj));
                 }
             }
         }
@@ -341,29 +321,29 @@ public class SkillManagementService {
         SkillInfoDO updateDO = new SkillInfoDO();
         updateDO.setGmtModified(new Date());
 
+        if (request.getName() != null) {
+            updateDO.setName(request.getName());
+        }
         if (request.getDescription() != null) {
             updateDO.setDescription(request.getDescription());
         }
-        if (request.getCategory() != null) {
-            updateDO.setCategory(request.getCategory());
+        if (request.getVersion() != null) {
+            updateDO.setVersion(request.getVersion());
         }
-        if (request.getPriority() != null) {
-            updateDO.setPriority(request.getPriority());
+        if (request.getLicense() != null) {
+            updateDO.setLicense(request.getLicense());
+        }
+        if (request.getCompatibility() != null) {
+            updateDO.setCompatibility(request.getCompatibility());
+        }
+        if (request.getMetadata() != null) {
+            updateDO.setMetadata(JSON.toJSONString(request.getMetadata()));
+        }
+        if (request.getAllowedTools() != null) {
+            updateDO.setAllowedTools(request.getAllowedTools());
         }
         if (request.getStatus() != null) {
             updateDO.setStatus(request.getStatus());
-        }
-        if (request.getTriggers() != null) {
-            updateDO.setTriggers(JSON.toJSONString(request.getTriggers()));
-        }
-        if (request.getTools() != null) {
-            updateDO.setTools(JSON.toJSONString(request.getTools()));
-        }
-        if (request.getRequires() != null) {
-            updateDO.setRequires(JSON.toJSONString(request.getRequires()));
-        }
-        if (request.getOsSupport() != null) {
-            updateDO.setOsSupport(JSON.toJSONString(request.getOsSupport()));
         }
 
         Example<SkillInfoDO> updateExample = new Example<>();
@@ -436,25 +416,16 @@ public class SkillManagementService {
         SkillDefinitionDTO dto = new SkillDefinitionDTO();
         dto.setSkillId(skillInfo.getSkillId());
         dto.setName(skillInfo.getName());
+        dto.setDescription(skillInfo.getDescription());
         dto.setVersion(skillInfo.getVersion());
         dto.setAuthor(skillInfo.getAuthor());
-        dto.setDescription(skillInfo.getDescription());
-        dto.setCategory(skillInfo.getCategory());
-        dto.setPriority(skillInfo.getPriority());
+        dto.setLicense(skillInfo.getLicense());
+        dto.setCompatibility(skillInfo.getCompatibility());
+        if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
+            dto.setMetadata(JSON.parseObject(skillInfo.getMetadata(), Map.class));
+        }
+        dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
-
-        if (StringUtils.isNotBlank(skillInfo.getTriggers())) {
-            dto.setTriggers(JSON.parseArray(skillInfo.getTriggers(), TriggerConfig.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getTools())) {
-            dto.setTools(JSON.parseArray(skillInfo.getTools(), ToolDefinition.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getRequires())) {
-            dto.setRequires(JSON.parseObject(skillInfo.getRequires(), RequiresConfig.class));
-        }
-        if (StringUtils.isNotBlank(skillInfo.getOsSupport())) {
-            dto.setOsSupport(JSON.parseArray(skillInfo.getOsSupport(), String.class));
-        }
 
         // 加载文档
         Example<SkillDocumentDO> docExample = new Example<>();
@@ -471,23 +442,14 @@ public class SkillManagementService {
     /**
      * 列出所有Skill
      */
-    public List<SkillDefinitionDTO> listSkills(String category, Long userId) {
+    public List<SkillDefinitionDTO> listSkills(Long userId) {
         List<SkillInfoDO> skills;
 
-        if (category != null) {
-            Example<SkillInfoDO> example = new Example<>();
-            example.createCriteria()
-                    .andEqualTo(SkillInfoDO::getCategory, category)
-                    .andEqualTo(SkillInfoDO::getStatus, 1)
-                    .andEqualTo(SkillInfoDO::getIsDelete, false);
-            example.orderByDesc(SkillInfoDO::getPriority);
-            skills = skillInfoMapper.selectByExample(example);
-        } else if (userId != null) {
+        if (userId != null) {
             Example<SkillInfoDO> example = new Example<>();
             example.createCriteria()
                     .andEqualTo(SkillInfoDO::getUserId, userId)
                     .andEqualTo(SkillInfoDO::getIsDelete, false);
-            example.orderByDesc(SkillInfoDO::getPriority);
             example.orderByDesc(SkillInfoDO::getGmtCreate);
             skills = skillInfoMapper.selectByExample(example);
         } else {
@@ -495,7 +457,7 @@ public class SkillManagementService {
             example.createCriteria()
                     .andEqualTo(SkillInfoDO::getStatus, 1)
                     .andEqualTo(SkillInfoDO::getIsDelete, false);
-            example.orderByDesc(SkillInfoDO::getPriority);
+            example.orderByDesc(SkillInfoDO::getGmtCreate);
             skills = skillInfoMapper.selectByExample(example);
         }
 
@@ -631,7 +593,7 @@ public class SkillManagementService {
         activeExample.createCriteria()
                 .andEqualTo(SkillInfoDO::getStatus, 1)
                 .andEqualTo(SkillInfoDO::getIsDelete, false);
-        activeExample.orderByDesc(SkillInfoDO::getPriority);
+        activeExample.orderByDesc(SkillInfoDO::getGmtCreate);
         List<SkillInfoDO> allSkills = skillInfoMapper.selectByExample(activeExample);
 
         for (SkillInfoDO skill : allSkills) {
@@ -793,14 +755,13 @@ public class SkillManagementService {
             // 8. 注册到数据库
             SkillRegisterRequest request = new SkillRegisterRequest();
             request.setName(parseResult.getName());
-            request.setAuthor(parseResult.getAuthor());
-            request.setVersion(parseResult.getVersion());
             request.setDescription(parseResult.getDescription());
-            request.setCategory(parseResult.getCategory());
-            request.setTriggers(parseResult.getTriggers());
-            request.setTools(parseResult.getTools());
-            request.setRequires(parseResult.getRequires());
-            request.setOsSupport(parseResult.getOsSupport());
+            request.setVersion(parseResult.getVersion());
+            request.setAuthor(parseResult.getAuthor());
+            request.setLicense(parseResult.getLicense());
+            request.setCompatibility(parseResult.getCompatibility());
+            request.setMetadata(parseResult.getMetadata());
+            request.setAllowedTools(parseResult.getAllowedTools());
             request.setUserId(userId);
 
             // 添加文档

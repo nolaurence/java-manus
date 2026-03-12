@@ -13,10 +13,7 @@ import {
   Tooltip,
   Popconfirm,
   Tabs,
-  Select,
-  InputNumber,
   Switch,
-  Collapse,
   Empty,
   Spin,
   Upload,
@@ -44,8 +41,6 @@ import type {
   SkillRegisterRequest,
   SkillUpdateRequest,
   SkillDocument,
-  TriggerConfig,
-  ToolDefinition,
 } from '@/types/skill';
 import {
   listSkills,
@@ -258,13 +253,13 @@ const SkillsPage: React.FC = () => {
     try {
       const request: SkillRegisterRequest = {
         name: values.name,
+        description: values.description,
         version: values.version || '1.0.0',
         author: values.author,
-        description: values.description,
-        category: values.category,
-        priority: values.priority || 0,
-        triggers: values.triggers || [],
-        tools: values.tools || [],
+        license: values.license,
+        compatibility: values.compatibility,
+        metadata: values.metadata,
+        allowedTools: values.allowedTools,
       };
       await registerSkill(request);
       message.success('Skill 注册成功');
@@ -431,21 +426,13 @@ const SkillsPage: React.FC = () => {
     setSelectedSkill(skill);
     editForm.setFieldsValue({
       name: skill.name,
-      version: skill.version,
       description: skill.description,
-      category: skill.category,
-      priority: skill.priority,
+      version: skill.version,
+      license: skill.license,
+      compatibility: skill.compatibility,
+      allowedTools: skill.allowedTools,
     });
     setEditModalOpen(true);
-  };
-
-  // 打开执行弹窗
-  const openExecuteModal = (skill: SkillDefinition) => {
-    setSelectedSkill(skill);
-    executeForm.setFieldsValue({
-      toolName: skill.tools?.[0]?.name || '',
-    });
-    setExecuteModalOpen(true);
   };
 
   // 过滤 Skill 列表
@@ -597,19 +584,10 @@ const SkillsPage: React.FC = () => {
                   <Tag>{skill.skillId}</Tag>
                   <Tag color="blue">v{skill.version}</Tag>
                   <Tag color="cyan">{skill.author}</Tag>
-                  {skill.category && <Tag color="geekblue">{skill.category}</Tag>}
+                  {skill.license && <Tag color="geekblue">{skill.license}</Tag>}
                   {getUserStatusTag(skill.skillId)}
                 </div>
                 <div className={styles.skillDescription}>{skill.description}</div>
-                {skill.triggers && skill.triggers.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    {skill.triggers.map((trigger, idx) => (
-                      <span key={idx} style={{ marginRight: 4 }}>
-                        {getTriggerTypeTag(trigger.type)}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </Card>
             ))
           )}
@@ -707,17 +685,20 @@ This is an example skill.`}
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="Skill 名称" />
           </Form.Item>
-          <Form.Item name="version" label="版本">
-            <Input placeholder="1.0.0" />
-          </Form.Item>
           <Form.Item name="description" label="描述" rules={[{ required: true, message: '请输入描述' }]}>
             <Input.TextArea rows={3} placeholder="Skill 功能描述" />
           </Form.Item>
-          <Form.Item name="category" label="分类">
-            <Input placeholder="分类名称" />
+          <Form.Item name="version" label="版本">
+            <Input placeholder="1.0.0" />
           </Form.Item>
-          <Form.Item name="priority" label="优先级">
-            <InputNumber min={0} max={100} style={{ width: '100%' }} />
+          <Form.Item name="license" label="许可证">
+            <Input placeholder="例如：MIT, Apache-2.0" />
+          </Form.Item>
+          <Form.Item name="compatibility" label="兼容性说明">
+            <Input.TextArea rows={2} placeholder="环境要求、系统包、网络访问等" />
+          </Form.Item>
+          <Form.Item name="allowedTools" label="允许使用的工具">
+            <Input placeholder="例如：Bash(git:*) Read Write" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>
@@ -850,11 +831,11 @@ This is an example skill.`}
               width: 120,
             },
             {
-              title: '分类',
-              dataIndex: 'category',
-              key: 'category',
+              title: '许可证',
+              dataIndex: 'license',
+              key: 'license',
               width: 100,
-              render: (category: string) => category || '-',
+              render: (license: string) => license || '-',
             },
             {
               title: '我的状态',
@@ -920,84 +901,17 @@ This is an example skill.`}
                     </div>
                   </div>
                   <div className={styles.detailSection}>
-                    <div className={styles.detailLabel}>分类</div>
-                    <div className={styles.detailContent}>{selectedSkill?.category || '-'}</div>
+                    <div className={styles.detailLabel}>许可证</div>
+                    <div className={styles.detailContent}>{selectedSkill?.license || '-'}</div>
                   </div>
                   <div className={styles.detailSection}>
-                    <div className={styles.detailLabel}>优先级</div>
-                    <div className={styles.detailContent}>{selectedSkill?.priority || 0}</div>
+                    <div className={styles.detailLabel}>兼容性说明</div>
+                    <div className={styles.detailContent}>{selectedSkill?.compatibility || '-'}</div>
                   </div>
                   <div className={styles.detailSection}>
-                    <div className={styles.detailLabel}>支持系统</div>
-                    <div className={styles.detailContent}>
-                      {selectedSkill?.osSupport?.join(', ') || '所有系统'}
-                    </div>
+                    <div className={styles.detailLabel}>允许使用的工具</div>
+                    <div className={styles.detailContent}>{selectedSkill?.allowedTools || '-'}</div>
                   </div>
-                </div>
-              ),
-            },
-            {
-              key: 'triggers',
-              label: '触发器',
-              icon: <Zap size={16} />,
-              children: (
-                <div>
-                  {selectedSkill?.triggers && selectedSkill.triggers.length > 0 ? (
-                    selectedSkill.triggers.map((trigger, idx) => (
-                      <div key={idx} className={styles.triggerItem}>
-                        <Space>
-                          {getTriggerTypeTag(trigger.type)}
-                          <code>{trigger.pattern}</code>
-                          {trigger.confidence && (
-                            <Tag color="green">置信度: {trigger.confidence}</Tag>
-                          )}
-                        </Space>
-                      </div>
-                    ))
-                  ) : (
-                    <Empty description="无触发器配置" />
-                  )}
-                </div>
-              ),
-            },
-            {
-              key: 'tools',
-              label: '工具',
-              icon: <Code size={16} />,
-              children: (
-                <div>
-                  {selectedSkill?.tools && selectedSkill.tools.length > 0 ? (
-                    selectedSkill.tools.map((tool, idx) => (
-                      <div key={idx} className={styles.toolItem}>
-                        <div style={{ fontWeight: 600, marginBottom: 8 }}>{tool.name}</div>
-                        <div style={{ color: '#666', marginBottom: 8 }}>{tool.description}</div>
-                        <Space>
-                          <Tag color="blue">{tool.executor}</Tag>
-                          {tool.command && (
-                            <code style={{ fontSize: 12 }}>
-                              {tool.command.length > 50 ? tool.command.slice(0, 50) + '...' : tool.command}
-                            </code>
-                          )}
-                          {tool.timeout && <Tag>超时: {tool.timeout}ms</Tag>}
-                        </Space>
-                        {tool.parameters && Object.keys(tool.parameters).length > 0 && (
-                          <div style={{ marginTop: 8 }}>
-                            <div style={{ fontWeight: 500, marginBottom: 4 }}>参数:</div>
-                            {Object.entries(tool.parameters).map(([key, param]) => (
-                              <div key={key} className={styles.paramRow}>
-                                <code>{key}</code>
-                                <Tag>{param.type}</Tag>
-                                <span style={{ color: '#666', fontSize: 12 }}>{param.description}</span>
-                                {param.required && <Tag color="red">必填</Tag>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <Empty description="无工具配置" />
-                  )}
                 </div>
               ),
             },
