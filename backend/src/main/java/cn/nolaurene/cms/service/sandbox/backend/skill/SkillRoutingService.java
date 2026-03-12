@@ -6,6 +6,7 @@ import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.alibaba.fastjson2.TypeReference;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -208,7 +210,7 @@ public class SkillRoutingService {
 
             // 解析 params
             if (json.containsKey("params")) {
-                decision.setParams(json.getJSONObject("params").getInnerMap());
+                decision.setParams(JSON.parseObject(json.getJSONObject("params").toJSONString(), new TypeReference<Map<String, Object>>() {}));
             }
 
             // 验证决策类型
