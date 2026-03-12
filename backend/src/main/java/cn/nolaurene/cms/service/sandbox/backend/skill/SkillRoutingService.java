@@ -18,10 +18,13 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.loadPrompt;
 
 /**
  * Skill 路由服务
@@ -33,29 +36,7 @@ import java.util.stream.Collectors;
 @Service
 public class SkillRoutingService {
 
-    private static final String ROUTING_SYSTEM_PROMPT = """
-            You are a task routing assistant. Your job is to analyze the current step and decide whether to:
-            1. Use DIRECT MCP tools (browser, shell, file tools) for simple, straightforward tasks
-            2. Use a SKILL for complex tasks that require specialized knowledge or multi-step operations
-
-            Routing Rules:
-            - DIRECT_TOOL: Use for simple tasks that can be solved with a few browser, shell, or file operations
-              Examples: reading a file, running a simple command, navigating to a webpage, searching for text
-            - SKILL: Use for complex tasks that require domain expertise, multiple coordinated steps, or specialized workflows
-              Examples: deploying an application, setting up a database, running complex tests, creating a project structure
-
-            You must respond with a JSON object in this exact format:
-            {
-                "decisionType": "DIRECT_TOOL" or "SKILL",
-                "selectedTool": "tool_name_or_skill_id",
-                "reason": "explanation of why this choice was made",
-                "directTools": ["tool1", "tool2"] // only for DIRECT_TOOL, list recommended tools
-                "skillId": "skill_id" // only for SKILL
-                "params": {} // optional parameters for execution
-            }
-
-            Be decisive and clear in your routing decision.
-            """;
+    private static final String ROUTING_PROMPT_PATH = "prompts/skillRouting.jinja";
 
     /**
      * 执行路由决策
@@ -78,7 +59,12 @@ public class SkillRoutingService {
 
         // 构建路由上下文消息
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(SystemMessage.from(ROUTING_SYSTEM_PROMPT));
+        try {
+            messages.add(SystemMessage.from(loadPrompt(ROUTING_PROMPT_PATH)));
+        } catch (IOException e) {
+            log.error("[SkillRoutingService] Failed to load routing prompt: {}", e.getMessage());
+            return createDefaultDirectToolDecision();
+        }
 
         // 构建路由请求上下文
         String routingContext = buildRoutingContext(agent, plan, currentStep, completedSteps);
