@@ -60,6 +60,10 @@ const ChatComponent: React.FC = () => {
   // const toolPanelRef = useRef<ToolPanelRef>(null);
   const toolPanelOps = {
     show: (content: ToolContent) => {
+      setTimeout(() => {
+        setToolContent(content);
+        setToolPanelShow(true);
+      }, 1000);
       setToolContent(content);
       setToolPanelShow(true);
     },
