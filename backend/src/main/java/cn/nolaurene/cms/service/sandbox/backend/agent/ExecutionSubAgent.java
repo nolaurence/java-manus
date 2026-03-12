@@ -3,6 +3,7 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 import cn.nolaurene.cms.common.dto.skill.SkillDefinitionDTO;
 import cn.nolaurene.cms.common.dto.skill.SkillExecutionRequest;
 import cn.nolaurene.cms.common.dto.skill.SkillExecutionResult;
+import cn.nolaurene.cms.common.dto.skill.SkillRoutingDecision;
 import cn.nolaurene.cms.common.dto.skill.ToolDefinition;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
@@ -12,6 +13,7 @@ import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryServi
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillRoutingService;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -37,6 +39,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import javax.annotation.Resource;
 
@@ -62,10 +65,15 @@ public class ExecutionSubAgent {
     @Autowired
     private SkillExecutionEngine skillExecutionEngine;
 
+    @Autowired
+    private SkillRoutingService skillRoutingService;
+
     /**
      * Execute a single step with a tool-calling loop.
      * Uses langchain4j's native function calling: the LLM returns structured ToolExecutionRequests,
      * which are executed via the McpToolProvider, and results are fed back.
+     *
+     * New: Added routing decision before execution to choose between DIRECT_TOOL and SKILL.
      */
     public String executeStepWithLoop(ChatModel chatModel,
                                       Executor executor,
@@ -76,7 +84,50 @@ public class ExecutionSubAgent {
                                       SseEmitter emitterOpt,
                                       Agent agent) throws IOException {
 
-        List<ToolSpecification> toolSpecs = buildToolSpecsWithThink(agent.getToolSpecifications());
+        log.info("[ExecutionSubAgent] executeStepWithLoop start, goal: {}, currentStep: {}, maxRounds: {}",
+                plan.getGoal(), currentStep.getDescription(), maxRounds);
+
+        // Step 1: Routing Decision - Let LLM decide whether to use DIRECT_TOOL or SKILL
+        SkillRoutingDecision routingDecision = skillRoutingService.route(
+                chatModel, agent, plan, currentStep, completedSteps);
+
+        log.info("[ExecutionSubAgent] Routing decision: type={}, selectedTool={}",
+                routingDecision.getDecisionType(), routingDecision.getSelectedTool());
+
+        // Step 2: Execute based on routing decision
+        String finalResult;
+        if (routingDecision.isSkill()) {
+            // Execute using Skill
+            finalResult = executeStepWithSkill(chatModel, plan, currentStep, completedSteps,
+                    maxRounds, emitterOpt, agent, routingDecision);
+        } else {
+            // Execute using Direct Tools (original for loop logic)
+            finalResult = executeStepWithDirectTools(chatModel, plan, currentStep, completedSteps,
+                    maxRounds, emitterOpt, agent);
+        }
+
+        log.info("[ExecutionSubAgent] executeStepWithLoop end, final result length: {}", finalResult.length());
+        return finalResult;
+    }
+
+    /**
+     * Execute step using Direct MCP Tools (browser, shell, file tools).
+     * This is the original for loop logic preserved for simple tasks.
+     */
+    private String executeStepWithDirectTools(ChatModel chatModel,
+                                               Plan plan,
+                                               Step currentStep,
+                                               List<Step> completedSteps,
+                                               int maxRounds,
+                                               SseEmitter emitterOpt,
+                                               Agent agent) throws IOException {
+
+        // Filter out skill tools, only use MCP tools (browser, shell, file)
+        List<ToolSpecification> toolSpecs = buildToolSpecsWithThink(
+                agent.getToolSpecifications().stream()
+                        .filter(tool -> !tool.name().startsWith(SkillToolProvider.SKILL_TOOL_PREFIX))
+                        .collect(Collectors.toList())
+        );
 
         // Build initial messages
         List<ChatMessage> messages = new ArrayList<>();
@@ -88,13 +139,12 @@ public class ExecutionSubAgent {
         String executionContext = buildExecutionContext(plan, currentStep, completedSteps);
         messages.add(UserMessage.from(executionContext));
 
-        log.info("[ExecutionSubAgent] executeStepWithLoop start, goal: {}, currentStep: {}, maxRounds: {}",
-                plan.getGoal(), currentStep.getDescription(), maxRounds);
+        log.info("[ExecutionSubAgent] executeStepWithDirectTools start for step: {}", currentStep.getDescription());
 
         String finalResult = "";
 
         for (int round = 1; round <= maxRounds; round++) {
-            log.info("[ExecutionSubAgent] Round {}/{} for step: {}", round, maxRounds, currentStep.getDescription());
+            log.info("[ExecutionSubAgent] DirectTool Round {}/{} for step: {}", round, maxRounds, currentStep.getDescription());
 
             // Call LLM with tool specifications
             ChatRequest request = ChatRequest.builder()
@@ -165,7 +215,7 @@ public class ExecutionSubAgent {
                 if (checkResult != null) {
                     // Step is completed, return the result
                     finalResult = checkResult;
-                    log.info("[ExecutionSubAgent] Step completed after tool execution in round {}: {}", 
+                    log.info("[ExecutionSubAgent] Step completed after tool execution in round {}: {}",
                             round, currentStep.getDescription());
                     break;
                 }
@@ -186,8 +236,244 @@ public class ExecutionSubAgent {
             break;
         }
 
-        log.info("[ExecutionSubAgent] executeStepWithLoop end, final result length: {}", finalResult.length());
         return finalResult;
+    }
+
+    /**
+     * Execute step using a Skill.
+     * Loads the skill and executes its commands via shell in a loop until step is completed.
+     */
+    private String executeStepWithSkill(ChatModel chatModel,
+                                         Plan plan,
+                                         Step currentStep,
+                                         List<Step> completedSteps,
+                                         int maxRounds,
+                                         SseEmitter emitterOpt,
+                                         Agent agent,
+                                         SkillRoutingDecision routingDecision) throws IOException {
+
+        String skillId = routingDecision.getSkillId();
+        if (skillId == null || skillId.isEmpty()) {
+            skillId = routingDecision.getSelectedTool();
+        }
+
+        if (skillId == null || skillId.isEmpty()) {
+            log.error("[ExecutionSubAgent] No skill ID provided in routing decision");
+            return "Error: No skill ID specified for skill execution";
+        }
+
+        // Remove skill_ prefix if present
+        if (skillId.startsWith(SkillToolProvider.SKILL_TOOL_PREFIX)) {
+            skillId = skillId.substring(SkillToolProvider.SKILL_TOOL_PREFIX.length());
+        }
+
+        log.info("[ExecutionSubAgent] executeStepWithSkill start, skillId: {}", skillId);
+
+        // Load skill definition
+        SkillDefinitionDTO skill = skillToolProvider.getSkillDefinition(skillId);
+        if (skill == null) {
+            log.error("[ExecutionSubAgent] Skill not found: {}", skillId);
+            return "Error: Skill not found: " + skillId;
+        }
+
+        // Build messages for skill execution loop
+        List<ChatMessage> messages = new ArrayList<>();
+        String systemPrompt = loadPrompt("prompts/system.jinja");
+        String executorSystemPrompt = loadPrompt("prompts/executionSystemPrompt.jinja");
+        messages.add(SystemMessage.from(systemPrompt + "\n" + executorSystemPrompt));
+
+        // Add skill execution context
+        String skillContext = buildSkillExecutionContext(plan, currentStep, completedSteps, skill);
+        messages.add(UserMessage.from(skillContext));
+
+        String finalResult = "";
+        String sessionId = agent.getAgentId();
+
+        for (int round = 1; round <= maxRounds; round++) {
+            log.info("[ExecutionSubAgent] Skill Round {}/{} for skill: {}", round, maxRounds, skillId);
+
+            // Call LLM to get next command or completion status
+            ChatRequest request = ChatRequest.builder()
+                    .messages(messages)
+                    .build();
+
+            ChatResponse response;
+            try {
+                response = chatModel.chat(request);
+            } catch (RateLimitException e) {
+                log.error("[ExecutionSubAgent] Rate limit reached in skill round {}: {}", round, e.getMessage());
+                throw e;
+            }
+            AiMessage aiMessage = response.aiMessage();
+
+            // Add AI message to conversation
+            messages.add(aiMessage);
+
+            String aiText = aiMessage.text();
+            if (aiText != null && !aiText.isEmpty()) {
+                // Check if step is completed
+                if (aiText.contains("COMPLETED:") || aiText.contains("Step completed")) {
+                    finalResult = aiText.replace("COMPLETED:", "").replace("Step completed", "").trim();
+                    log.info("[ExecutionSubAgent] Skill execution completed in round {}: {}", round, skillId);
+                    break;
+                }
+
+                // Check if LLM wants to execute a shell command
+                if (aiText.contains("```bash") || aiText.contains("```shell") || aiText.contains("Command:")) {
+                    String command = extractCommand(aiText);
+                    if (command != null && !command.isEmpty()) {
+                        log.info("[ExecutionSubAgent] Executing skill command: {}", command);
+
+                        // Report tool event
+                        reportToolEvent("shell_skill_execute", "{\"command\": \"" + command + "\"}", agent, emitterOpt);
+
+                        // Execute command via shell service
+                        String observation = executeSkillCommand(skillId, sessionId, command, agent);
+                        log.info("[ExecutionSubAgent] Skill command result: {}", observation);
+
+                        // Add result to messages
+                        messages.add(UserMessage.from("Command output:\n" + observation));
+
+                        // Sleep to prevent too fast execution
+                        try {
+                            TimeUnit.MILLISECONDS.sleep(500);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+
+                        continue;
+                    }
+                }
+
+                // LLM provided text response without command
+                finalResult = aiText;
+                log.info("[ExecutionSubAgent] Skill execution returned text in round {}: {}", round, skillId);
+
+                // Check if step is completed
+                String checkResult = checkStepCompletion(chatModel, messages, currentStep);
+                if (checkResult != null) {
+                    finalResult = checkResult;
+                    break;
+                }
+
+                // Continue to next round
+                continue;
+            }
+
+            // No text response, check if step should continue
+            log.warn("[ExecutionSubAgent] Skill Round {} - AI message has no text", round);
+            break;
+        }
+
+        if (finalResult.isEmpty()) {
+            finalResult = "Skill execution completed for: " + skillId;
+        }
+
+        return finalResult;
+    }
+
+    /**
+     * Execute a skill command via SkillExecutionEngine (which uses shell service).
+     */
+    private String executeSkillCommand(String skillId, String sessionId, String command, Agent agent) {
+        try {
+            // Build skill execution request
+            SkillExecutionRequest skillRequest = new SkillExecutionRequest();
+            skillRequest.setSkillId(skillId);
+            skillRequest.setSessionId(sessionId);
+            skillRequest.setWorkingDir("/workspace");
+
+            // Set command as parameter
+            Map<String, Object> params = new HashMap<>();
+            params.put("command", command);
+            skillRequest.setParams(params);
+
+            // Execute skill via SkillExecutionEngine
+            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest);
+
+            log.info("[ExecutionSubAgent] Skill command execution completed with status: {}", result.getStatus());
+
+            if ("SUCCESS".equals(result.getStatus())) {
+                return result.getOutput() != null ? result.getOutput() : "(command executed successfully)";
+            } else {
+                return "Command execution failed: " + (result.getError() != null ? result.getError() : "unknown error");
+            }
+
+        } catch (Exception e) {
+            log.error("[ExecutionSubAgent] Failed to execute skill command: {}", command, e);
+            return "Command execution error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Extract command from AI text response.
+     */
+    private String extractCommand(String text) {
+        // Try to extract from code blocks
+        if (text.contains("```bash")) {
+            int start = text.indexOf("```bash") + 7;
+            int end = text.indexOf("```", start);
+            if (end > start) {
+                return text.substring(start, end).trim();
+            }
+        }
+        if (text.contains("```shell")) {
+            int start = text.indexOf("```shell") + 8;
+            int end = text.indexOf("```", start);
+            if (end > start) {
+                return text.substring(start, end).trim();
+            }
+        }
+
+        // Try to extract from "Command:" prefix
+        if (text.contains("Command:")) {
+            int start = text.indexOf("Command:") + 8;
+            int end = text.indexOf("\n", start);
+            if (end == -1) end = text.length();
+            return text.substring(start, end).trim();
+        }
+
+        return null;
+    }
+
+    /**
+     * Build skill execution context message.
+     */
+    private String buildSkillExecutionContext(Plan plan, Step currentStep, List<Step> completedSteps, SkillDefinitionDTO skill) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("## Current Goal\n");
+        sb.append(plan.getGoal()).append("\n\n");
+
+        sb.append("## Using Skill\n");
+        sb.append("Skill ID: ").append(skill.getSkillId()).append("\n");
+        sb.append("Skill Name: ").append(skill.getName()).append("\n");
+        sb.append("Skill Description: ").append(skill.getDescription()).append("\n\n");
+
+        if (completedSteps != null && !completedSteps.isEmpty()) {
+            sb.append("## Previously Completed Steps\n");
+            for (Step s : completedSteps) {
+                sb.append("- ").append(s.getDescription()).append(": ").append(s.getStatus());
+                if (s.getResult() != null) {
+                    String truncated = s.getResult().length() > 200
+                            ? s.getResult().substring(0, 200) + "... (truncated)"
+                            : s.getResult();
+                    sb.append(" | Result: ").append(truncated);
+                }
+                sb.append("\n");
+            }
+            sb.append("\n");
+        }
+
+        sb.append("## Current Step to Execute\n");
+        sb.append(currentStep.getDescription()).append("\n\n");
+
+        sb.append("## Instructions\n");
+        sb.append("You are executing a Skill. Analyze the current step and determine what shell commands need to be executed.\n");
+        sb.append("Respond with bash commands in ```bash blocks to execute them.\n");
+        sb.append("When the step is completed, respond with 'COMPLETED: ' followed by a summary of what was accomplished.\n");
+        sb.append("The commands will be executed in a sandbox shell environment.\n");
+
+        return sb.toString();
     }
 
     /**
