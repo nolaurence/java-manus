@@ -62,6 +62,10 @@ DROP COLUMN IF EXISTS `os_support`;
 ALTER TABLE `skill_info`
 DROP COLUMN IF EXISTS `priority`;
 
+-- 删除 author 字段（根据规范，author 应存储在 metadata 中）
+ALTER TABLE `skill_info`
+DROP COLUMN IF EXISTS `author`;
+
 -- ============================================
 -- 4. 更新表注释
 -- ============================================
@@ -74,3 +78,6 @@ ALTER TABLE `skill_info` COMMENT = 'Skill信息表 - 遵循 https://agentskills.
 
 -- 删除 category 索引
 DROP INDEX IF EXISTS `idx_category` ON `skill_info`;
+
+-- 删除 author 索引
+DROP INDEX IF EXISTS `idx_author` ON `skill_info`;

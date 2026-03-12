@@ -254,14 +254,19 @@ const SkillsPage: React.FC = () => {
   // 注册 Skill
   const handleRegister = async (values: any) => {
     try {
+      // 将 author 放入 metadata 中，符合 Agent Skills 规范
+      const metadata: Record<string, string> = values.metadata || {};
+      if (values.author) {
+        metadata.author = values.author;
+      }
+
       const request: SkillRegisterRequest = {
         name: values.name,
         description: values.description,
         version: values.version || '1.0.0',
-        author: values.author,
         license: values.license,
         compatibility: values.compatibility,
-        metadata: values.metadata,
+        metadata: metadata,
         allowedTools: values.allowedTools,
       };
       await registerSkill(request);
@@ -586,7 +591,7 @@ const SkillsPage: React.FC = () => {
                 <div className={styles.skillMeta}>
                   <Tag>{skill.skillId}</Tag>
                   <Tag color="blue">v{skill.version}</Tag>
-                  <Tag color="cyan">{skill.author}</Tag>
+                  <Tag color="cyan">{skill.metadata?.author || 'anonymous'}</Tag>
                   {skill.license && <Tag color="geekblue">{skill.license}</Tag>}
                   {getUserStatusTag(skill.skillId)}
                 </div>
@@ -829,9 +834,9 @@ This is an example skill.`}
             },
             {
               title: '作者',
-              dataIndex: 'author',
               key: 'author',
               width: 120,
+              render: (_, record: SkillDefinition) => record.metadata?.author || 'anonymous',
             },
             {
               title: '许可证',
@@ -900,7 +905,7 @@ This is an example skill.`}
                   <div className={styles.detailSection}>
                     <div className={styles.detailLabel}>版本 / 作者</div>
                     <div className={styles.detailContent}>
-                      v{selectedSkill?.version} by {selectedSkill?.author}
+                      v{selectedSkill?.version} by {selectedSkill?.metadata?.author || 'anonymous'}
                     </div>
                   </div>
                   <div className={styles.detailSection}>

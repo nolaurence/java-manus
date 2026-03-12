@@ -27,9 +27,6 @@ export interface SkillDefinition {
   /** 版本号 */
   version: string;
 
-  /** 作者 */
-  author: string;
-
   /** 许可证（可选） */
   license?: string;
 
@@ -74,7 +71,6 @@ export interface SkillRegisterRequest {
   name: string;
   description: string;
   version?: string;
-  author: string;
   license?: string;
   compatibility?: string;
   metadata?: Record<string, string>;

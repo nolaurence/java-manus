@@ -53,12 +53,6 @@ public class SkillInfoDO {
     private String version;
 
     /**
-     * 作者
-     */
-    @Column("author")
-    private String author;
-
-    /**
      * 许可证（可选）
      */
     @Column("license")

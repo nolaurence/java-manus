@@ -7,10 +7,9 @@ CREATE TABLE IF NOT EXISTS `skill_info` (
     `name` VARCHAR(64) NOT NULL COMMENT 'Skill名称：小写字母、数字、连字符，1-64字符',
     `description` VARCHAR(1024) NOT NULL COMMENT 'Skill描述：1-1024字符，描述功能和何时使用',
     `version` VARCHAR(32) NOT NULL DEFAULT '1.0.0' COMMENT '版本号',
-    `author` VARCHAR(64) NOT NULL COMMENT '作者',
     `license` VARCHAR(64) COMMENT '许可证（可选）',
     `compatibility` VARCHAR(500) COMMENT '兼容性说明：环境要求、系统包、网络访问等（可选，最多500字符）',
-    `metadata` JSON COMMENT '元数据：任意键值对（可选）',
+    `metadata` JSON COMMENT '元数据：任意键值对（可选），包含 author 等信息',
     `allowed_tools` VARCHAR(512) COMMENT '允许使用的工具列表：空格分隔（可选，实验性）',
     -- 系统字段
     `status` TINYINT DEFAULT 1 COMMENT '状态：1-启用, 0-禁用',
@@ -20,7 +19,6 @@ CREATE TABLE IF NOT EXISTS `skill_info` (
     `is_delete` TINYINT DEFAULT 0 COMMENT '是否删除',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_skill_id` (`skill_id`),
-    KEY `idx_author` (`author`),
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill信息表';
 

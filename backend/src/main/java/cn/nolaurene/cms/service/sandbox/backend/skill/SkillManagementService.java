@@ -10,6 +10,7 @@ import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import cn.nolaurene.cms.exception.skill.SkillAlreadyExistsException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.TypeReference;
 import io.mybatis.mapper.example.Example;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -75,7 +76,6 @@ public class SkillManagementService {
         skillInfo.setName(request.getName());
         skillInfo.setDescription(request.getDescription());
         skillInfo.setVersion(request.getVersion() != null ? request.getVersion() : "1.0.0");
-        skillInfo.setAuthor(request.getAuthor());
         skillInfo.setLicense(request.getLicense());
         skillInfo.setCompatibility(request.getCompatibility());
         if (request.getMetadata() != null) {
@@ -128,7 +128,7 @@ public class SkillManagementService {
         request.setName(parseResult.getName());
         request.setDescription(parseResult.getDescription());
         request.setVersion(parseResult.getVersion());
-        request.setAuthor(parseResult.getAuthor());
+        // author 存储在 metadata 中，符合 Agent Skills 规范
         request.setLicense(parseResult.getLicense());
         request.setCompatibility(parseResult.getCompatibility());
         request.setMetadata(parseResult.getMetadata());
@@ -200,17 +200,24 @@ public class SkillManagementService {
                 result.setName((String) yaml.get("name"));
                 result.setDescription((String) yaml.get("description"));
                 result.setVersion((String) yaml.getOrDefault("version", "1.0.0"));
-                result.setAuthor((String) yaml.get("author"));
                 result.setLicense((String) yaml.get("license"));
                 result.setCompatibility((String) yaml.get("compatibility"));
 
                 // 解析metadata
                 Object metadataObj = yaml.get("metadata");
+                Map<String, String> metadata = new HashMap<>();
                 if (metadataObj instanceof Map) {
-                    Map<String, String> metadata = new HashMap<>();
                     ((Map<?, ?>) metadataObj).forEach((k, v) -> metadata.put(String.valueOf(k), String.valueOf(v)));
-                    result.setMetadata(metadata);
                 }
+                result.setMetadata(metadata);
+
+                // 根据 Agent Skills 规范，author 应该在 metadata 中
+                // 先从 metadata 中读取 author，如果不存在则使用默认值
+                String author = metadata.get("author");
+                if (author == null || author.isEmpty()) {
+                    author = "anonymous";
+                }
+                result.setAuthor(author);
 
                 // 解析allowed-tools (YAML中可能是 allowed-tools 或 allowedTools)
                 Object allowedToolsObj = yaml.get("allowed-tools");
@@ -420,11 +427,16 @@ public class SkillManagementService {
         dto.setName(skillInfo.getName());
         dto.setDescription(skillInfo.getDescription());
         dto.setVersion(skillInfo.getVersion());
-        dto.setAuthor(skillInfo.getAuthor());
         dto.setLicense(skillInfo.getLicense());
         dto.setCompatibility(skillInfo.getCompatibility());
         if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
-            dto.setMetadata(JSON.parseObject(skillInfo.getMetadata(), Map.class));
+            Map<String, String> metadata = JSON.parseObject(skillInfo.getMetadata(), new TypeReference<Map<String, String>>() {});
+            dto.setMetadata(metadata);
+            // 从 metadata 中读取 author，符合 Agent Skills 规范
+            String author = metadata != null ? metadata.get("author") : null;
+            dto.setAuthor(author != null ? author : "anonymous");
+        } else {
+            dto.setAuthor("anonymous");
         }
         dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
@@ -808,7 +820,7 @@ public class SkillManagementService {
             request.setName(parseResult.getName());
             request.setDescription(parseResult.getDescription());
             request.setVersion(parseResult.getVersion());
-            request.setAuthor(parseResult.getAuthor());
+            // author 存储在 metadata 中，符合 Agent Skills 规范
             request.setLicense(parseResult.getLicense());
             request.setCompatibility(parseResult.getCompatibility());
             request.setMetadata(parseResult.getMetadata());

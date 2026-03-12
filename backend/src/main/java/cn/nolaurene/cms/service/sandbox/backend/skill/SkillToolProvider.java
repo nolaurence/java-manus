@@ -8,6 +8,7 @@ import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
 import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.TypeReference;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import io.mybatis.mapper.example.Example;
@@ -92,11 +93,20 @@ public class SkillToolProvider {
     private ToolSpecification convertToToolSpecification(SkillInfoDO skillInfo) {
         String toolName = SKILL_TOOL_PREFIX + normalizeToolName(skillInfo.getSkillId());
 
+        // 从 metadata 中读取 author
+        String author = "anonymous";
+        if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
+            Map<String, String> metadata = JSON.parseObject(skillInfo.getMetadata(), new TypeReference<Map<String, String>>() {});
+            if (metadata != null && metadata.get("author") != null) {
+                author = metadata.get("author");
+            }
+        }
+
         // 构建描述
         StringBuilder description = new StringBuilder();
         description.append(skillInfo.getDescription() != null ? skillInfo.getDescription() : skillInfo.getName());
         description.append("\n\nSkill ID: ").append(skillInfo.getSkillId());
-        description.append("\nAuthor: ").append(skillInfo.getAuthor());
+        description.append("\nAuthor: ").append(author);
         description.append("\nVersion: ").append(skillInfo.getVersion());
 
         // 构建参数 schema
@@ -199,11 +209,16 @@ public class SkillToolProvider {
         dto.setName(skillInfo.getName());
         dto.setDescription(skillInfo.getDescription());
         dto.setVersion(skillInfo.getVersion());
-        dto.setAuthor(skillInfo.getAuthor());
         dto.setLicense(skillInfo.getLicense());
         dto.setCompatibility(skillInfo.getCompatibility());
         if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
-            dto.setMetadata(JSON.parseObject(skillInfo.getMetadata(), Map.class));
+            Map<String, String> metadata = JSON.parseObject(skillInfo.getMetadata(), new TypeReference<Map<String, String>>() {});
+            dto.setMetadata(metadata);
+            // 从 metadata 中读取 author，符合 Agent Skills 规范
+            String author = metadata != null ? metadata.get("author") : null;
+            dto.setAuthor(author != null ? author : "anonymous");
+        } else {
+            dto.setAuthor("anonymous");
         }
         dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());

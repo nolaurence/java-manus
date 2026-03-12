@@ -13,6 +13,7 @@ import cn.nolaurene.cms.exception.skill.SkillExecutionException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
 import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.TypeReference;
 import io.mybatis.mapper.example.Example;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -157,11 +158,16 @@ public class SkillExecutionEngine {
         dto.setName(skillInfo.getName());
         dto.setDescription(skillInfo.getDescription());
         dto.setVersion(skillInfo.getVersion());
-        dto.setAuthor(skillInfo.getAuthor());
         dto.setLicense(skillInfo.getLicense());
         dto.setCompatibility(skillInfo.getCompatibility());
         if (StringUtils.isNotBlank(skillInfo.getMetadata())) {
-            dto.setMetadata(JSON.parseObject(skillInfo.getMetadata(), Map.class));
+            Map<String, String> metadata = JSON.parseObject(skillInfo.getMetadata(), new TypeReference<Map<String, String>>() {});
+            dto.setMetadata(metadata);
+            // 从 metadata 中读取 author，符合 Agent Skills 规范
+            String author = metadata != null ? metadata.get("author") : null;
+            dto.setAuthor(author != null ? author : "anonymous");
+        } else {
+            dto.setAuthor("anonymous");
         }
         dto.setAllowedTools(skillInfo.getAllowedTools());
         dto.setUserId(skillInfo.getUserId());
