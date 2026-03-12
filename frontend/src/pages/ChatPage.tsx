@@ -302,13 +302,13 @@ const ChatComponent: React.FC = () => {
     if (!agentId) return;
 
     if (message.trim()) {
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         {
           type: 'user',
           content: {
             content: message,
-            timestamp: Math.floor(Date.now() / 1000),
+            timestamp: Date.now(),
           },
         },
       ]);

@@ -176,12 +176,15 @@ public class AgentExecutor {
                             continue;
                         }
                         String thought = ReActParser.parseThinking(rawPlan);
-                        syncRespondThought(START_SIGNAL, emitter);
-                        syncRespondThought(thought, emitter);
-                        syncRespondThought(DONE_SIGNAL, emitter);
+                        if (StringUtils.isBlank(thought)) {
+                            syncRespondThought(START_SIGNAL, emitter);
+                            syncRespondThought(thought, emitter);
+                            syncRespondThought(DONE_SIGNAL, emitter);
+                        }
                         syncRespondContent(rawPlan, emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
-                        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.MESSAGE, "**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan));
+                        addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.MESSAGE,
+                                StringUtils.isBlank(thought) ? rawPlan : "**Thinking:**\n" + thought + "\n\n**Response:**\n" + rawPlan));
                         plan = ReActParser.parsePlan(rawPlan);
                         if (null == plan) {
                             log.error("[PLAN ACT] Failed to parse plan for round {}, skipping to next round.", round);
