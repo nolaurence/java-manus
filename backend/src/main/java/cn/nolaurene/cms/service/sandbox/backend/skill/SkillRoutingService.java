@@ -86,8 +86,8 @@ public class SkillRoutingService {
             SkillRoutingDecision decision = parseRoutingDecision(responseText);
 
             if (decision != null) {
-                log.info("[SkillRoutingService] Routing decision: type={}, tool/skill={}",
-                        decision.getDecisionType(), decision.getSelectedTool());
+                log.info("[SkillRoutingService] Routing decision: type={}, reason={}",
+                        decision.getDecisionType(), decision.getReason());
             } else {
                 log.warn("[SkillRoutingService] Failed to parse routing decision, defaulting to DIRECT_TOOL");
                 decision = createDefaultDirectToolDecision();
@@ -185,19 +185,7 @@ public class SkillRoutingService {
             SkillRoutingDecision decision = new SkillRoutingDecision();
 
             decision.setDecisionType(json.getString("decisionType"));
-            decision.setSelectedTool(json.getString("selectedTool"));
             decision.setReason(json.getString("reason"));
-            decision.setSkillId(json.getString("skillId"));
-
-            // 解析 directTools 列表
-            if (json.containsKey("directTools")) {
-                decision.setDirectTools(json.getList("directTools", String.class));
-            }
-
-            // 解析 params
-            if (json.containsKey("params")) {
-                decision.setParams(JSON.parseObject(json.getJSONObject("params").toJSONString(), new TypeReference<Map<String, Object>>() {}));
-            }
 
             // 验证决策类型
             if (!SkillRoutingDecision.DECISION_TYPE_DIRECT_TOOL.equals(decision.getDecisionType())
@@ -265,9 +253,7 @@ public class SkillRoutingService {
     private SkillRoutingDecision createDefaultDirectToolDecision() {
         SkillRoutingDecision decision = new SkillRoutingDecision();
         decision.setDecisionType(SkillRoutingDecision.DECISION_TYPE_DIRECT_TOOL);
-        decision.setSelectedTool("default");
         decision.setReason("Default decision due to routing error or unclear task");
-        decision.setDirectTools(new ArrayList<>());
         return decision;
     }
 }

@@ -19,29 +19,14 @@ public class SkillRoutingDecision {
     private String decisionType;
 
     /**
-     * 选择的工具/Skill 名称
-     */
-    private String selectedTool;
-
-    /**
      * 选择原因
      */
     private String reason;
 
     /**
-     * 如果是 DIRECT_TOOL，存储要使用的 MCP 工具列表
+     * 选择的Skill ID（当决策类型为SKILL时使用）
      */
-    private List<String> directTools;
-
-    /**
-     * 如果是 SKILL，存储要使用的 Skill ID
-     */
-    private String skillId;
-
-    /**
-     * 执行参数
-     */
-    private java.util.Map<String, Object> params;
+    private String selectedSkillId;
 
     public static final String DECISION_TYPE_DIRECT_TOOL = "DIRECT_TOOL";
     public static final String DECISION_TYPE_SKILL = "SKILL";
