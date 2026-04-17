@@ -29,6 +29,8 @@ const UserInfoComponent: React.FC = () => {
       setLoginOpen(false);
       setIsLoggedIn(true);
       setUserInfo(response.data);
+      // 发送事件通知其他组件（如 Panel）刷新数据
+      window.dispatchEvent(new Event('loginSuccess'));
       loginForm.resetFields();
     } else {
       message.error(response.message || "登录失败");
@@ -52,6 +54,8 @@ const UserInfoComponent: React.FC = () => {
       message.success("注册成功，请登录");
       setRegisterOpen(false);
       setLoginOpen(true);
+      // 发送事件通知其他组件（如 Panel）刷新数据
+      window.dispatchEvent(new Event('loginSuccess'));
       registerForm.resetFields();
     } else {
       message.error(response.message || "注册失败");
@@ -65,6 +69,8 @@ const UserInfoComponent: React.FC = () => {
       message.success("已退出登录");
       setIsLoggedIn(false);
       setUserInfo(null);
+      // 发送事件通知其他组件（如 Panel）刷新数据
+      window.dispatchEvent(new Event('loginSuccess'));
     } else {
       message.error("退出失败");
     }

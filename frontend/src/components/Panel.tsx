@@ -23,6 +23,10 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
   const [activeTab, setActiveTab] = useState<'全部' | '收藏' | '已定时'>('全部');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  // 登录状态标记，用于触发重新加载
+  const [loginState, setLoginState] = useState<number>(0);
+  // 用户信息 state，用于显示在 Panel 底部
+  const [panelUserInfo, setPanelUserInfo] = useState<{name?: string; avatar?: string} | null>(null);
 
   useEffect(() => {
     const loadSessions = async () => {
@@ -31,6 +35,12 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
         const loginInfo = await currentUser();
         // @ts-ignore
         const user = loginInfo?.data;
+        // 更新 Panel 底部的用户信息
+        if (user) {
+          setPanelUserInfo({ name: user.name, avatar: user.avatar });
+        } else {
+          setPanelUserInfo(null);
+        }
         const userId = (user?.userid?.toString?.() || '').toString();
         if (!userId) {
           setSessions([]);
@@ -43,6 +53,18 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
       }
     };
     loadSessions();
+  }, [loginState]); // 当 loginState 变化时重新加载会话列表
+
+  // 监听登录事件，更新 loginState 以触发重新加载
+  useEffect(() => {
+    const handleLoginEvent = () => {
+      setLoginState(prev => prev + 1);
+    };
+
+    window.addEventListener('loginSuccess', handleLoginEvent);
+    return () => {
+      window.removeEventListener('loginSuccess', handleLoginEvent);
+    };
   }, []);
 
   return (
@@ -271,14 +293,20 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                   className="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden"
                   style={{ width: '24px', height: '24px' }}
                 >
-                  <img
-                    className="w-full h-full object-cover overflow-hidden"
-                    src="https://lh3.googleusercontent.com/a/ACg8ocLlk4s4LmeoNYI8UxGXQA7Gp67dvd4bhDyxKBzbx_DjRaBaMPA=s96-c"
-                    alt="User Avatar"
-                  />
+                  {panelUserInfo?.avatar ? (
+                    <img
+                      className="w-full h-full object-cover overflow-hidden"
+                      src={panelUserInfo.avatar}
+                      alt="User Avatar"
+                    />
+                  ) : (
+                    <span className="text-xs font-bold text-white bg-gray-500 w-full h-full flex items-center justify-center">
+                      U
+                    </span>
+                  )}
                 </div>
                 <span className="text-sm leading-5 font-medium text-[var(--text-primary)] truncate">
-                  Laurence Guo
+                  {panelUserInfo?.name || 'User'}
                 </span>
               </div>
 
