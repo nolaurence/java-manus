@@ -286,6 +286,8 @@ public class ExecutionSubAgent {
 
         // Step 2-5: Execution loop with skill content
         String finalResult = "";
+        int consecutiveTextOnlyRounds = 0;
+        final int MAX_TEXT_ONLY_ROUNDS = 3;
 
         for (int round = 1; round <= maxRounds; round++) {
             log.info("[ExecutionSubAgent] Skill Round {}/{} for skill: {}", round, maxRounds, selectedSkillId);
@@ -310,6 +312,7 @@ public class ExecutionSubAgent {
             AiMessage aiMessage = response.aiMessage();
 
             String aiText = aiMessage.text();
+            log.info("[ExecutionSubAgent] Skill Round {} - LLM response: {}", round, aiText);
             if (aiText == null || aiText.isEmpty()) {
                 log.warn("[ExecutionSubAgent] Skill Round {} - AI message has no text", round);
                 break;
@@ -355,18 +358,29 @@ public class ExecutionSubAgent {
                     Thread.currentThread().interrupt();
                 }
 
+                // Reset consecutive text-only counter since we executed a command
+                consecutiveTextOnlyRounds = 0;
                 // Step 5: Continue to next round
                 continue;
             }
 
             // LLM provided text response without command
             finalResult = aiText;
-            log.info("[ExecutionSubAgent] Skill execution returned text in round {}: {}", round, selectedSkillId);
+            consecutiveTextOnlyRounds++;
+            log.info("[ExecutionSubAgent] Skill execution returned text in round {}: {} (consecutive text-only: {})",
+                    round, selectedSkillId, consecutiveTextOnlyRounds);
 
             // Check if step is completed
             String checkResult = checkStepCompletion(chatModel, messages, currentStep);
             if (checkResult != null) {
                 finalResult = checkResult;
+                break;
+            }
+
+            // Break if LLM keeps returning text without commands for too many rounds
+            if (consecutiveTextOnlyRounds >= MAX_TEXT_ONLY_ROUNDS) {
+                log.warn("[ExecutionSubAgent] Breaking skill loop: {} consecutive text-only rounds without progress for skill: {}",
+                        consecutiveTextOnlyRounds, selectedSkillId);
                 break;
             }
         }
