@@ -302,7 +302,7 @@ public class ExecutionSubAgent {
                     .messages(roundMessages)
                     .build();
 
-            log.info("[ExecutionSubAgent] Skill Round {} - LLM request messages (count={}): {}", round, roundMessages.size(), roundMessages);
+            log.info("[ExecutionSubAgent] Skill Round {} - LLM request messages (count={}): {}", round, roundMessages.size(), JSON.toJSONString(roundMessages));
 
             ChatResponse response;
             try {
