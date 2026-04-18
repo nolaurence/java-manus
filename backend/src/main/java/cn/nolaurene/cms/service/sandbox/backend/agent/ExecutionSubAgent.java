@@ -615,9 +615,7 @@ public class ExecutionSubAgent {
             skillRequest.setParams(params);
 
             // Execute skill via SkillExecutionEngine
-            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest);
-
-            log.info("[ExecutionSubAgent] Skill command execution completed with status: {}", result.getStatus());
+            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest, agent.getNativeMcpClient());
 
             if ("SUCCESS".equals(result.getStatus())) {
                 return result.getOutput() != null ? result.getOutput() : "(command executed successfully)";
@@ -933,8 +931,7 @@ public class ExecutionSubAgent {
             }
             skillRequest.setParams(params);
 
-            // Execute skill via SkillExecutionEngine (runs in sandbox shell)
-            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest);
+            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest, agent.getNativeMcpClient());
 
             log.info("[ExecutionSubAgent] Skill {} execution completed with status: {}", skillId, result.getStatus());
 
@@ -1023,7 +1020,8 @@ public class ExecutionSubAgent {
         List<String> renderedMessage = new ArrayList<>();
         for (ChatMessage message : chatMessageList) {
             if (message.getClass().equals(SystemMessage.class)) {
-                renderedMessage.add("[system prompt]: " + ((SystemMessage) message).text());
+                String systemPrompt = ((SystemMessage) message).text().replaceAll("\n", "\\n");
+                renderedMessage.add("[system prompt]: " + systemPrompt);
             } else if (message.getClass().equals(UserMessage.class)) {
                 List<String> userMessageContents = new ArrayList<>();
                 ((UserMessage) message).contents().stream().forEach(content -> {

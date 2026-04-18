@@ -1,7 +1,6 @@
 package cn.nolaurene.cms.service.sandbox.backend.skill;
 
 import cn.nolaurene.cms.common.dto.skill.*;
-import cn.nolaurene.cms.common.sandbox.worker.resp.shell.ShellCommandResult;
 import cn.nolaurene.cms.dal.entity.SkillExecutionLogDO;
 import cn.nolaurene.cms.dal.entity.SkillInfoDO;
 import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
@@ -11,9 +10,11 @@ import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import cn.nolaurene.cms.exception.skill.SkillDependencyException;
 import cn.nolaurene.cms.exception.skill.SkillExecutionException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
-import cn.nolaurene.cms.service.sandbox.worker.shell.ShellService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.mcp.client.McpClient;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import io.mybatis.mapper.example.Example;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -34,7 +35,6 @@ import java.util.regex.Pattern;
 @Service
 public class SkillExecutionEngine {
 
-    private final ShellService shellService;
     private final SkillInfoMapper skillInfoMapper;
     private final SkillExecutionLogMapper executionLogMapper;
     private final UserSkillStatusMapper userSkillStatusMapper;
@@ -45,12 +45,10 @@ public class SkillExecutionEngine {
      */
     private final Map<String, SkillDefinitionDTO> skillCache = new ConcurrentHashMap<>();
 
-    public SkillExecutionEngine(ShellService shellService,
-                                SkillInfoMapper skillInfoMapper,
+    public SkillExecutionEngine(SkillInfoMapper skillInfoMapper,
                                 SkillExecutionLogMapper executionLogMapper,
                                 UserSkillStatusMapper userSkillStatusMapper,
                                 SkillFileStorageService fileStorageService) {
-        this.shellService = shellService;
         this.skillInfoMapper = skillInfoMapper;
         this.executionLogMapper = executionLogMapper;
         this.userSkillStatusMapper = userSkillStatusMapper;
@@ -63,7 +61,7 @@ public class SkillExecutionEngine {
      * @param request 执行请求
      * @return 执行结果
      */
-    public SkillExecutionResult execute(SkillExecutionRequest request) {
+    public SkillExecutionResult execute(SkillExecutionRequest request, McpClient mcpClient) {
         long startTime = System.currentTimeMillis();
         SkillExecutionResult result = new SkillExecutionResult();
         result.setSkillId(request.getSkillId());
@@ -85,14 +83,15 @@ public class SkillExecutionEngine {
             // 3. 验证依赖
             validateDependencies(skill, request.getSessionId());
 
-            // 4. 获取要执行的工具
-            ToolDefinition tool = resolveTool(skill, request.getParams());
-            if (tool == null) {
-                throw new SkillExecutionException("No matching tool found for skill: " + request.getSkillId());
-            }
-
             // 5. 渲染命令模板
-            String command = renderCommand(tool.getCommand(), request.getParams());
+            String command = String.valueOf(request.getParams().getOrDefault("command", ""));
+
+            if (StringUtils.isBlank(command)) {
+                result.setStatus("FAILED");
+                result.setError("No command provided");
+                result.setDurationMs(System.currentTimeMillis() - startTime);
+                return result;
+            }
 
             // 6. 添加脚本路径环境变量（如果存在scripts目录）
             String scriptsPath = fileStorageService.getSkillScriptsPath(request.getSkillId());
@@ -100,17 +99,27 @@ public class SkillExecutionEngine {
                 command = "export SKILL_SCRIPTS_PATH=" + scriptsPath + " && " + command;
             }
 
-            // 7. 通过Shell沙箱执行命令
+            // 7. 通过McpClient调用沙箱shell_exec工具执行命令
             String workingDir = StringUtils.defaultIfEmpty(request.getWorkingDir(), "/workspace");
-            ShellCommandResult shellResult = shellService.execCommand(
-                    request.getSessionId(),
-                    workingDir,
-                    command
-            );
+            Map<String, Object> shellArgs = new LinkedHashMap<>();
+            shellArgs.put("id", request.getSessionId());
+            shellArgs.put("execDir", workingDir);
+            shellArgs.put("command", command);
+
+            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
+                    .name("shell_exec")
+                    .arguments(JSON.toJSONString(shellArgs))
+                    .build();
+            ToolExecutionResult toolResult = mcpClient.executeTool(toolRequest);
 
             // 6. 构建结果
-            result.setStatus(shellResult.getStatus());
-            result.setOutput(shellResult.getOutput());
+            if (toolResult.isError()) {
+                result.setStatus("FAILED");
+                result.setError(toolResult.resultText());
+            } else {
+                result.setStatus("SUCCESS");
+                result.setOutput(toolResult.resultText());
+            }
             result.setDurationMs(System.currentTimeMillis() - startTime);
 
             log.info("Skill executed successfully: {} in {}ms", request.getSkillId(), result.getDurationMs());
@@ -181,14 +190,6 @@ public class SkillExecutionEngine {
      */
     private void validateDependencies(SkillDefinitionDTO skill, String sessionId) {
         // 依赖检查已移除 - 遵循 agentskills.io 规范
-    }
-
-    /**
-     * 解析要执行的工具
-     */
-    private ToolDefinition resolveTool(SkillDefinitionDTO skill, Map<String, Object> params) {
-        // 工具解析已简化 - 遵循 agentskills.io 规范
-        return null;
     }
 
     /**
