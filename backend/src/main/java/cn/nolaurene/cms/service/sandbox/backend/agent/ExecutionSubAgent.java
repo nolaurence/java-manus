@@ -33,7 +33,7 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolExecutionResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -50,7 +50,7 @@ import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.load
  * Uses langchain4j native function calling for tool invocation.
  */
 @Slf4j
-@Component
+@Service
 public class ExecutionSubAgent {
 
     private static final int MCP_TOOL_RETRY_TIMES = 3;
@@ -301,6 +301,8 @@ public class ExecutionSubAgent {
             ChatRequest request = ChatRequest.builder()
                     .messages(roundMessages)
                     .build();
+
+            log.info("[ExecutionSubAgent] Skill Round {} - LLM request messages (count={}): {}", round, roundMessages.size(), roundMessages);
 
             ChatResponse response;
             try {
