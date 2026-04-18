@@ -438,10 +438,10 @@ const ChatComponent: React.FC = () => {
         }}
       >
         <div className={`flex h-screen`}  >
-          <div className={`flex flex-col h-full transition-all duration-300 ${toolPanelShow ? 'w-[calc(100%-768px)]' : 'w-full'}`}>
+          <div className={`flex flex-col h-full overflow-hidden transition-all duration-300 ${toolPanelShow ? 'w-[calc(100%-768px)]' : 'w-full'}`}>
 
             {/*header*/}
-            <div className="flex items-center justify-center px-6 py-4" >
+            <div className="flex items-center justify-center px-6 py-4 flex-shrink-0" >
               <div className="relative flex items-center" >
                 { !panelFixed && (
                   <Button type="text" onClick={() => setPanelFixed(!panelFixed)} icon={<PanelLeft/>}/>
@@ -461,43 +461,48 @@ const ChatComponent: React.FC = () => {
             </div>
 
             {/* message feed */}
-            <Bubble.List
-              autoScroll
-              className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center flex-grow pb-3 px-4"
-              items={[
-                ...messages.map((message, index) => ({
-                  key: `msg-${index}`,
-                  role: message.type,
-                  placement: (message.type === 'user' ? 'end' : 'start') as 'start' | 'end',
-                  variant: 'borderless' as const,
-                  content: message as any,
-                  styles: { content: { padding: 0, maxWidth: '100%' } },
-                  contentRender: () => (
-                    <ChatMessage message={message} onToolClick={handleToolClick} />
-                  ),
-                })),
-                ...(isLoading ? [{
-                  key: 'loading',
-                  role: 'system',
-                  variant: 'borderless' as const,
-                  content: 'loading' as any,
-                  styles: { content: { padding: 0 } },
-                  contentRender: () => (
-                    <div className={styles.loadingIndicatorContainer}>
-                      <span>Thinking</span>
-                      <span className={styles.animateBounceDotContainer}>
-                        <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                        <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                      </span>
-                    </div>
-                  ),
-                }] : []),
-              ]}
-            />
+            <div className="flex-1 min-h-0 overflow-y-auto mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] px-4">
+              <Bubble.List
+                autoScroll
+                className="h-full"
+                styles={{
+                  content: {flex: 1 },
+                }}
+                items={[
+                  ...messages.map((message, index) => ({
+                    key: `msg-${index}`,
+                    role: message.type,
+                    placement: (message.type === 'user' ? 'end' : 'start') as 'start' | 'end',
+                    variant: 'borderless' as const,
+                    content: message as any,
+                    styles: { content: { padding: 0, maxWidth: '100%' } },
+                    contentRender: () => (
+                      <ChatMessage message={message} onToolClick={handleToolClick} />
+                    ),
+                  })),
+                  ...(isLoading ? [{
+                    key: 'loading',
+                    role: 'system',
+                    variant: 'borderless' as const,
+                    content: 'loading' as any,
+                    styles: { content: { padding: 0 } },
+                    contentRender: () => (
+                      <div className={styles.loadingIndicatorContainer}>
+                        <span>Thinking</span>
+                        <span className={styles.animateBounceDotContainer}>
+                          <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
+                        </span>
+                      </div>
+                    ),
+                  }] : []),
+                ]}
+              />
+            </div>
 
             {/* input area*/}
-            <div className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center mt-auto px-4">
+            <div className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center mt-auto px-4flex-shrink-0">
               {/* TODO: extract plan to a single element*/}
               {plan && plan.steps.length > 0 && (
                 <>
