@@ -475,6 +475,7 @@ const ChatComponent: React.FC = () => {
                     placement: (message.type === 'user' ? 'end' : 'start') as 'start' | 'end',
                     variant: 'borderless' as const,
                     content: message as any,
+                    style:{ paddingTop: 0, paddingBottom: 0 },
                     styles: { content: { padding: 0, maxWidth: '100%' } },
                     contentRender: () => (
                       <ChatMessage message={message} onToolClick={handleToolClick} />
