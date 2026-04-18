@@ -52,7 +52,7 @@ const ChatMessage: React.FC<{
   // 用户消息渲染
   if (message.type === 'user') {
     return (
-      <div className="flex w-full flex-col items-end justify-end gap-1 group mt-3">
+      <div className="flex w-full flex-col items-end justify-end gap-1 group mt-1">
         <div className="flex items-end">
           <div className="flex items-center justify-end gap-[2px] invisible group-hover:visible">
             <div className="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
@@ -78,7 +78,7 @@ const ChatMessage: React.FC<{
   // 助手消息渲染
   if (message.type === 'assistant') {
     return (
-      <div className="flex flex-col gap-2 w-full group my-3">
+      <div className="flex flex-col gap-2 w-full group my-1">
         <div className="flex items-center justify-between h-7 group">
           <div className="flex items-center gap-[3px]">
             <Bot size={24} className="w-6 h-6" />
@@ -120,7 +120,7 @@ const ChatMessage: React.FC<{
     const content = asStepContent();
 
     return (
-      <div className="flex flex-col my-3">
+      <div className="flex flex-col my-1">
         <div
           className="text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]"
           data-event-id="HNtP7XOMUOhPemItd2EkK2"

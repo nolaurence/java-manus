@@ -468,9 +468,10 @@ const ChatComponent: React.FC = () => {
                 ...messages.map((message, index) => ({
                   key: `msg-${index}`,
                   role: message.type,
+                  placement: (message.type === 'user' ? 'end' : 'start') as 'start' | 'end',
                   variant: 'borderless' as const,
                   content: message as any,
-                  styles: { content: { padding: 0 } },
+                  styles: { content: { padding: 0, maxWidth: '100%' } },
                   contentRender: () => (
                     <ChatMessage message={message} onToolClick={handleToolClick} />
                   ),
