@@ -40,6 +40,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Resource;
 
 import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.loadPrompt;
+import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.render;
 
 /**
  * Execution sub-agent for Plan steps.
@@ -408,55 +409,35 @@ public class ExecutionSubAgent {
             return null;
         }
 
-        // Build skill selection context with YAML summary
-        StringBuilder sb = new StringBuilder();
-        sb.append("## Goal\n");
-        sb.append(plan.getGoal()).append("\n\n");
-
-        if (completedSteps != null && !completedSteps.isEmpty()) {
-            sb.append("## Previously Completed Steps\n");
-            for (Step step : completedSteps) {
-                sb.append("- ").append(step.getDescription());
-                if (step.getResult() != null) {
-                    String truncated = step.getResult().length() > 100
-                            ? step.getResult().substring(0, 100) + "..."
-                            : step.getResult();
-                    sb.append(" -> ").append(truncated);
-                }
-                sb.append("\n");
-            }
-            sb.append("\n");
-        }
-
-        sb.append("## Current Step to Execute\n");
-        sb.append(currentStep.getDescription()).append("\n\n");
-
-        sb.append("## Available Skills (YAML Summary)\n");
-        sb.append("Select the most appropriate skill for the current step.\n\n");
-
+        // Build skills YAML summary
+        StringBuilder skillsYaml = new StringBuilder();
         for (SkillDefinitionDTO skill : enabledSkills) {
-            sb.append("### Skill: ").append(skill.getSkillId()).append("\n");
-            sb.append("```yaml\n");
-            sb.append("name: ").append(skill.getName()).append("\n");
-            sb.append("description: ").append(skill.getDescription()).append("\n");
+            skillsYaml.append("### Skill: ").append(skill.getSkillId()).append("\n");
+            skillsYaml.append("```yaml\n");
+            skillsYaml.append("name: ").append(skill.getName()).append("\n");
+            skillsYaml.append("description: ").append(skill.getDescription()).append("\n");
             if (skill.getVersion() != null) {
-                sb.append("version: ").append(skill.getVersion()).append("\n");
+                skillsYaml.append("version: ").append(skill.getVersion()).append("\n");
             }
             if (skill.getCompatibility() != null) {
-                sb.append("compatibility: ").append(skill.getCompatibility()).append("\n");
+                skillsYaml.append("compatibility: ").append(skill.getCompatibility()).append("\n");
             }
-            sb.append("```\n\n");
+            skillsYaml.append("```\n\n");
         }
 
-        sb.append("## Instructions\n");
-        sb.append("Analyze the current step and select the most appropriate skill from the list above.\n");
-        sb.append("Respond with ONLY the skill_id (e.g., \"author/skill-name\") of the selected skill.\n");
-        sb.append("If no skill is appropriate, respond with \"NONE\".\n");
+        // Load template and render
+        String template = loadPrompt("prompts/selectSkillForExecution.jinja");
+        Map<String, Object> context = new HashMap<>();
+        context.put("goal", plan.getGoal());
+        context.put("completedStepsSection", buildCompletedStepsSection(completedSteps, 100));
+        context.put("currentStepDescription", currentStep.getDescription());
+        context.put("skillsYaml", skillsYaml.toString());
+        String prompt = render(template, context);
 
         // Call LLM for skill selection
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(SystemMessage.from("You are a skill selector. Choose the most appropriate skill for the given task."));
-        messages.add(UserMessage.from(sb.toString()));
+        messages.add(UserMessage.from(prompt));
 
         ChatRequest request = ChatRequest.builder()
                 .messages(messages)
@@ -549,53 +530,24 @@ public class ExecutionSubAgent {
     private String buildSkillExecutionContextWithContent(Plan plan, Step currentStep,
                                                          List<Step> completedSteps,
                                                          SkillDefinitionDTO skill,
-                                                         int currentRound) {
-        StringBuilder sb = new StringBuilder();
-
-        sb.append("## Current Goal\n");
-        sb.append(plan.getGoal()).append("\n\n");
-
-        sb.append("## Using Skill\n");
-        sb.append("Skill ID: ").append(skill.getSkillId()).append("\n");
-        sb.append("Skill Name: ").append(skill.getName()).append("\n");
-        sb.append("Skill Description: ").append(skill.getDescription()).append("\n\n");
-
-        // Add skill documents content if available
+                                                         int currentRound) throws IOException {
+        // Build skill documentation section
+        String skillDocSection = "";
         if (skill.getDocuments() != null) {
-            sb.append("## Skill Documentation\n");
-            // Documents are loaded as Object, need to handle properly
-            // This is a placeholder - actual implementation depends on document structure
-            sb.append("(Skill documentation loaded)\n\n");
+            skillDocSection = "## Skill Documentation\n(Skill documentation loaded)\n\n";
         }
 
-        if (completedSteps != null && !completedSteps.isEmpty()) {
-            sb.append("## Previously Completed Steps\n");
-            for (Step s : completedSteps) {
-                sb.append("- ").append(s.getDescription()).append(": ").append(s.getStatus());
-                if (s.getResult() != null) {
-                    String truncated = s.getResult().length() > 200
-                            ? s.getResult().substring(0, 200) + "... (truncated)"
-                            : s.getResult();
-                    sb.append(" | Result: ").append(truncated);
-                }
-                sb.append("\n");
-            }
-            sb.append("\n");
-        }
-
-        sb.append("## Current Step to Execute\n");
-        sb.append(currentStep.getDescription()).append("\n\n");
-
-        sb.append("## Execution Round\n");
-        sb.append("Round: ").append(currentRound).append("\n\n");
-
-        sb.append("## Instructions\n");
-        sb.append("You are executing a Skill. Analyze the current step and determine what shell commands need to be executed.\n");
-        sb.append("Respond with bash commands in ```bash blocks to execute them.\n");
-        sb.append("When the step is completed, respond with 'COMPLETED: ' followed by a summary of what was accomplished.\n");
-        sb.append("The commands will be executed in a sandbox shell environment.\n");
-
-        return sb.toString();
+        String template = loadPrompt("prompts/buildSkillExecutionContext.jinja");
+        Map<String, Object> context = new HashMap<>();
+        context.put("goal", plan.getGoal());
+        context.put("skillId", skill.getSkillId());
+        context.put("skillName", skill.getName());
+        context.put("skillDescription", skill.getDescription());
+        context.put("skillDocumentationSection", skillDocSection);
+        context.put("completedStepsSection", buildCompletedStepsSection(completedSteps, 200));
+        context.put("currentStepDescription", currentStep.getDescription());
+        context.put("currentRound", String.valueOf(currentRound));
+        return render(template, context);
     }
 
     /**
@@ -661,74 +613,44 @@ public class ExecutionSubAgent {
     }
 
     /**
-     * Build skill execution context message.
+     * Build the "Previously Completed Steps" section for prompt templates.
+     * @param completedSteps list of completed steps
+     * @param maxResultLength max length for each step's result before truncation
+     * @return formatted section string, empty string if no completed steps
      */
-    private String buildSkillExecutionContext(Plan plan, Step currentStep, List<Step> completedSteps, SkillDefinitionDTO skill) {
+    private String buildCompletedStepsSection(List<Step> completedSteps, int maxResultLength) {
+        if (completedSteps == null || completedSteps.isEmpty()) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
-        sb.append("## Current Goal\n");
-        sb.append(plan.getGoal()).append("\n\n");
-
-        sb.append("## Using Skill\n");
-        sb.append("Skill ID: ").append(skill.getSkillId()).append("\n");
-        sb.append("Skill Name: ").append(skill.getName()).append("\n");
-        sb.append("Skill Description: ").append(skill.getDescription()).append("\n\n");
-
-        if (completedSteps != null && !completedSteps.isEmpty()) {
-            sb.append("## Previously Completed Steps\n");
-            for (Step s : completedSteps) {
-                sb.append("- ").append(s.getDescription()).append(": ").append(s.getStatus());
-                if (s.getResult() != null) {
-                    String truncated = s.getResult().length() > 200
-                            ? s.getResult().substring(0, 200) + "... (truncated)"
-                            : s.getResult();
-                    sb.append(" | Result: ").append(truncated);
-                }
-                sb.append("\n");
+        sb.append("## Previously Completed Steps\n");
+        for (Step s : completedSteps) {
+            sb.append("- ").append(s.getDescription());
+            if (s.getStatus() != null) {
+                sb.append(": ").append(s.getStatus());
+            }
+            if (s.getResult() != null) {
+                String truncated = s.getResult().length() > maxResultLength
+                        ? s.getResult().substring(0, maxResultLength) + "... (truncated)"
+                        : s.getResult();
+                sb.append(" | Result: ").append(truncated);
             }
             sb.append("\n");
         }
-
-        sb.append("## Current Step to Execute\n");
-        sb.append(currentStep.getDescription()).append("\n\n");
-
-        sb.append("## Instructions\n");
-        sb.append("You are executing a Skill. Analyze the current step and determine what shell commands need to be executed.\n");
-        sb.append("Respond with bash commands in ```bash blocks to execute them.\n");
-        sb.append("When the step is completed, respond with 'COMPLETED: ' followed by a summary of what was accomplished.\n");
-        sb.append("The commands will be executed in a sandbox shell environment.\n");
-
+        sb.append("\n");
         return sb.toString();
     }
 
     /**
      * Build execution context message from plan and step info.
      */
-    private String buildExecutionContext(Plan plan, Step currentStep, List<Step> completedSteps) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("## Current Goal\n");
-        sb.append(plan.getGoal()).append("\n\n");
-
-        if (completedSteps != null && !completedSteps.isEmpty()) {
-            sb.append("## Previously Completed Steps\n");
-            for (Step s : completedSteps) {
-                sb.append("- ").append(s.getDescription()).append(": ").append(s.getStatus());
-                if (s.getResult() != null) {
-                    String truncated = s.getResult().length() > 200
-                            ? s.getResult().substring(0, 200) + "... (truncated)"
-                            : s.getResult();
-                    sb.append(" | Result: ").append(truncated);
-                }
-                sb.append("\n");
-            }
-            sb.append("\n");
-        }
-
-        sb.append("## Current Step to Execute\n");
-        sb.append(currentStep.getDescription()).append("\n\n");
-        sb.append("Execute this step using the available tools. ");
-        sb.append("When the step is fully completed, respond with a summary of what was accomplished.\n");
-
-        return sb.toString();
+    private String buildExecutionContext(Plan plan, Step currentStep, List<Step> completedSteps) throws IOException {
+        String template = loadPrompt("prompts/buildExecutionContext.jinja");
+        Map<String, Object> context = new HashMap<>();
+        context.put("goal", plan.getGoal());
+        context.put("completedStepsSection", buildCompletedStepsSection(completedSteps, 200));
+        context.put("currentStepDescription", currentStep.getDescription());
+        return render(template, context);
     }
 
     /**
@@ -753,15 +675,24 @@ public class ExecutionSubAgent {
      * @return completion summary if step is done, null if step needs more work
      */
     private String checkStepCompletion(ChatModel chatModel, List<ChatMessage> messages, Step currentStep) {
-        String checkPrompt = String.format(
-                "Based on the tool execution results above, evaluate whether the current step has been completed.\n\n" +
-                "Current Step: %s\n\n" +
-                "Instructions:\n" +
-                "- If the step is COMPLETED: Respond with a brief summary starting with 'COMPLETED: ' followed by what was accomplished.\n" +
-                "- If the step is NOT COMPLETED: Respond with 'NOT_COMPLETED' and continue working on it using the available tools.\n\n" +
-                "Your response:",
-                currentStep.getDescription()
-        );
+        String checkPrompt;
+        try {
+            String template = loadPrompt("prompts/checkStepCompletion.jinja");
+            Map<String, Object> context = new HashMap<>();
+            context.put("currentStepDescription", currentStep.getDescription());
+            checkPrompt = render(template, context);
+        } catch (IOException e) {
+            log.warn("[ExecutionSubAgent] Failed to load checkStepCompletion template, using fallback", e);
+            checkPrompt = String.format(
+                    "Based on the tool execution results above, evaluate whether the current step has been completed.\n\n" +
+                    "Current Step: %s\n\n" +
+                    "Instructions:\n" +
+                    "- If the step is COMPLETED: Respond with a brief summary starting with 'COMPLETED: ' followed by what was accomplished.\n" +
+                    "- If the step is NOT COMPLETED: Respond with 'NOT_COMPLETED' and continue working on it using the available tools.\n\n" +
+                    "Your response:",
+                    currentStep.getDescription()
+            );
+        }
 
         List<ChatMessage> checkMessages = new ArrayList<>(messages);
         checkMessages.add(UserMessage.from(checkPrompt));
