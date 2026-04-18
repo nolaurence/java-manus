@@ -16,6 +16,7 @@ Round: ${currentRound}
 
 ## Instructions
 You are executing a Skill. Analyze the current step and determine what shell commands need to be executed.
+The skill files are located at `/app/skills/extracted/${skillId}/` in the sandbox. You can reference scripts via `$SKILL_SCRIPTS_PATH` environment variable.
 Respond with bash commands in ```bash blocks to execute them.
 When the step is completed, respond with 'COMPLETED: ' followed by a summary of what was accomplished.
 The commands will be executed in a sandbox shell environment.

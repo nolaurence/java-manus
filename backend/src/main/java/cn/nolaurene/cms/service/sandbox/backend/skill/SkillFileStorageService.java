@@ -9,7 +9,9 @@ import javax.annotation.PostConstruct;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -273,6 +275,135 @@ public class SkillFileStorageService {
                         log.warn("Failed to delete: {}", p, e);
                     }
                 });
+    }
+
+    /**
+     * 获取Skill完整上下文信息，包括目录结构树和关键文件内容
+     * 用于构建Skill执行时的prompt上下文
+     *
+     * @param skillId Skill ID
+     * @return 格式化的Skill上下文字符串，包含目录树和文件内容；如果Skill目录不存在返回空字符串
+     */
+    public String getSkillContext(String skillId) {
+        try {
+            Path skillPath = resolveSkillPath(skillId);
+            if (!Files.exists(skillPath) || !Files.isDirectory(skillPath)) {
+                log.warn("Skill directory not found: {}", skillPath);
+                return "";
+            }
+
+            StringBuilder sb = new StringBuilder();
+
+            // 1. 目录结构树
+            sb.append("### Directory Structure\n");
+            sb.append("```\n");
+            sb.append(buildDirectoryTree(skillPath, skillPath, ""));
+            sb.append("```\n\n");
+
+            // 2. 读取关键文件内容
+            // SKILL.md
+            appendFileContent(sb, skillPath, "SKILL.md");
+            // reference.md
+            appendFileContent(sb, skillPath, "reference.md");
+            // examples.md
+            appendFileContent(sb, skillPath, "examples.md");
+
+            // 3. 读取 scripts/ 目录下所有脚本文件
+            Path scriptsPath = skillPath.resolve("scripts");
+            if (Files.exists(scriptsPath) && Files.isDirectory(scriptsPath)) {
+                try (Stream<Path> scriptFiles = Files.walk(scriptsPath)) {
+                    List<Path> scripts = scriptFiles
+                            .filter(Files::isRegularFile)
+                            .sorted()
+                            .collect(Collectors.toList());
+                    for (Path script : scripts) {
+                        String relativePath = skillPath.relativize(script).toString();
+                        appendFileContent(sb, skillPath, relativePath);
+                    }
+                }
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("Failed to build skill context for: {}", skillId, e);
+            return "";
+        }
+    }
+
+    /**
+     * 构建目录树字符串
+     */
+    private String buildDirectoryTree(Path root, Path current, String prefix) {
+        StringBuilder sb = new StringBuilder();
+        try (Stream<Path> children = Files.list(current)) {
+            List<Path> sorted = children.sorted().collect(Collectors.toList());
+            for (int i = 0; i < sorted.size(); i++) {
+                Path child = sorted.get(i);
+                boolean isLast = (i == sorted.size() - 1);
+                String connector = isLast ? "└── " : "├── ";
+                String childPrefix = isLast ? "    " : "│   ";
+
+                sb.append(prefix).append(connector).append(child.getFileName());
+                if (Files.isDirectory(child)) {
+                    sb.append("/\n");
+                    sb.append(buildDirectoryTree(root, child, prefix + childPrefix));
+                } else {
+                    sb.append("\n");
+                }
+            }
+        } catch (IOException e) {
+            log.warn("Failed to list directory: {}", current, e);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 将文件内容追加到StringBuilder中
+     */
+    private void appendFileContent(StringBuilder sb, Path skillPath, String relativePath) {
+        Path filePath = skillPath.resolve(relativePath);
+        if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+            return;
+        }
+        try {
+            String content = new String(Files.readAllBytes(filePath), StandardCharsets.UTF_8);
+            // 跳过过大的文件（超过10KB）
+            if (content.length() > 10240) {
+                sb.append("### File: ").append(relativePath).append("\n");
+                sb.append("(File too large, ").append(content.length()).append(" bytes, truncated to first 10KB)\n");
+                content = content.substring(0, 10240) + "\n... (truncated)";
+            }
+            String ext = getFileExtension(relativePath);
+            sb.append("### File: ").append(relativePath).append("\n");
+            sb.append("```").append(ext).append("\n");
+            sb.append(content);
+            if (!content.endsWith("\n")) {
+                sb.append("\n");
+            }
+            sb.append("```\n\n");
+        } catch (IOException e) {
+            log.warn("Failed to read file: {}", filePath, e);
+        }
+    }
+
+    /**
+     * 获取文件扩展名（用于代码块语法高亮）
+     */
+    private String getFileExtension(String path) {
+        int dotIndex = path.lastIndexOf('.');
+        if (dotIndex < 0) return "";
+        String ext = path.substring(dotIndex + 1).toLowerCase();
+        switch (ext) {
+            case "py": return "python";
+            case "sh": return "bash";
+            case "js": return "javascript";
+            case "ts": return "typescript";
+            case "md": return "markdown";
+            case "yml":
+            case "yaml": return "yaml";
+            case "json": return "json";
+            default: return ext;
+        }
     }
 
     /**

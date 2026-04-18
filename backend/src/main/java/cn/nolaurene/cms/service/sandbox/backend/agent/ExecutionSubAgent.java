@@ -13,10 +13,12 @@ import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryServi
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillFileStorageService;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillRoutingService;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import org.apache.commons.lang3.StringUtils;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
@@ -64,6 +66,9 @@ public class ExecutionSubAgent {
 
     @Autowired
     private SkillRoutingService skillRoutingService;
+
+    @Autowired
+    private SkillFileStorageService skillFileStorageService;
 
     /**
      * Execute a single step with a tool-calling loop.
@@ -531,9 +536,12 @@ public class ExecutionSubAgent {
                                                          List<Step> completedSteps,
                                                          SkillDefinitionDTO skill,
                                                          int currentRound) throws IOException {
-        // Build skill documentation section
+        // Build skill documentation section from filesystem
         String skillDocSection = "";
-        if (skill.getDocuments() != null) {
+        String skillContext = skillFileStorageService.getSkillContext(skill.getSkillId());
+        if (StringUtils.isNotBlank(skillContext)) {
+            skillDocSection = "## Skill Files (from /app/skills/extracted/" + skill.getSkillId() + ")\n" + skillContext;
+        } else if (skill.getDocuments() != null) {
             skillDocSection = "## Skill Documentation\n(Skill documentation loaded)\n\n";
         }
 
@@ -559,7 +567,7 @@ public class ExecutionSubAgent {
             SkillExecutionRequest skillRequest = new SkillExecutionRequest();
             skillRequest.setSkillId(skillId);
             skillRequest.setSessionId(sessionId);
-            skillRequest.setWorkingDir("/workspace");
+            skillRequest.setWorkingDir("");
 
             // Set command as parameter
             Map<String, Object> params = new HashMap<>();
@@ -851,7 +859,7 @@ public class ExecutionSubAgent {
             SkillExecutionRequest skillRequest = new SkillExecutionRequest();
             skillRequest.setSkillId(skillId);
             skillRequest.setSessionId(sessionId);
-            skillRequest.setWorkingDir("/workspace");
+            skillRequest.setWorkingDir("");
 
             // Convert remaining arguments to params map
             Map<String, Object> params = new HashMap<>();

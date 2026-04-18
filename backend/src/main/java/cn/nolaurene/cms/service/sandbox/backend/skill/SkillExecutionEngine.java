@@ -100,10 +100,9 @@ public class SkillExecutionEngine {
             }
 
             // 7. 通过McpClient调用沙箱shell_exec工具执行命令
-            String workingDir = StringUtils.defaultIfEmpty(request.getWorkingDir(), "/workspace");
             Map<String, Object> shellArgs = new LinkedHashMap<>();
             shellArgs.put("id", request.getSessionId());
-            shellArgs.put("execDir", workingDir);
+            shellArgs.put("execDir", "");
             shellArgs.put("command", command);
 
             ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
