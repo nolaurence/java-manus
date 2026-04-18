@@ -19,11 +19,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
@@ -302,7 +298,7 @@ public class ExecutionSubAgent {
                     .messages(roundMessages)
                     .build();
 
-            log.info("[ExecutionSubAgent] Skill Round {} - LLM request messages (count={}): {}", round, roundMessages.size(), JSON.toJSONString(roundMessages));
+            log.info("[ExecutionSubAgent] Skill Round {} - LLM request messages (count={}): {}", round, roundMessages.size(), renderMessageToLog(roundMessages));
 
             ChatResponse response;
             try {
@@ -1021,5 +1017,34 @@ public class ExecutionSubAgent {
         conversationHistoryService.saveAssistantMessageWithId(
                 JSON.toJSONString(toolEventData), SSEEventType.TOOL,
                 agent.getUserId(), agent.getAgentId());
+    }
+
+    private String renderMessageToLog(List<ChatMessage> chatMessageList) {
+        List<String> renderedMessage = new ArrayList<>();
+        for (ChatMessage message : chatMessageList) {
+            if (message.getClass().equals(SystemMessage.class)) {
+                renderedMessage.add("[system prompt]: " + ((SystemMessage) message).text());
+            } else if (message.getClass().equals(UserMessage.class)) {
+                List<String> userMessageContents = new ArrayList<>();
+                ((UserMessage) message).contents().stream().forEach(content -> {
+                    if (content.getClass().equals(TextContent.class)) {
+                        userMessageContents.add(((TextContent) content).text());
+                    } else if (content.getClass().equals(ImageContent.class)) {
+                        userMessageContents.add("[Image]");
+                    } else if (content.getClass().equals(VideoContent.class)) {
+                        userMessageContents.add("[Video]");
+                    } else {
+                        userMessageContents.add("[Other Content Type]");
+                    }
+                });
+                renderedMessage.add("[USER]: " + String.join("\n", userMessageContents));
+            } else if (message.getClass().equals(AiMessage.class)) {
+                renderedMessage.add("[AI]: " + ((AiMessage) message).text());
+            } else {
+                renderedMessage.add(message.toString());
+            }
+        }
+
+        return String.join("\n", renderedMessage);
     }
 }

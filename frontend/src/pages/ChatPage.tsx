@@ -483,7 +483,7 @@ const ChatComponent: React.FC = () => {
                   })),
                   ...(isLoading ? [{
                     key: 'loading',
-                    role: 'system',
+                    role: 'assistant',
                     variant: 'borderless' as const,
                     content: 'loading' as any,
                     styles: { content: { padding: 0 } },
