@@ -1,7 +1,6 @@
 import React, {useState, useRef, useEffect, useCallback} from 'react';
 import ChatBox from '@/components/ChatBox';
 import ChatMessage from '@/components/ChatMessage';
-import SimpleBar, {type ScrollableContentRef} from '@/components/SimpleBar';
 import ToolPanel from '@/components/ToolPanel';
 import {chatWithAgent, fetchSessionMessages, fetchConversationTitle, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
@@ -17,7 +16,7 @@ import type {MessageEventData, StepEventData, ToolEventData, PlanEventData} from
 import {useStyles} from '@/assets/chatPageStyle';
 import Panel from '@/components/Panel';
 import { Button, message as antdMessage } from 'antd';
-import ScrollableFeed from 'react-scrollable-feed';
+import { Bubble } from '@ant-design/x';
 import LoginModal from '@/components/LoginModal';
 import dayjs from 'dayjs';
 import { attachToolsToSteps, mapToFrontendMessage } from '@/utils/message';
@@ -56,7 +55,6 @@ const ChatComponent: React.FC = () => {
   const [toolContent, setToolContent] = useState<ToolContent | undefined>(undefined);
 
   // Refs
-  const simpleBarRef = useRef<ScrollableContentRef>(null);
   // const toolPanelRef = useRef<ToolPanelRef>(null);
   const toolPanelOps = {
     show: (content: ToolContent) => {
@@ -82,18 +80,7 @@ const ChatComponent: React.FC = () => {
     return messages.filter(message => message.type === 'step').pop()?.content as StepContent;
   };
 
-  // 处理滚动事件
-  const handleScroll = useCallback(() => {
-    const isBottom = simpleBarRef.current?.isScrolledToBottom(10) ?? false;
-    setFollow(isBottom);
-  }, []);
 
-  // 自动滚动到底部
-  useEffect(() => {
-    if (follow && simpleBarRef.current) {
-      simpleBarRef.current.scrollToBottom();
-    }
-  }, [messages, follow]);
 
   const increaseLastMessage = (thoughtDelta: string, localContentDelta: string) => {
     let newContent: string = '';
@@ -420,7 +407,6 @@ const ChatComponent: React.FC = () => {
 
   const handleFollow = () => {
     setFollow(true);
-    simpleBarRef.current?.scrollToBottom();
   };
 
   const handleGoHome = () => {
@@ -475,23 +461,39 @@ const ChatComponent: React.FC = () => {
             </div>
 
             {/* message feed */}
-            <ScrollableFeed className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center flex-grow pb-3 px-4">
-              {messages.map((message, index) => (
-                <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
-              ))}
-
-              {/* 加载指示器 loading indicator */}
-              {isLoading && (
-                <div className={styles.loadingIndicatorContainer}>
-                  <span>Thinking</span>
-                  <span className={styles.animateBounceDotContainer}>
-                  <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                  <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                  <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                </span>
-                </div>
-              )}
-            </ScrollableFeed>
+            <Bubble.List
+              autoScroll
+              className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center flex-grow pb-3 px-4"
+              items={[
+                ...messages.map((message, index) => ({
+                  key: `msg-${index}`,
+                  role: message.type,
+                  variant: 'borderless' as const,
+                  content: message as any,
+                  styles: { content: { padding: 0 } },
+                  contentRender: () => (
+                    <ChatMessage message={message} onToolClick={handleToolClick} />
+                  ),
+                })),
+                ...(isLoading ? [{
+                  key: 'loading',
+                  role: 'system',
+                  variant: 'borderless' as const,
+                  content: 'loading' as any,
+                  styles: { content: { padding: 0 } },
+                  contentRender: () => (
+                    <div className={styles.loadingIndicatorContainer}>
+                      <span>Thinking</span>
+                      <span className={styles.animateBounceDotContainer}>
+                        <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
+                        <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
+                        <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
+                      </span>
+                    </div>
+                  ),
+                }] : []),
+              ]}
+            />
 
             {/* input area*/}
             <div className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center mt-auto px-4">
