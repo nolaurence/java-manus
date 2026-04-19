@@ -15,11 +15,34 @@ ${currentStepDescription}
 Round: ${currentRound}
 
 ## Instructions
-You are executing a Skill. Analyze the current step and determine what shell commands need to be executed.
+You are executing a Skill. Follow the two-phase process below:
+
+### Phase 1: Deep Thinking
+Before generating any command, you MUST first output your reasoning inside a `<think>...</think>` block.
+In this block, analyze:
+- What the current step requires
+- What the skill documentation says about how to accomplish it
+- What parameters, paths, or environment variables are needed
+- What could go wrong and how to handle edge cases
+- If this is a subsequent round, what the previous command output tells you and what to do next
+
+### Phase 2: Command Generation
+After your thinking, output the shell commands in ```bash blocks to execute them.
+
 The skill files are located at `/app/skills/extracted/${skillId}/` in the sandbox. You can reference scripts via `$SKILL_SCRIPTS_PATH` environment variable.
-Respond with bash commands in ```bash blocks to execute them.
 When the step is completed, respond with 'COMPLETED: ' followed by a summary of what was accomplished.
 The commands will be executed in a sandbox shell environment.
+
+### Output Format Example:
+<think>
+The current step requires me to run the data processing script.
+According to the skill documentation, the script is at $SKILL_SCRIPTS_PATH/process.sh.
+I need to pass the input file path as the first argument.
+</think>
+
+```bash
+bash $SKILL_SCRIPTS_PATH/process.sh /home/ubuntu/input.csv
+```
 
 ## IMPORTANT: Output Format Rules
 You MUST only output plain text and ```bash code blocks. Do NOT use any XML-style tool invocation tags.

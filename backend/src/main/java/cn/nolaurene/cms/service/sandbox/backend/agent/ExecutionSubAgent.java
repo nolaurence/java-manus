@@ -322,23 +322,35 @@ public class ExecutionSubAgent {
                 break;
             }
 
+            // Extract and send deep thinking content to frontend
+            String thinkContent = extractThinkContent(aiText);
+            if (thinkContent != null && !thinkContent.isEmpty()) {
+                log.info("[ExecutionSubAgent] Skill Round {} - Deep thinking extracted, length: {}", round, thinkContent.length());
+                sendMessageEvent(thinkContent, agent, emitterOpt);
+            }
+
+            // Strip think block from aiText for further processing
+            String processedText = stripThinkContent(aiText);
+
             // Add AI message to main conversation
             messages.add(aiMessage);
 
             // Check if step is completed
-            if (aiText.contains("COMPLETED:") || aiText.contains("Step completed")) {
+            if (processedText.contains("COMPLETED:") || processedText.contains("Step completed")) {
                 finalResult = aiText.replace("COMPLETED:", "").replace("Step completed", "").trim();
                 log.info("[ExecutionSubAgent] Skill execution completed in round {}: {}", round, selectedSkillId);
                 break;
             }
 
             // Step 3: Extract and execute shell command
-            String command = extractCommand(aiText);
+            String command = extractCommand(processedText);
             if (command != null && !command.isEmpty()) {
                 log.info("[ExecutionSubAgent] Executing skill command: {}", command);
 
                 // Report tool event
-                reportToolEvent("shell_skill_execute", "{\"command\": \"" + command + "\"}", agent, emitterOpt);
+                JSONObject skillArgs = new JSONObject();
+                skillArgs.put("command", command);
+                reportToolEvent("shell_skill_execute", skillArgs.toJSONString(), agent, emitterOpt);
 
                 // Execute command via shell service
                 String observation = executeSkillCommand(selectedSkillId, sessionId, command, agent);
@@ -369,7 +381,7 @@ public class ExecutionSubAgent {
             }
 
             // LLM provided text response without command
-            finalResult = aiText;
+            finalResult = processedText;
             consecutiveTextOnlyRounds++;
             log.info("[ExecutionSubAgent] Skill execution returned text in round {}: {} (consecutive text-only: {})",
                     round, selectedSkillId, consecutiveTextOnlyRounds);
@@ -618,6 +630,29 @@ public class ExecutionSubAgent {
         }
 
         return null;
+    }
+
+    /**
+     * Extract content from <think>...</think> block in AI response.
+     * @return the thinking content, or null if no think block found
+     */
+    private String extractThinkContent(String text) {
+        if (text == null) return null;
+        int start = text.indexOf("<think>");
+        int end = text.indexOf("</think>");
+        if (start >= 0 && end > start) {
+            return text.substring(start + 7, end).trim();
+        }
+        return null;
+    }
+
+    /**
+     * Strip <think>...</think> block from AI response text.
+     * @return text with think block removed
+     */
+    private String stripThinkContent(String text) {
+        if (text == null) return "";
+        return text.replaceAll("<think>[\\s\\S]*?</think>", "").trim();
     }
 
     /**
