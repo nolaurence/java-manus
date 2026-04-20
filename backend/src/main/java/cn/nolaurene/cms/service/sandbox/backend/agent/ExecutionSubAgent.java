@@ -90,9 +90,9 @@ public class ExecutionSubAgent {
                 plan.getGoal(), currentStep.getDescription(), maxRounds);
 
         // Step 0: Deep Thinking - Let the model reason deeply about the current step before execution
-        performDeepThinking(chatModel, plan, currentStep, completedSteps, emitterOpt, agent);
+//        performDeepThinking(chatModel, plan, currentStep, completedSteps, emitterOpt, agent);
 
-        // Step 1: Routing Decision - Let LLM decide whether to use DIRECT_TOOL or SKILL
+        // Routing Decision - Let LLM decide whether to use DIRECT_TOOL or SKILL
         SkillRoutingDecision routingDecision = skillRoutingService.route(
                 chatModel, agent, plan, currentStep, completedSteps);
 

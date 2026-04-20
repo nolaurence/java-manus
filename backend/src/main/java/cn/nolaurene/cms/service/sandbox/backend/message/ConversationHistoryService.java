@@ -420,8 +420,15 @@ public class ConversationHistoryService {
         switch(SSEEventType.fromType(conversation.getEventType())) {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
-                messageEventData.setContent(conversation.getContent());
                 messageEventData.setTimestamp(messageTimeStamp);
+                String rawContent = conversation.getContent();
+                // Detect deep thinking messages and split reasoningContent from content
+                if (rawContent != null && rawContent.startsWith("**Deep Thinking:**\n")) {
+                    messageEventData.setReasoningContent(rawContent.substring("**Deep Thinking:**\n".length()));
+                    messageEventData.setContent("");
+                } else {
+                    messageEventData.setContent(rawContent);
+                }
                 response.setContent(messageEventData);
                 response.setEventType(SSEEventType.MESSAGE);
                 break;

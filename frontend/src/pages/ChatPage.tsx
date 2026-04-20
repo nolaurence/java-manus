@@ -19,7 +19,7 @@ import { Button, message as antdMessage } from 'antd';
 import { Bubble } from '@ant-design/x';
 import LoginModal from '@/components/LoginModal';
 import dayjs from 'dayjs';
-import { attachToolsToSteps, mapToFrontendMessage } from '@/utils/message';
+import { attachToolsToSteps, mapToFrontendMessage, mergeReasoningMessages } from '@/utils/message';
 
 const ChatComponent: React.FC = () => {
 
@@ -345,9 +345,10 @@ const ChatComponent: React.FC = () => {
 
           const mapped: Message[] = mapToFrontendMessage(history);
           const attachedMessages: Message[] = attachToolsToSteps(mapped, history);
+          const finalMessages: Message[] = mergeReasoningMessages(attachedMessages);
 
-          console.log('mapped message',  attachedMessages);
-          setMessages(attachedMessages);
+          console.log('mapped message',  finalMessages);
+          setMessages(finalMessages);
           // 从 conversation_info 获取标题
           const titleInfo = await fetchConversationTitle(agentId);
           if (titleInfo?.title) {
