@@ -40,11 +40,8 @@ const ChatComponent: React.FC = () => {
   const [follow, setFollow] = useState<boolean>(true);
   const [lastNoMessageTool, setLastNoMessageTool] = useState<ToolContent | undefined>(undefined);
 
-  // const [reasoningContentDelta, setReasoningContentDelta] = useState<string>('Thought:\n');
-  // const [stagingReasoningContent, setStagingReasoningContent] = useState<string>('');
-  // const [contentDelta, setContentDelta] = useState<string>('');
-  const reasoningContentDeltaRef = useRef<string>('**Thought:**\n');
-  const stagingReasoningContentRef = useRef<string>('');
+  // Refs for incremental content accumulation
+  const reasoningContentDeltaRef = useRef<string>('');
   const contentDeltaRef = useRef<string>('');
   // const [agentId, setAgentId] = useState<string>();
 
@@ -82,58 +79,60 @@ const ChatComponent: React.FC = () => {
 
 
 
-  const increaseLastMessage = (thoughtDelta: string, localContentDelta: string) => {
-    let newContent: string = '';
+  const increaseLastMessage = (thoughtDelta: string, localContentDelta: string, fullReasoningContent?: string) => {
+    let newContent: string = contentDeltaRef.current;
+    let newReasoning: string = reasoningContentDeltaRef.current;
+
+    // Handle full reasoning content (from deep thinking step)
+    if (fullReasoningContent) {
+      newReasoning = fullReasoningContent;
+      reasoningContentDeltaRef.current = newReasoning;
+    }
+
     if (thoughtDelta) {
       if ("[DONE]" === thoughtDelta) {
         setIsLoading(false);
-        stagingReasoningContentRef.current = reasoningContentDeltaRef.current;
-        newContent = reasoningContentDeltaRef.current;  // do not append if done;
-        reasoningContentDeltaRef.current = '**Thought:** \n';  // added "Thought: \n" in '[START]' signal
-        return;  // 收到停止信号，停止追加消息
+        reasoningContentDeltaRef.current = '';
+        return;
       } else {
         reasoningContentDeltaRef.current += thoughtDelta;
-        newContent = reasoningContentDeltaRef.current;
+        newReasoning = reasoningContentDeltaRef.current;
       }
     }
+
     if (localContentDelta) {
       if ("[DONE]" === localContentDelta) {
         setIsLoading(false);
-        newContent = contentDeltaRef.current;  // do not append if done;
-        contentDeltaRef.current = "";
-        return;  // 收到停止信号，停止追加消息
+        contentDeltaRef.current = '';
+        return;
       } else {
-        if (!contentDeltaRef.current) {
-          newContent = `${stagingReasoningContentRef.current}\n**Response:**\n${localContentDelta}`;
-          stagingReasoningContentRef.current = "";
-        } else {
-          newContent = contentDeltaRef.current + localContentDelta;  //append delta
-        }
-        contentDeltaRef.current = newContent;
+        contentDeltaRef.current += localContentDelta;
+        newContent = contentDeltaRef.current;
       }
     }
+
     setMessages(prevMsgs => {
       const lastMsg = prevMsgs[prevMsgs.length - 1];
       if (lastMsg && lastMsg.type === 'assistant') {
-        // 更新最后一条 assistant 消息
         const updatedMsgs = [...prevMsgs];
         updatedMsgs[updatedMsgs.length - 1] = {
           ...lastMsg,
           content: {
             ...lastMsg.content,
-            content: newContent as string,
+            content: newContent,
+            reasoningContent: newReasoning || undefined,
             timestamp: lastMsg.content.timestamp,
           } as MessageContent,
         };
         return updatedMsgs;
       } else {
-        // 新增一条 assistant 消息
         return [
           ...prevMsgs,
           {
             type: 'assistant',
             content: {
-              content: newContent as string,
+              content: newContent,
+              reasoningContent: newReasoning || undefined,
               timestamp: Date.now(),
             } as MessageContent,
           },
@@ -145,19 +144,24 @@ const ChatComponent: React.FC = () => {
   // 处理消息事件
   const handleMessageEvent = (messageData: MessageEventData) => {
     if (messageData.reasoningContentDelta === '[START]') {
+      // Reset refs for new message
+      reasoningContentDeltaRef.current = '';
+      contentDeltaRef.current = '';
       setMessages(prevMsgs => {
-        // 新增一条 assistant 消息
         return [
           ...prevMsgs,
           {
             type: 'assistant',
             content: {
-              content: '**Thought:** \n',
+              content: '',
               timestamp: Date.now(),
             } as MessageContent,
           },
         ];
-      })
+      });
+    } else if (messageData.reasoningContent) {
+      // Full reasoning content from deep thinking step
+      increaseLastMessage('', '', messageData.reasoningContent);
     } else {
       increaseLastMessage(messageData.reasoningContentDelta, messageData.contentDelta);
     }

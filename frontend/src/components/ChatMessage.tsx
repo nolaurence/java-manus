@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { XMarkdown } from '@ant-design/x-markdown';
+import { Think } from '@ant-design/x';
 import ManusTextIcon from './icons/ManusTextIcon';
 import ToolUse from './ToolUse';
 import { marked } from 'marked';
@@ -77,6 +78,10 @@ const ChatMessage: React.FC<{
 
   // 助手消息渲染
   if (message.type === 'assistant') {
+    const msgContent = asUserContent();
+    const hasReasoning = !!msgContent.reasoningContent;
+    const hasContent = !!msgContent.content;
+
     return (
       <div className="flex flex-col gap-2 w-full group my-1">
         <div className="flex items-center justify-between h-7 group">
@@ -90,16 +95,24 @@ const ChatMessage: React.FC<{
             </div>
           </div>
         </div>
-        {/* <div
-          className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
-          dangerouslySetInnerHTML={{
-            __html: renderMarkdown(asUserContent().content),
-          }}
-        /> */}
-        <XMarkdown 
-          content={asUserContent().content}
-          className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
-        />
+        {hasReasoning && (
+          <Think
+            title="Deep Thinking"
+            defaultExpanded={!hasContent}
+            style={{ marginBottom: hasContent ? 8 : 0 }}
+          >
+            <XMarkdown
+              content={msgContent.reasoningContent!}
+              className="max-w-none p-0 m-0 prose prose-sm dark:prose-invert text-sm text-[var(--text-secondary)]"
+            />
+          </Think>
+        )}
+        {hasContent && (
+          <XMarkdown 
+            content={msgContent.content}
+            className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
+          />
+        )}
       </div>
     );
   }

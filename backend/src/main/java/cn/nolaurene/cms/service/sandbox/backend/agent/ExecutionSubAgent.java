@@ -89,6 +89,9 @@ public class ExecutionSubAgent {
         log.info("[ExecutionSubAgent] executeStepWithLoop start, goal: {}, currentStep: {}, maxRounds: {}",
                 plan.getGoal(), currentStep.getDescription(), maxRounds);
 
+        // Step 0: Deep Thinking - Let the model reason deeply about the current step before execution
+        performDeepThinking(chatModel, plan, currentStep, completedSteps, emitterOpt, agent);
+
         // Step 1: Routing Decision - Let LLM decide whether to use DIRECT_TOOL or SKILL
         SkillRoutingDecision routingDecision = skillRoutingService.route(
                 chatModel, agent, plan, currentStep, completedSteps);
@@ -780,6 +783,103 @@ public class ExecutionSubAgent {
         } catch (Exception e) {
             return arguments;
         }
+    }
+
+    /**
+     * Perform a deep thinking step before execution.
+     * Uses the model's native reasoning capability to analyze the current step,
+     * then sends the thinking content to the frontend as reasoning content.
+     */
+    private void performDeepThinking(ChatModel chatModel,
+                                      Plan plan,
+                                      Step currentStep,
+                                      List<Step> completedSteps,
+                                      SseEmitter emitter,
+                                      Agent agent) {
+        log.info("[ExecutionSubAgent] Performing deep thinking for step: {}", currentStep.getDescription());
+
+        try {
+            // Build thinking prompt
+            StringBuilder thinkingPrompt = new StringBuilder();
+            thinkingPrompt.append("You are about to execute a step in a plan. Before taking any action, think deeply about:\n");
+            thinkingPrompt.append("1. What is the goal of this step?\n");
+            thinkingPrompt.append("2. What approach should be taken?\n");
+            thinkingPrompt.append("3. What potential challenges or edge cases might arise?\n");
+            thinkingPrompt.append("4. What is the best strategy to accomplish this step?\n\n");
+            thinkingPrompt.append("## Overall Goal\n").append(plan.getGoal()).append("\n\n");
+            thinkingPrompt.append("## Current Step\n").append(currentStep.getDescription()).append("\n\n");
+
+            if (completedSteps != null && !completedSteps.isEmpty()) {
+                thinkingPrompt.append("## Previously Completed Steps\n");
+                for (Step step : completedSteps) {
+                    thinkingPrompt.append("- ").append(step.getDescription());
+                    if (StringUtils.isNotBlank(step.getResult())) {
+                        thinkingPrompt.append(" (Result: ").append(step.getResult(), 0, Math.min(step.getResult().length(), 200)).append(")");
+                    }
+                    thinkingPrompt.append("\n");
+                }
+                thinkingPrompt.append("\n");
+            }
+
+            thinkingPrompt.append("Please provide your deep analysis and reasoning about how to execute this step. ");
+            thinkingPrompt.append("Focus on strategy, approach, and potential issues.");
+
+            // Call LLM for deep thinking
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from("You are a deep thinking assistant. Analyze the given task and provide thorough reasoning about how to approach it. Be concise but insightful."));
+            messages.add(UserMessage.from(thinkingPrompt.toString()));
+
+            ChatRequest request = ChatRequest.builder()
+                    .messages(messages)
+                    .build();
+
+            long startTime = System.currentTimeMillis();
+            ChatResponse response = chatModel.chat(request);
+            long thinkTime = System.currentTimeMillis() - startTime;
+
+            AiMessage aiMessage = response.aiMessage();
+            String thinkingContent = aiMessage.text();
+
+            if (StringUtils.isNotBlank(thinkingContent)) {
+                log.info("[ExecutionSubAgent] Deep thinking completed in {}ms, content length: {}",
+                        thinkTime, thinkingContent.length());
+
+                // Send thinking content to frontend as reasoning content
+                sendReasoningEvent(thinkingContent, thinkTime, agent, emitter);
+            } else {
+                log.warn("[ExecutionSubAgent] Deep thinking returned empty content");
+            }
+
+        } catch (Exception e) {
+            log.warn("[ExecutionSubAgent] Deep thinking failed, continuing with execution: {}", e.getMessage());
+            // Deep thinking failure should not block execution
+        }
+    }
+
+    /**
+     * Send a reasoning/thinking SSE event to the frontend.
+     */
+    private void sendReasoningEvent(String reasoningContent, long thinkTime, Agent agent, SseEmitter emitter) {
+        MessageEventData messageEventData = new MessageEventData();
+        messageEventData.setTimestamp(System.currentTimeMillis());
+        messageEventData.setReasoningContent(reasoningContent);
+        messageEventData.setThinkTime(thinkTime);
+
+        try {
+            if (emitter != null) {
+                emitter.send(SseEmitter.event()
+                        .name(SSEEventType.MESSAGE.getType())
+                        .data(JSON.toJSONString(messageEventData))
+                        .id(String.valueOf(System.currentTimeMillis())));
+            }
+        } catch (Exception e) {
+            log.error("[ExecutionSubAgent] Failed to send reasoning SSE event: agentId={}", agent.getAgentId(), e);
+        }
+
+        // Persist reasoning content
+        conversationHistoryService.saveAssistantMessageWithId(
+                "**Deep Thinking:**\n" + reasoningContent, SSEEventType.MESSAGE,
+                agent.getUserId(), agent.getAgentId());
     }
 
     /**

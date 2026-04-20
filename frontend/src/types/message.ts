@@ -13,6 +13,7 @@ export interface BaseContent {
 
 export interface MessageContent extends BaseContent {
   content: string;
+  reasoningContent?: string;
 }
 
 export interface ToolContent extends BaseContent {
