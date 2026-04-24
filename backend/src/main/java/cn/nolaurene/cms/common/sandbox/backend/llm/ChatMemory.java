@@ -26,6 +26,9 @@ public class ChatMemory {
         List<ChatMessage> copy = new ArrayList<>();
         for (ChatMessage message : history) {
             ChatMessage cloned = new ChatMessage(message.getRole(), message.getEventType(), message.getContent());
+            if (message.getThinking() != null) {
+                cloned.setThinking(message.getThinking());
+            }
             copy.add(cloned);
         }
         return copy;

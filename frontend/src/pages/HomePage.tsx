@@ -122,13 +122,18 @@ const Home: React.FC = () => {
   const [userInfo, setUserInfo] = useState<API.UserInfo | null>(null);
 
   useEffect(() => {
-    const init = async () => {
+    const fetchUser = async () => {
       const loginInfo = await currentUser();
       if (loginInfo && loginInfo.success && loginInfo.data) {
         setUserInfo(loginInfo.data);
+      } else {
+        setUserInfo(null);
       }
     };
-    init();
+    fetchUser();
+
+    window.addEventListener('loginSuccess', fetchUser);
+    return () => window.removeEventListener('loginSuccess', fetchUser);
   }, []);
 
   const handleSubmit = async () => {

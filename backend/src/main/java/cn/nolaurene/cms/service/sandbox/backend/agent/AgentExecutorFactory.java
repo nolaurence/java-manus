@@ -39,6 +39,8 @@ public class AgentExecutorFactory {
                 .baseUrl(endpoint)
                 .apiKey(apiKey)
                 .modelName(modelName)
+                .sendThinking(true)
+                .returnThinking(true)
                 .build();
     }
 }
