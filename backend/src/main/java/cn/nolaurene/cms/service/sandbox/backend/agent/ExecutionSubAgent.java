@@ -245,12 +245,12 @@ public class ExecutionSubAgent {
     }
 
     /**
-     * Execute step using a Skill with 5-step workflow:
-     * 1. Load enabled skills' YAML for skill selection
-     * 2. Load selected skill's full content (skill.md) for command decision
-     * 3. Execute command via shell_exec in sandbox
-     * 4. Check if task is completed
-     * 5. Loop 1-4 until completion or max rounds reached
+     * Execute step using a Skill with phased context injection:
+     * - Round 1: Inject SKILL.md + support file list, let LLM decide next action.
+     * - Subsequent rounds: If LLM requests a file (READ_FILE instruction), load and inject
+     *   that single file into context, then continue. Otherwise execute the shell command.
+     *
+     * This avoids dumping all file content upfront; files are loaded on-demand.
      */
     private String executeStepWithSkill(ChatModel chatModel,
                                          Plan plan,
@@ -276,38 +276,63 @@ public class ExecutionSubAgent {
 
         log.info("[ExecutionSubAgent] Selected skill for execution: {}", selectedSkillId);
 
-        // Load full skill definition with documents
+        // Load basic skill definition
         SkillDefinitionDTO skill = loadFullSkillDefinition(selectedSkillId);
         if (skill == null) {
             log.error("[ExecutionSubAgent] Skill not found: {}", selectedSkillId);
             return "Error: Skill not found: " + selectedSkillId;
         }
 
-        // Build messages for skill execution loop
+        // Pre-load SKILL.md and support file list (lightweight metadata only)
+        String skillMdContent = skillFileStorageService.readSkillMd(selectedSkillId);
+        List<String> supportFiles = skillFileStorageService.listSupportFiles(selectedSkillId);
+        // Track which support files have already been injected to avoid re-loading
+        Set<String> loadedSupportFiles = new LinkedHashSet<>();
+        // Accumulate injected file sections for phaseN prompt
+        StringBuilder injectedFilesSb = new StringBuilder();
+
+        // Build MCP tool specifications (exclude skill tools; skill execution is driven by prompt flow)
+        List<ToolSpecification> toolSpecs = buildToolSpecsWithThink(
+                agent.getToolSpecifications().stream()
+                        .filter(tool -> !tool.name().startsWith(SkillToolProvider.SKILL_TOOL_PREFIX))
+                        .collect(Collectors.toList())
+        );
+
+        // Build base conversation: system prompt is fixed, user turns are appended per round
         List<ChatMessage> messages = new ArrayList<>();
         String systemPrompt = loadPrompt("prompts/system.jinja");
         String executorSystemPrompt = loadPrompt("prompts/executionSystemPrompt.jinja");
         messages.add(SystemMessage.from(systemPrompt + "\n" + executorSystemPrompt));
 
-        // Step 2-5: Execution loop with skill content
         String finalResult = "";
-        int consecutiveTextOnlyRounds = 0;
-        final int MAX_TEXT_ONLY_ROUNDS = 3;
+        int consecutiveNoActionRounds = 0;
+        final int MAX_NO_ACTION_ROUNDS = 3;
 
         for (int round = 1; round <= maxRounds; round++) {
             log.info("[ExecutionSubAgent] Skill Round {}/{} for skill: {}", round, maxRounds, selectedSkillId);
 
-            // Build context with skill content for command decision
-            String executionContext = buildSkillExecutionContextWithContent(plan, currentStep, completedSteps, skill, round);
+            // Build round-specific user message via phased templates
+            String executionContext;
+            if (round == 1) {
+                executionContext = buildSkillPhase1Context(
+                        plan, currentStep, completedSteps, skill, skillMdContent, supportFiles);
+            } else {
+                executionContext = buildSkillPhaseNContext(
+                        plan, currentStep, completedSteps, skill, supportFiles,
+                        loadedSupportFiles, injectedFilesSb.toString(), round);
+            }
+
             List<ChatMessage> roundMessages = new ArrayList<>(messages);
             roundMessages.add(UserMessage.from(executionContext));
 
-            // Call LLM to get command decision
+            // Call LLM with native MCP tool specifications
             ChatRequest request = ChatRequest.builder()
                     .messages(roundMessages)
+                    .toolSpecifications(toolSpecs)
                     .build();
 
-            log.info("[ExecutionSubAgent] Skill Round {} - LLM request messages (count={}): {}", round, roundMessages.size(), renderMessageToLog(roundMessages));
+            log.info("[ExecutionSubAgent] Skill Round {} - LLM request (count={}): {}",
+                    round, roundMessages.size(), renderMessageToLog(roundMessages));
 
             ChatResponse response;
             try {
@@ -317,52 +342,127 @@ public class ExecutionSubAgent {
                 throw e;
             }
             AiMessage aiMessage = response.aiMessage();
-
             String aiText = aiMessage.text();
             log.info("[ExecutionSubAgent] Skill Round {} - LLM response: {}", round, aiText);
-            if (aiText == null || aiText.isEmpty()) {
-                log.warn("[ExecutionSubAgent] Skill Round {} - AI message has no text", round);
-                break;
+
+            // Extract and send think block to frontend (also applies to tool-call rounds when text is present)
+            if (aiText != null && !aiText.isEmpty()) {
+                String thinkContent = extractThinkContent(aiText);
+                if (thinkContent != null && !thinkContent.isEmpty()) {
+                    log.info("[ExecutionSubAgent] Skill Round {} - Think block length: {}", round, thinkContent.length());
+                    sendMessageEvent(thinkContent, agent, emitterOpt);
+                }
             }
 
-            // Extract and send deep thinking content to frontend
-            String thinkContent = extractThinkContent(aiText);
-            if (thinkContent != null && !thinkContent.isEmpty()) {
-                log.info("[ExecutionSubAgent] Skill Round {} - Deep thinking extracted, length: {}", round, thinkContent.length());
-                sendMessageEvent(thinkContent, agent, emitterOpt);
-            }
-
-            // Strip think block from aiText for further processing
-            String processedText = stripThinkContent(aiText);
-
-            // Add AI message to main conversation
+            // Persist AI message into conversation history
             messages.add(aiMessage);
 
-            // Check if step is completed
-            if (processedText.contains("COMPLETED:") || processedText.contains("Step completed")) {
-                finalResult = aiText.replace("COMPLETED:", "").replace("Step completed", "").trim();
-                log.info("[ExecutionSubAgent] Skill execution completed in round {}: {}", round, selectedSkillId);
+            // --- Branch 1: Native MCP tool calls ---
+            if (aiMessage.hasToolExecutionRequests()) {
+                List<ToolExecutionRequest> toolRequests = aiMessage.toolExecutionRequests();
+                log.info("[ExecutionSubAgent] Skill Round {} - {} MCP tool calls requested", round, toolRequests.size());
+
+                for (ToolExecutionRequest toolRequest : toolRequests) {
+                    String toolName = toolRequest.name();
+                    String arguments = toolRequest.arguments();
+                    log.info("[ExecutionSubAgent] Skill Round {} - tool call: {}, args: {}", round, toolName, arguments);
+
+                    // Local think tool
+                    if (THINK_TOOL_NAME.equals(toolName)) {
+                        String thought = extractThought(arguments);
+                        sendMessageEvent(thought, agent, emitterOpt);
+                        messages.add(ToolExecutionResultMessage.from(toolRequest, "Thought logged."));
+                        continue;
+                    }
+
+                    // Inject agentId for shell tools
+                    ToolExecutionRequest finalToolRequest = toolRequest;
+                    String finalArguments = arguments;
+                    if (toolName.startsWith("shell_")) {
+                        finalToolRequest = injectAgentIdForShellTool(toolRequest, agent.getAgentId());
+                        finalArguments = finalToolRequest.arguments();
+                    }
+
+                    reportToolEvent(toolName, finalArguments, agent, emitterOpt);
+
+                    String observation = executeToolWithRetry(toolName, finalToolRequest, agent);
+                    log.info("[ExecutionSubAgent] Skill Round {} - Tool {} result: {}", round, toolName, observation);
+
+                    messages.add(ToolExecutionResultMessage.from(toolRequest, observation));
+                }
+
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+
+                String checkResult = checkStepCompletion(chatModel, messages, currentStep);
+                if (checkResult != null) {
+                    finalResult = checkResult;
+                    log.info("[ExecutionSubAgent] Step completed after MCP tool execution in skill round {}", round);
+                    break;
+                }
+
+                consecutiveNoActionRounds = 0;
+                continue;
+            }
+
+            // --- Branch 2: Text-based action (READ_FILE / bash / COMPLETED) ---
+            if (aiText == null || aiText.isEmpty()) {
+                log.warn("[ExecutionSubAgent] Skill Round {} - AI message has neither text nor tool calls", round);
                 break;
             }
 
-            // Step 3: Extract and execute shell command
+            String processedText = stripThinkContent(aiText);
+
+            // 1) COMPLETED
+            if (processedText.contains("COMPLETED:")) {
+                finalResult = processedText.substring(processedText.indexOf("COMPLETED:") + "COMPLETED:".length()).trim();
+                log.info("[ExecutionSubAgent] Skill execution COMPLETED in round {}: {}", round, selectedSkillId);
+                break;
+            }
+
+            // 2) READ_FILE instruction — load the requested file and inject in next round
+            String requestedFile = extractReadFileInstruction(processedText);
+            if (requestedFile != null) {
+                if (loadedSupportFiles.contains(requestedFile)) {
+                    log.warn("[ExecutionSubAgent] Skill Round {} - LLM re-requested already-loaded file: {}, skipping", round, requestedFile);
+                    messages.add(UserMessage.from(
+                            "[System] File '" + requestedFile + "' was already loaded in a previous round. "
+                            + "Please proceed using the file content already provided."));
+                } else if (!supportFiles.contains(requestedFile)) {
+                    log.warn("[ExecutionSubAgent] Skill Round {} - LLM requested unknown file: {}", round, requestedFile);
+                    messages.add(UserMessage.from(
+                            "[System] File '" + requestedFile + "' does not exist in this skill. "
+                            + "Available files: " + String.join(", ", supportFiles)));
+                } else {
+                    String fileSection = skillFileStorageService.formatSupportFile(selectedSkillId, requestedFile);
+                    loadedSupportFiles.add(requestedFile);
+                    injectedFilesSb.append(fileSection).append("\n");
+                    log.info("[ExecutionSubAgent] Skill Round {} - Loaded support file: {}", round, requestedFile);
+                    messages.add(UserMessage.from(
+                            "[System] File content loaded as requested:\n\n" + fileSection));
+                }
+                consecutiveNoActionRounds = 0;
+                continue;
+            }
+
+            // 3) Shell command — execute it
             String command = extractCommand(processedText);
             if (command != null && !command.isEmpty()) {
                 log.info("[ExecutionSubAgent] Executing skill command: {}", command);
 
-                // Report tool event
                 JSONObject skillArgs = new JSONObject();
                 skillArgs.put("command", command);
                 reportToolEvent("shell_skill_execute", skillArgs.toJSONString(), agent, emitterOpt);
 
-                // Execute command via shell service
                 String observation = executeSkillCommand(selectedSkillId, sessionId, command, agent);
                 log.info("[ExecutionSubAgent] Skill command result: {}", observation);
 
-                // Step 4: Add result to messages for completion check
                 messages.add(UserMessage.from("Command output:\n" + observation));
 
-                // Check if step is completed after command execution
+                // Check completion after command
                 String checkResult = checkStepCompletion(chatModel, messages, currentStep);
                 if (checkResult != null) {
                     finalResult = checkResult;
@@ -370,36 +470,31 @@ public class ExecutionSubAgent {
                     break;
                 }
 
-                // Sleep to prevent too fast execution
                 try {
                     TimeUnit.MILLISECONDS.sleep(500);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                 }
 
-                // Reset consecutive text-only counter since we executed a command
-                consecutiveTextOnlyRounds = 0;
-                // Step 5: Continue to next round
+                consecutiveNoActionRounds = 0;
                 continue;
             }
 
-            // LLM provided text response without command
+            // 4) No recognizable action — treat as text result
             finalResult = processedText;
-            consecutiveTextOnlyRounds++;
-            log.info("[ExecutionSubAgent] Skill execution returned text in round {}: {} (consecutive text-only: {})",
-                    round, selectedSkillId, consecutiveTextOnlyRounds);
+            consecutiveNoActionRounds++;
+            log.info("[ExecutionSubAgent] Skill Round {} - No action detected (consecutive: {})",
+                    round, consecutiveNoActionRounds);
 
-            // Check if step is completed
             String checkResult = checkStepCompletion(chatModel, messages, currentStep);
             if (checkResult != null) {
                 finalResult = checkResult;
                 break;
             }
 
-            // Break if LLM keeps returning text without commands for too many rounds
-            if (consecutiveTextOnlyRounds >= MAX_TEXT_ONLY_ROUNDS) {
-                log.warn("[ExecutionSubAgent] Breaking skill loop: {} consecutive text-only rounds without progress for skill: {}",
-                        consecutiveTextOnlyRounds, selectedSkillId);
+            if (consecutiveNoActionRounds >= MAX_NO_ACTION_ROUNDS) {
+                log.warn("[ExecutionSubAgent] Breaking skill loop after {} no-action rounds for skill: {}",
+                        consecutiveNoActionRounds, selectedSkillId);
                 break;
             }
         }
@@ -409,6 +504,104 @@ public class ExecutionSubAgent {
         }
 
         return finalResult;
+    }
+
+    /**
+     * Extract READ_FILE instruction from LLM response.
+     * Supports formats:
+     *   READ_FILE: scripts/run.sh
+     *   ```\nREAD_FILE: scripts/run.sh\n```
+     *
+     * @return the requested relative path, or null if no READ_FILE instruction found
+     */
+    private String extractReadFileInstruction(String text) {
+        if (text == null) return null;
+        for (String line : text.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("READ_FILE:")) {
+                String path = trimmed.substring("READ_FILE:".length()).trim();
+                // Strip surrounding backticks if any
+                path = path.replace("`", "").trim();
+                if (!path.isEmpty()) {
+                    return path;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Build context for the first skill execution round.
+     * Injects: SKILL.md full content + support file directory listing.
+     */
+    private String buildSkillPhase1Context(Plan plan,
+                                            Step currentStep,
+                                            List<Step> completedSteps,
+                                            SkillDefinitionDTO skill,
+                                            String skillMdContent,
+                                            List<String> supportFiles) throws IOException {
+        String template = loadPrompt("prompts/skillExecutionPhase1.jinja");
+        Map<String, Object> ctx = new HashMap<>();
+        ctx.put("goal", plan.getGoal());
+        ctx.put("skillId", skill.getSkillId());
+        ctx.put("skillName", skill.getName());
+        ctx.put("skillDescription", skill.getDescription());
+        ctx.put("skillMdContent", skillMdContent.isEmpty() ? "(SKILL.md not found)" : skillMdContent);
+        ctx.put("supportFileList", buildSupportFileList(supportFiles, Collections.emptySet()));
+        ctx.put("completedStepsSection", buildCompletedStepsSection(completedSteps, 200));
+        ctx.put("currentStepDescription", currentStep.getDescription());
+        return render(template, ctx);
+    }
+
+    /**
+     * Build context for subsequent skill execution rounds.
+     * Injects: previously loaded support files + remaining file list (excluding already-loaded).
+     */
+    private String buildSkillPhaseNContext(Plan plan,
+                                            Step currentStep,
+                                            List<Step> completedSteps,
+                                            SkillDefinitionDTO skill,
+                                            List<String> supportFiles,
+                                            Set<String> loadedSupportFiles,
+                                            String injectedFilesContent,
+                                            int round) throws IOException {
+        String template = loadPrompt("prompts/skillExecutionPhaseN.jinja");
+
+        // Build injected files section header
+        String injectedFilesSection = "";
+        if (!injectedFilesContent.isEmpty()) {
+            injectedFilesSection = "## Loaded Support Files\n" + injectedFilesContent;
+        }
+
+        Map<String, Object> ctx = new HashMap<>();
+        ctx.put("goal", plan.getGoal());
+        ctx.put("skillId", skill.getSkillId());
+        ctx.put("skillName", skill.getName());
+        ctx.put("skillDescription", skill.getDescription());
+        ctx.put("injectedFilesSection", injectedFilesSection);
+        ctx.put("supportFileList", buildSupportFileList(supportFiles, loadedSupportFiles));
+        ctx.put("completedStepsSection", buildCompletedStepsSection(completedSteps, 200));
+        ctx.put("currentStepDescription", currentStep.getDescription());
+        ctx.put("currentRound", String.valueOf(round));
+        return render(template, ctx);
+    }
+
+    /**
+     * Build formatted support file list, marking already-loaded files.
+     */
+    private String buildSupportFileList(List<String> supportFiles, Set<String> loadedFiles) {
+        if (supportFiles.isEmpty()) {
+            return "(No support files available)\n";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String f : supportFiles) {
+            if (loadedFiles.contains(f)) {
+                sb.append("- ").append(f).append(" [already loaded]\n");
+            } else {
+                sb.append("- ").append(f).append("\n");
+            }
+        }
+        return sb.toString();
     }
 
     /**
@@ -542,35 +735,6 @@ public class ExecutionSubAgent {
         // Note: This requires SkillDocumentMapper, which should be injected
         // For now, we use the existing skill definition
         return skill;
-    }
-
-    /**
-     * Build skill execution context with full skill content.
-     */
-    private String buildSkillExecutionContextWithContent(Plan plan, Step currentStep,
-                                                         List<Step> completedSteps,
-                                                         SkillDefinitionDTO skill,
-                                                         int currentRound) throws IOException {
-        // Build skill documentation section from filesystem
-        String skillDocSection = "";
-        String skillContext = skillFileStorageService.getSkillContext(skill.getSkillId());
-        if (StringUtils.isNotBlank(skillContext)) {
-            skillDocSection = "## Skill Files (from /app/skills/extracted/" + skill.getSkillId() + ")\n" + skillContext;
-        } else if (skill.getDocuments() != null) {
-            skillDocSection = "## Skill Documentation\n(Skill documentation loaded)\n\n";
-        }
-
-        String template = loadPrompt("prompts/buildSkillExecutionContext.jinja");
-        Map<String, Object> context = new HashMap<>();
-        context.put("goal", plan.getGoal());
-        context.put("skillId", skill.getSkillId());
-        context.put("skillName", skill.getName());
-        context.put("skillDescription", skill.getDescription());
-        context.put("skillDocumentationSection", skillDocSection);
-        context.put("completedStepsSection", buildCompletedStepsSection(completedSteps, 200));
-        context.put("currentStepDescription", currentStep.getDescription());
-        context.put("currentRound", String.valueOf(currentRound));
-        return render(template, context);
     }
 
     /**

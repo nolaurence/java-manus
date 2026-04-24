@@ -407,6 +407,68 @@ public class SkillFileStorageService {
     }
 
     /**
+     * 获取Skill的支持文件列表（scripts目录下所有文件 + reference.md / examples.md）
+     * 用于在上下文中告知LLM有哪些文件可以请求查看
+     *
+     * @param skillId Skill ID
+     * @return 相对路径列表，如 ["scripts/run.sh", "scripts/helper.py", "reference.md"]
+     */
+    public List<String> listSupportFiles(String skillId) {
+        List<String> files = new ArrayList<>();
+        try {
+            Path skillPath = resolveSkillPath(skillId);
+            if (!Files.exists(skillPath) || !Files.isDirectory(skillPath)) {
+                return files;
+            }
+
+            // reference.md / examples.md
+            for (String doc : Arrays.asList("reference.md", "examples.md")) {
+                if (Files.exists(skillPath.resolve(doc))) {
+                    files.add(doc);
+                }
+            }
+
+            // scripts/ 目录
+            Path scriptsPath = skillPath.resolve("scripts");
+            if (Files.exists(scriptsPath) && Files.isDirectory(scriptsPath)) {
+                try (Stream<Path> stream = Files.walk(scriptsPath)) {
+                    stream.filter(Files::isRegularFile)
+                            .sorted()
+                            .forEach(p -> files.add(skillPath.relativize(p).toString()));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to list support files for skill: {}", skillId, e);
+        }
+        return files;
+    }
+
+    /**
+     * 读取 SKILL.md 内容
+     *
+     * @param skillId Skill ID
+     * @return SKILL.md 内容，不存在时返回空字符串
+     */
+    public String readSkillMd(String skillId) {
+        String content = readSkillFile(skillId, "SKILL.md");
+        return content != null ? content : "";
+    }
+
+    /**
+     * 将单个支持文件格式化为适合注入上下文的字符串
+     *
+     * @param skillId      Skill ID
+     * @param relativePath 相对路径（来自 listSupportFiles 的结果）
+     * @return 格式化的文件内容字符串，文件不存在或读取失败时返回空字符串
+     */
+    public String formatSupportFile(String skillId, String relativePath) {
+        Path skillPath = resolveSkillPath(skillId);
+        StringBuilder sb = new StringBuilder();
+        appendFileContent(sb, skillPath, relativePath);
+        return sb.toString();
+    }
+
+    /**
      * 获取存储路径
      */
     public String getStoragePath() {
