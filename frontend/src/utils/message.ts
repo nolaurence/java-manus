@@ -7,6 +7,23 @@ import {
 import { ConversationMessage } from '@/services/api/sandbox';
 import type { PlanEventData } from '@/types/sseEvent';
 
+const hasMessageBoundaryBetween = (
+  conversationMessages: ConversationMessage[],
+  fromIndex: number,
+  toIndex: number,
+): boolean => {
+  const start = Math.min(fromIndex, toIndex) + 1;
+  const end = Math.max(fromIndex, toIndex);
+
+  for (let i = start; i < end; i++) {
+    if (conversationMessages[i]?.eventType === 'MESSAGE') {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 export const attachToolsToSteps = (messages: Message[], conversationMessages: ConversationMessage[]): Message[] => {
   // 构建 Tool 消息的数据库 ID -> index 映射
   const toolIdToIndex = new Map<number, number>();
@@ -58,7 +75,10 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
           const toolIndex = toolIdToIndex.get(toolId);
           if (toolIndex !== undefined) {
             const toolMsg = messages[toolIndex];
-            if (toolMsg.type === 'tool') {
+            if (
+              toolMsg.type === 'tool' &&
+              !hasMessageBoundaryBetween(conversationMessages, i, toolIndex)
+            ) {
               stepContent.tools.push(toolMsg.content as ToolContent);
               toolsToFilter.add(toolIndex);
             }
@@ -96,8 +116,10 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
           if (stepContent.tools === undefined) {
             stepContent.tools = [];
           }
-          stepContent.tools.push(messages[tool.index].content as ToolContent);
-          toolsToFilter.add(tool.index);
+          if (!hasMessageBoundaryBetween(conversationMessages, candidateStep.index, tool.index)) {
+            stepContent.tools.push(messages[tool.index].content as ToolContent);
+            toolsToFilter.add(tool.index);
+          }
         }
       }
     }

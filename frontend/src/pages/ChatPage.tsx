@@ -176,14 +176,37 @@ const ChatComponent: React.FC = () => {
         && JSON.stringify(a.args ?? {}) === JSON.stringify(b.args ?? {});
     };
 
+    const hasVisibleAssistantContent = (content: MessageContent) => {
+      return !!content.content || !!content.reasoningContent;
+    };
+
+    const findAttachableStepIndex = (messages: Message[]) => {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+
+        if (msg.type === 'step') {
+          return i;
+        }
+
+        if (msg.type === 'user') {
+          return -1;
+        }
+
+        if (msg.type === 'assistant' && hasVisibleAssistantContent(msg.content as MessageContent)) {
+          return -1;
+        }
+      }
+
+      return -1;
+    };
+
     setMessages(prevMsgs => {
-      const lastMessageIndex = prevMsgs.length - 1;
-      const lastMessage = prevMsgs[lastMessageIndex];
+      const stepIndex = findAttachableStepIndex(prevMsgs);
       
-      if (lastMessage?.type === 'step') {
+      if (stepIndex !== -1) {
         // 添加到步骤工具列表
         return prevMsgs.map((msg, index) => {
-          if (index === lastMessageIndex && msg.type === 'step') {
+          if (index === stepIndex && msg.type === 'step') {
             const tools = (msg.content as StepContent).tools || [];
             if (tools.some(tool => isSameTool(tool, toolData))) {
               return msg;

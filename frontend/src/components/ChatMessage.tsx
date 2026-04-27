@@ -121,10 +121,12 @@ const ChatMessage: React.FC<{
   if (message.type === 'tool') {
     // @ts-ignore
     return (
-      <ToolUse
-        tool={asToolContent()}
-        onClick={() => onToolClick(asToolContent())}
-      />
+      <div className="w-full my-1">
+        <ToolUse
+          tool={asToolContent()}
+          onClick={() => onToolClick(asToolContent())}
+        />
+      </div>
     );
   }
 
