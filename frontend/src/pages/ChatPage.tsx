@@ -2,7 +2,7 @@ import React, {useState, useRef, useEffect, useCallback} from 'react';
 import ChatBox from '@/components/ChatBox';
 import ChatMessage from '@/components/ChatMessage';
 import ToolPanel from '@/components/ToolPanel';
-import {chatWithAgent, fetchSessionMessages, fetchConversationTitle, type ConversationMessage} from '@/services/api/sandbox';
+import {chatWithAgent, resumeAgentStream, fetchSessionMessages, fetchConversationTitle, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
 // @ts-ignore
 import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from 'lucide-react';
@@ -356,6 +356,17 @@ const ChatComponent: React.FC = () => {
           } else {
             setTitle('History');
           }
+          const lastHistoryId = history.reduce((maxId, item) => Math.max(maxId, item.id || 0), 0);
+          setIsLoading(true);
+          void resumeAgentStream(
+            agentId,
+            lastHistoryId,
+            handleEvent,
+            (error: any) => {
+              console.error('Resume chat error:', error);
+              setIsLoading(false);
+            },
+          );
           return;
         } catch (e) {
           console.error('load history failed', e);

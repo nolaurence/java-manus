@@ -205,6 +205,9 @@ public class AgentSession {
         log.info("Resuming AgentSession flow.");
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
+        if (this.executor != null) {
+            this.executor.resumeSseEmitter(emitter);
+        }
 
         setupSseEmitterListeners(emitter);
 
@@ -238,17 +241,21 @@ public class AgentSession {
     private void setupSseEmitterListeners(SseEmitter sseEmitter) {
         sseEmitter.onCompletion(() -> {
             log.info("SSE connection completed for AgentSession (user likely left)");
-            if (frontendConnected.compareAndSet(true, false)) {
+            if (currentSseEmitter == sseEmitter && frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onCompletion.");
             }
-            this.currentSseEmitter = null;
+            if (currentSseEmitter == sseEmitter) {
+                this.currentSseEmitter = null;
+            }
         });
         sseEmitter.onError((Throwable t) -> {
             log.warn("SSE connection encountered error for AgentSession", t);
-            if (frontendConnected.compareAndSet(true, false)) {
+            if (currentSseEmitter == sseEmitter && frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onError.");
             }
-            this.currentSseEmitter = null;
+            if (currentSseEmitter == sseEmitter) {
+                this.currentSseEmitter = null;
+            }
         });
     }
 

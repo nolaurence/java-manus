@@ -242,6 +242,22 @@ public class ConversationHistoryService {
                 .collect(Collectors.toList());
     }
 
+    public List<ConversationResponse> getSessionConversationsAfterId(String sessionId, Long afterId) {
+        log.debug("获取会话增量历史: sessionId={}, afterId={}", sessionId, afterId);
+        Example<ConversationHistoryDO> example = new Example<>();
+        Example.Criteria<ConversationHistoryDO> criteria = example.createCriteria()
+                .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getIsDeleted, false);
+        if (afterId != null && afterId > 0) {
+            criteria.andGreaterThan(ConversationHistoryDO::getId, afterId);
+        }
+        example.orderBy(ConversationHistoryDO::getId, Example.Order.ASC);
+        return conversationHistoryTkMapper.selectByExample(example)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
     /**
      * 获取用户的所有会话摘要
      */

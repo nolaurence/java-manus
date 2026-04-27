@@ -134,8 +134,9 @@ public class AgentExecutor {
         }
 
         try {
-            if (emitter != null) {
-                emitter.send(SseEmitter.event()
+            SseEmitter activeEmitter = currentSseEmitter != null ? currentSseEmitter : emitter;
+            if (activeEmitter != null) {
+                activeEmitter.send(SseEmitter.event()
                         .name(eventName)
                         .data(data)
                         .id(String.valueOf(System.currentTimeMillis())));
@@ -332,11 +333,18 @@ public class AgentExecutor {
         }
     }
 
+    public void resumeSseEmitter(SseEmitter emitter) {
+        this.currentSseEmitter = emitter;
+        this.frontendConnected.set(true);
+        setupSseEmitterListeners(emitter);
+        log.info("AgentExecutor SSE emitter resumed: agentId={}", agent.getAgentId());
+    }
+
     private void syncRespondThought(String reasoningContent, SseEmitter sseEmitter) {
         MessageEventData messageEvent = new MessageEventData();
         messageEvent.setReasoningContentDelta(reasoningContent);
         messageEvent.setTimestamp(System.currentTimeMillis());
-        if (frontendConnected.get() && sseEmitter != null) {
+        if (frontendConnected.get() && currentSseEmitter != null) {
             sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
         } else {
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
@@ -347,7 +355,7 @@ public class AgentExecutor {
         MessageEventData messageEvent = new MessageEventData();
         messageEvent.setContentDelta(content);
         messageEvent.setTimestamp(System.currentTimeMillis());
-        if (frontendConnected.get() && sseEmitter != null) {
+        if (frontendConnected.get() && currentSseEmitter != null) {
             sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
         } else {
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
@@ -369,7 +377,7 @@ public class AgentExecutor {
             return stepData;
         }).collect(Collectors.toList()));
 
-        if (frontendConnected.get() && sseEmitter != null) {
+        if (frontendConnected.get() && currentSseEmitter != null) {
             sendOrForwardMessage(sseEmitter, SSEEventType.PLAN.getType(), eventData);
         } else {
             logSseEvent(SSEEventType.MESSAGE.getType(), eventData);
@@ -382,7 +390,7 @@ public class AgentExecutor {
         data.setStatus(status.getCode());
         data.setDescription(description);
 
-        if (frontendConnected.get() && sseEmitter != null) {
+        if (frontendConnected.get() && currentSseEmitter != null) {
             executor.submit(() -> {
                 if (frontendConnected.get()) {
                     sendOrForwardMessage(sseEmitter, SSEEventType.STEP.getType(), data);
@@ -460,13 +468,13 @@ public class AgentExecutor {
     private void setupSseEmitterListeners(SseEmitter sseEmitter) {
         sseEmitter.onCompletion(() -> {
             log.info("SSE connection completed/onCompletion (user likely left)");
-            if (frontendConnected.compareAndSet(true, false)) {
+            if (currentSseEmitter == sseEmitter && frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onCompletion.");
             }
         });
         sseEmitter.onError((Throwable t) -> {
             log.warn("SSE connection encountered error/onError", t);
-            if (frontendConnected.compareAndSet(true, false)) {
+            if (currentSseEmitter == sseEmitter && frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onError.");
             }
         });

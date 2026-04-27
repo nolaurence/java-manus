@@ -7,6 +7,7 @@ import cn.nolaurene.cms.common.sandbox.backend.model.AgentInfo;
 import cn.nolaurene.cms.common.sandbox.backend.model.FileViewResponse;
 import cn.nolaurene.cms.common.sandbox.backend.model.ShellViewResponse;
 import cn.nolaurene.cms.common.sandbox.backend.req.ChatRequest;
+import cn.nolaurene.cms.common.dto.ConversationResponse;
 import cn.nolaurene.cms.common.vo.User;
 import cn.nolaurene.cms.dal.entity.LlmConfigDO;
 import cn.nolaurene.cms.exception.BusinessException;
@@ -288,6 +289,106 @@ public class AgentController {
             }
         });
         return sseEmitter;
+    }
+
+    @PostMapping("/{agentId}/resume")
+    public SseEmitter resume(@PathVariable String agentId,
+                             @RequestParam(value = "afterId", required = false) Long afterId,
+                             HttpServletRequest httpServletRequest,
+                             HttpServletResponse httpServletResponse) {
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        if (null == currentUserInfo) {
+            throw new BusinessException("未登录", null);
+        }
+        String userId = currentUserInfo.getUserid().toString();
+
+        SseEmitter sseEmitter = new SseEmitter(sseTimeout);
+        httpServletResponse.setContentType("text/event-stream");
+        httpServletResponse.setHeader("Cache-Control", "no-cache");
+        httpServletResponse.setHeader("Connection", "keep-alive");
+
+        ScheduledExecutorService heartbeatExecutor = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r);
+            t.setName("sse-resume-heartbeat-" + agentId);
+            t.setDaemon(true);
+            return t;
+        });
+        AtomicBoolean isActive = new AtomicBoolean(true);
+
+        heartbeatExecutor.scheduleAtFixedRate(() -> {
+            if (isActive.get()) {
+                try {
+                    sseEmitter.send(SseEmitter.event()
+                            .name("heartbeat")
+                            .data("{\"type\":\"ping\",\"timestamp\":" + System.currentTimeMillis() + "}"));
+                    log.debug("SSE resume heartbeat sent for agent: {}", agentId);
+                } catch (Exception e) {
+                    log.warn("SSE resume heartbeat failed for agent: {}, connection may be closed", agentId);
+                    isActive.set(false);
+                    heartbeatExecutor.shutdown();
+                }
+            }
+        }, heartbeatInterval, heartbeatInterval, TimeUnit.MILLISECONDS);
+
+        sseEmitter.onCompletion(() -> {
+            log.info("SSE resume connection completed for agent: {}", agentId);
+            isActive.set(false);
+            heartbeatExecutor.shutdown();
+        });
+
+        sseEmitter.onTimeout(() -> {
+            log.warn("SSE resume connection timeout for agent: {}", agentId);
+            isActive.set(false);
+            heartbeatExecutor.shutdown();
+        });
+
+        sseEmitter.onError((e) -> {
+            log.error("SSE resume connection error for agent: {}", agentId, e);
+            isActive.set(false);
+            heartbeatExecutor.shutdown();
+        });
+
+        executor.submit(() -> {
+            AgentSession agentSession = globalAgentSessionManager.getSession(agentId);
+            if (null == agentSession) {
+                sseEmitter.completeWithError(new BusinessException("session not found for agentId: " + agentId));
+                return;
+            }
+
+            agentSession.getAgent().setUserId(userId);
+            try {
+                String currentIp = agentSessionServerService.getCurrentServerIp();
+                agentSessionServerService.saveOrUpdate(agentId, currentIp, Integer.valueOf(serverPort));
+            } catch (Exception e) {
+                log.error("记录Agent Session Server信息失败", e);
+            }
+
+            agentSession.resumeFlow(sseEmitter);
+            replayMissedEvents(agentId, afterId, sseEmitter);
+        });
+
+        return sseEmitter;
+    }
+
+    private void replayMissedEvents(String agentId, Long afterId, SseEmitter sseEmitter) {
+        if (afterId == null || afterId <= 0) {
+            return;
+        }
+        try {
+            List<ConversationResponse> missedEvents = conversationHistoryService.getSessionConversationsAfterId(agentId, afterId);
+            for (ConversationResponse event : missedEvents) {
+                if (event.getMessageType() != ConversationHistoryDO.MessageType.ASSISTANT || event.getEventType() == null) {
+                    continue;
+                }
+                sseEmitter.send(SseEmitter.event()
+                        .name(event.getEventType().getType())
+                        .data(event.getContent())
+                        .id(String.valueOf(event.getId())));
+            }
+            log.info("SSE replay completed: agentId={}, afterId={}, count={}", agentId, afterId, missedEvents.size());
+        } catch (Exception e) {
+            log.warn("SSE replay failed: agentId={}, afterId={}", agentId, afterId, e);
+        }
     }
 
     @PostMapping("/{agentId}/forward")

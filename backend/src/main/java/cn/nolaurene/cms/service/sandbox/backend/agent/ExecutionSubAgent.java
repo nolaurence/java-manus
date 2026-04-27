@@ -10,6 +10,7 @@ import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.MessageEventData;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
@@ -57,6 +58,9 @@ public class ExecutionSubAgent {
 
     @Resource
     private ConversationHistoryService conversationHistoryService;
+
+    @Resource
+    private GlobalAgentSessionManager globalAgentSessionManager;
 
     @Autowired
     private SkillToolProvider skillToolProvider;
@@ -1030,12 +1034,7 @@ public class ExecutionSubAgent {
         messageEventData.setThinkTime(thinkTime);
 
         try {
-            if (emitter != null) {
-                emitter.send(SseEmitter.event()
-                        .name(SSEEventType.MESSAGE.getType())
-                        .data(JSON.toJSONString(messageEventData))
-                        .id(String.valueOf(System.currentTimeMillis())));
-            }
+            sendSseEvent(agent, emitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEventData));
         } catch (Exception e) {
             log.error("[ExecutionSubAgent] Failed to send reasoning SSE event: agentId={}", agent.getAgentId(), e);
         }
@@ -1055,12 +1054,7 @@ public class ExecutionSubAgent {
         messageEventData.setContentDelta(content);
 
         try {
-            if (emitter != null) {
-                emitter.send(SseEmitter.event()
-                        .name(SSEEventType.MESSAGE.getType())
-                        .data(JSON.toJSONString(messageEventData))
-                        .id(String.valueOf(System.currentTimeMillis())));
-            }
+            sendSseEvent(agent, emitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEventData));
         } catch (Exception e) {
             log.error("[ExecutionSubAgent] Failed to send think message SSE event: agentId={}", agent.getAgentId(), e);
         }
@@ -1238,12 +1232,7 @@ public class ExecutionSubAgent {
 
         // Send SSE event
         try {
-            if (emitter != null) {
-                emitter.send(SseEmitter.event()
-                        .name(SSEEventType.TOOL.getType())
-                        .data(toolEventData)
-                        .id(String.valueOf(System.currentTimeMillis())));
-            }
+            sendSseEvent(agent, emitter, SSEEventType.TOOL.getType(), toolEventData);
         } catch (Exception e) {
             log.error("Failed to send SSE tool event: agentId={}", agent.getAgentId(), e);
         }
@@ -1252,6 +1241,20 @@ public class ExecutionSubAgent {
         conversationHistoryService.saveAssistantMessageWithId(
                 JSON.toJSONString(toolEventData), SSEEventType.TOOL,
                 agent.getUserId(), agent.getAgentId());
+    }
+
+    private void sendSseEvent(Agent agent, SseEmitter fallbackEmitter, String eventName, Object data) throws IOException {
+        AgentSession agentSession = globalAgentSessionManager.getSession(agent.getAgentId());
+        if (agentSession != null && agentSession.isFrontendConnected()) {
+            agentSession.sendMessage(eventName, data);
+            return;
+        }
+        if (fallbackEmitter != null) {
+            fallbackEmitter.send(SseEmitter.event()
+                    .name(eventName)
+                    .data(data)
+                    .id(String.valueOf(System.currentTimeMillis())));
+        }
     }
 
     private String renderMessageToLog(List<ChatMessage> chatMessageList) {

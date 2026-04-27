@@ -1,6 +1,6 @@
 export type SSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData;
+  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'plan';
+  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | PlanEventData;
 }
 
 export interface ToolEventData {

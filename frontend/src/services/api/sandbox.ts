@@ -174,6 +174,61 @@ export const chatWithAgent = async (
   }
 };
 
+export const resumeAgentStream = async (
+  agentId: string,
+  afterId: number,
+  onMessage: (event: SSEEvent) => void,
+  onError?: (error: Error) => void
+) => {
+  try {
+    const apiUrl = `${BASE_URL}/agents/${agentId}/resume?afterId=${afterId || 0}`;
+
+    await fetchEventSource(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      openWhenHidden: true,
+      onmessage(event: EventSourceMessage) {
+        if (event.event && event.event.trim() !== '') {
+          if (
+            event.event === 'heartbeat' ||
+            event.event === 'RESUMED' ||
+            event.event === 'TASK_ALREADY_FINISHED' ||
+            event.event === 'TASK_ALREADY_FAILED' ||
+            event.event === 'TASK_FINISHED_BG'
+          ) {
+            if (event.event !== 'heartbeat' && event.event !== 'RESUMED') {
+              onMessage({event: 'done' as SSEEvent['event'], data: {} as SSEEvent['data']});
+            }
+            return;
+          }
+          onMessage({
+            event: event.event as SSEEvent['event'],
+            data: JSON.parse(event.data) as SSEEvent['data']
+          });
+        }
+      },
+      onerror(err) {
+        console.error('Resume EventSource error:', err);
+        if (onError) {
+          onError(err instanceof Error ? err : new Error(String(err)));
+        }
+        throw err;
+      },
+      onclose() {
+        onMessage({event: 'done' as SSEEvent['event'], data: {} as SSEEvent['data']});
+      },
+    });
+  } catch (error) {
+    console.error('Resume chat error:', error);
+    if (onError) {
+      onError(error instanceof Error ? error : new Error(String(error)));
+    }
+    throw error;
+  }
+};
+
 export interface ConsoleRecord {
   ps1: string;
   command: string;
