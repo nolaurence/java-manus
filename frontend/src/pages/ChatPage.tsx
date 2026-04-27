@@ -169,19 +169,30 @@ const ChatComponent: React.FC = () => {
 
   // 处理工具事件
   const handleToolEvent = (toolData: ToolEventData) => {
+    const isSameTool = (a: ToolContent, b: ToolEventData) => {
+      return a.timestamp === b.timestamp
+        && a.name === b.name
+        && a.function === b.function
+        && JSON.stringify(a.args ?? {}) === JSON.stringify(b.args ?? {});
+    };
+
     setMessages(prevMsgs => {
-      // 从 prevMsgs 中获取最后一个 step 类型的消息
-      const lastStep = prevMsgs.filter(msg => msg.type === 'step').pop()?.content as StepContent | undefined;
+      const lastMessageIndex = prevMsgs.length - 1;
+      const lastMessage = prevMsgs[lastMessageIndex];
       
-      if (lastStep?.status === 'running') {
+      if (lastMessage?.type === 'step') {
         // 添加到步骤工具列表
-        return prevMsgs.map(msg => {
-          if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
+        return prevMsgs.map((msg, index) => {
+          if (index === lastMessageIndex && msg.type === 'step') {
+            const tools = (msg.content as StepContent).tools || [];
+            if (tools.some(tool => isSameTool(tool, toolData))) {
+              return msg;
+            }
             return {
               ...msg,
               content: {
                 ...msg.content,
-                tools: [...((msg.content as StepContent).tools || []), toolData],
+                tools: [...tools, toolData],
               },
             };
           }
