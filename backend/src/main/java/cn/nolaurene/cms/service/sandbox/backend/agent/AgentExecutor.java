@@ -165,6 +165,7 @@ public class AgentExecutor {
                     case IDLE:
                         log.info("[PLAN ACT] round {} start planning", round);
                         agentStatus = AgentStatus.PLANNING;
+                        syncAgentStatusToConversationInfo(agentStatus);
                         break;
 
                     case PLANNING:
@@ -315,6 +316,7 @@ public class AgentExecutor {
                 log.error("[PLAN ACT] Rate limit reached for round: {}, error: ", round, e);
                 syncRespondContent("TPM到达上限了，请稍后再试。", emitter);
                 syncRespondContent(DONE_SIGNAL, emitter);
+                syncAgentStatusToConversationInfo(AgentStatus.IDLE);
                 break;
             } catch (Exception e) {
                 log.error("[PLAN ACT] Error when creating plan for round: {}, error: ", round, e);
@@ -324,10 +326,12 @@ public class AgentExecutor {
                     if (cause instanceof RateLimitException) {
                         syncRespondContent("TPM到达上限了，请稍后再试。", emitter);
                         syncRespondContent(DONE_SIGNAL, emitter);
+                        syncAgentStatusToConversationInfo(AgentStatus.IDLE);
                         return;
                     }
                     cause = cause.getCause();
                 }
+                syncAgentStatusToConversationInfo(AgentStatus.IDLE);
                 break;
             }
         }

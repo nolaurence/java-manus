@@ -28,6 +28,15 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
   // 用户信息 state，用于显示在 Panel 底部
   const [panelUserInfo, setPanelUserInfo] = useState<{name?: string; avatar?: string} | null>(null);
 
+  // 缓存 userId，供轮询时复用
+  const [cachedUserId, setCachedUserId] = useState<string>('');
+
+  const refreshSessions = async (userId: string) => {
+    if (!userId) return;
+    const list = await fetchUserSessions(userId);
+    setSessions(list || []);
+  };
+
   useEffect(() => {
     const loadSessions = async () => {
       try {
@@ -42,6 +51,7 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
           setPanelUserInfo(null);
         }
         const userId = (user?.userid?.toString?.() || '').toString();
+        setCachedUserId(userId);
         if (!userId) {
           setSessions([]);
           return;
@@ -54,6 +64,18 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
     };
     loadSessions();
   }, [loginState]); // 当 loginState 变化时重新加载会话列表
+
+  // 当有运行中的会话时，轮询刷新状态
+  useEffect(() => {
+    const hasRunning = sessions.some(s => s.status && s.status !== 'idle' && s.status !== 'completed');
+    if (!hasRunning || !cachedUserId) return;
+
+    const timer = setInterval(() => {
+      refreshSessions(cachedUserId);
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [sessions, cachedUserId]);
 
   // 监听登录事件，更新 loginState 以触发重新加载
   useEffect(() => {
@@ -197,7 +219,14 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
                   }
                 >
                   <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
-                    <MessageSquare size={20} />
+                    {s.status && s.status !== 'idle' && s.status !== 'completed' ? (
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                      </span>
+                    ) : (
+                      <MessageSquare size={20} />
+                    )}
                   </div>
                   <div
                     className="flex-1 min-w-0 flex gap-[4px] items-center text-[14px] text-[var(--text-primary)]"

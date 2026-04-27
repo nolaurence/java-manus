@@ -626,6 +626,7 @@ const ChatComponent: React.FC = () => {
                     modelValue={inputMessage}
                     onUpdateModelValue={(value) => setInputMessage(value)}
                     onSubmit={() => sendMessage(inputMessage)}
+                    disabled={isLoading}
                   />
                 </div>
               </div>
