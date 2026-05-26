@@ -5,7 +5,7 @@ import { createAgent } from '@/services/api/sandbox';
 import { currentUser } from '@/services/api/login';
 import { message as antdMessage, Tooltip } from 'antd';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
-import {Bot, PanelLeft, Settings, Zap} from 'lucide-react';
+import {Bot, PanelLeft, Settings, Wrench} from 'lucide-react';
 import { createStyles } from 'antd-style';
 import Panel from '@/components/Panel';
 import UserInfoComponent from "@/components/LoginModal";
@@ -156,6 +156,13 @@ const Home: React.FC = () => {
     }
   };
 
+  const handleGoSettings = () => {
+    navigate('/settings');
+  };
+
+  const handleGoSkills = () => {
+    navigate('/skills');
+  };
   return (
     <div className="relative h-screen bg-[var(--background-gray-main)]" >
       <div
@@ -189,6 +196,12 @@ const Home: React.FC = () => {
             <ManusLogoTextIcon />
           </div>
           <div className="ml-auto flex items-center gap-3">
+            <div onClick={handleGoSettings} className={styles.settingsIcon}>
+              <Settings size={20} />
+            </div>
+            <div onClick={handleGoSkills} className={styles.settingsIcon}>
+              <Wrench size={20} />
+            </div>
             <UserInfoComponent />
           </div>
         </div>

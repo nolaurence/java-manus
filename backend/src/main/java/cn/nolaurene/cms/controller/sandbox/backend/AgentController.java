@@ -20,10 +20,12 @@ import cn.nolaurene.cms.common.dto.ConversationRequest;
 import cn.nolaurene.cms.dal.enhance.entity.ConversationHistoryDO;
 import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
-import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillService;
+import cn.nolaurene.cms.common.sandbox.backend.skill.Skill;
 import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
 import com.alibaba.fastjson2.JSON;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.service.tool.ToolExecutionResult;
@@ -46,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -121,6 +124,9 @@ public class AgentController {
     @Resource
     private SseMessageForwardService sseMessageForwardService;
 
+    @Resource
+    private SkillService skillService;
+
     @PostConstruct
     public void initThreadPool() {
         executor = new ThreadPoolExecutor(
@@ -173,6 +179,25 @@ public class AgentController {
             agent.setLlmEndpoint(endpoint);
             agent.setLlmApiKey(apiKey);
             agent.setLlmModelName(modelName);
+
+            // Load user's enabled skills
+            try {
+                List<Skill> userSkills = skillService.listSkills(agent.getUserId());
+                List<Skill> enabledSkills = userSkills.stream()
+                        .filter(Skill::isEnabled)
+                        .collect(Collectors.toList());
+                
+                // Load tool specifications for each skill
+                for (Skill skill : enabledSkills) {
+                    List<ToolSpecification> skillTools = skillService.loadSkillTools(skill);
+                    skill.setToolSpecifications(skillTools);
+                }
+                
+                agent.setSkills(enabledSkills);
+                log.info("[AgentController] Loaded {} enabled skills for user {}", enabledSkills.size(), agent.getUserId());
+            } catch (Exception e) {
+                log.warn("[AgentController] Failed to load skills for user {}: {}", agent.getUserId(), e.getMessage());
+            }
 
             AgentSession agentSession = agentSessionFactory.createAgentSession(agent, workerUrl, sseEndpoint);
 
