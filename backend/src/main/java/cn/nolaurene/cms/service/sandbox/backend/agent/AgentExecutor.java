@@ -551,9 +551,7 @@ public class AgentExecutor {
         if (THINK_TOOL_NAME.equals(toolName)) {
             String thought = extractThought(arguments);
             if (StringUtils.isNotBlank(thought)) {
-                String quotedThought = formatAsMarkdownQuote(thought);
-                syncRespondContent(quotedThought, emitter);
-                saveAssistantMessage(quotedThought, SSEEventType.MESSAGE);
+                syncRespondReasoning(thought, emitter);
             }
             return ToolExecutionResultMessage.from(toolRequest, "Thought logged.");
         }
@@ -679,20 +677,7 @@ public class AgentExecutor {
             return;
         }
 
-        String quotedThinking = formatAsMarkdownQuote(aiMessage.thinking());
-        syncRespondContent(quotedThinking, sseEmitter);
-        saveAssistantMessage(quotedThinking, SSEEventType.MESSAGE);
-    }
-
-    private String formatAsMarkdownQuote(String content) {
-        if (StringUtils.isBlank(content)) {
-            return "";
-        }
-
-        String normalized = content.replace("\r\n", "\n").replace("\r", "\n").trim();
-        return Arrays.stream(normalized.split("\n", -1))
-                .map(line -> StringUtils.isBlank(line) ? ">" : "> " + line)
-                .collect(Collectors.joining("\n")) + "\n\n";
+        syncRespondReasoning(aiMessage.thinking(), sseEmitter);
     }
 
     private ContextUsage calculateContextUsage(List<dev.langchain4j.data.message.ChatMessage> messages,
@@ -928,6 +913,22 @@ public class AgentExecutor {
         } else {
             logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
         }
+    }
+
+    private void syncRespondReasoning(String reasoningContent, SseEmitter sseEmitter) {
+        if (StringUtils.isBlank(reasoningContent)) {
+            return;
+        }
+
+        MessageEventData messageEvent = new MessageEventData();
+        messageEvent.setReasoningContent(reasoningContent);
+        messageEvent.setTimestamp(System.currentTimeMillis());
+        if (frontendConnected.get() && currentSseEmitter != null) {
+            sendOrForwardMessage(sseEmitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEvent));
+        } else {
+            logSseEvent(SSEEventType.MESSAGE.getType(), messageEvent);
+        }
+        saveAssistantEventWithoutMemory("**Deep Thinking:**\n" + reasoningContent, SSEEventType.MESSAGE);
     }
 
     private void syncRespondContent(String content, SseEmitter sseEmitter) {

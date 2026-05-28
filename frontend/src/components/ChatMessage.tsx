@@ -97,8 +97,8 @@ const ChatMessage: React.FC<{
         </div>
         {hasReasoning && (
           <Think
-            title="Deep Thinking"
-            defaultExpanded={!hasContent}
+            title="深度思考"
+            defaultExpanded={false}
             style={{ marginBottom: hasContent ? 8 : 0 }}
           >
           <XMarkdown

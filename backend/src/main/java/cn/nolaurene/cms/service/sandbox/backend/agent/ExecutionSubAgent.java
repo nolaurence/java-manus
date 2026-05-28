@@ -202,7 +202,7 @@ public class ExecutionSubAgent {
                     if (THINK_TOOL_NAME.equals(toolName)) {
                         String thought = extractThought(arguments);
                         log.info("[ExecutionSubAgent] Round {} - think tool invoked, thought length: {}", round, thought.length());
-                        sendMessageEvent(formatAsMarkdownQuote(thought), agent, emitterOpt);
+                        sendReasoningEvent(thought, 0, agent, emitterOpt);
                         messages.add(ToolExecutionResultMessage.from(toolRequest, "Thought logged."));
                         continue;
                     }
@@ -387,7 +387,7 @@ public class ExecutionSubAgent {
                 String thinkContent = extractThinkContent(aiText);
                 if (thinkContent != null && !thinkContent.isEmpty()) {
                     log.info("[ExecutionSubAgent] Skill Round {} - Think block length: {}", round, thinkContent.length());
-                    sendMessageEvent(formatAsMarkdownQuote(thinkContent), agent, emitterOpt);
+                    sendReasoningEvent(thinkContent, 0, agent, emitterOpt);
                 }
             }
 
@@ -407,7 +407,7 @@ public class ExecutionSubAgent {
                     // Local think tool
                     if (THINK_TOOL_NAME.equals(toolName)) {
                         String thought = extractThought(arguments);
-                        sendMessageEvent(formatAsMarkdownQuote(thought), agent, emitterOpt);
+                        sendReasoningEvent(thought, 0, agent, emitterOpt);
                         messages.add(ToolExecutionResultMessage.from(toolRequest, "Thought logged."));
                         continue;
                     }
@@ -1093,40 +1093,11 @@ public class ExecutionSubAgent {
                 agent.getUserId(), agent.getAgentId());
     }
 
-    /**
-     * Send a MESSAGE SSE event to the frontend (used for think tool output).
-     */
-    private void sendMessageEvent(String content, Agent agent, SseEmitter emitter) {
-        MessageEventData messageEventData = new MessageEventData();
-        messageEventData.setTimestamp(System.currentTimeMillis());
-        messageEventData.setContentDelta(content);
-
-        try {
-            sendSseEvent(agent, emitter, SSEEventType.MESSAGE.getType(), JSON.toJSONString(messageEventData));
-        } catch (Exception e) {
-            log.error("[ExecutionSubAgent] Failed to send think message SSE event: agentId={}", agent.getAgentId(), e);
-        }
-
-        conversationHistoryService.saveAssistantMessageWithId(
-                content, SSEEventType.MESSAGE,
-                agent.getUserId(), agent.getAgentId());
-    }
-
     private void sendThinkingMessageEvent(AiMessage aiMessage, Agent agent, SseEmitter emitter) {
         if (aiMessage == null || StringUtils.isBlank(aiMessage.thinking())) {
             return;
         }
-        sendMessageEvent(formatAsMarkdownQuote(aiMessage.thinking()), agent, emitter);
-    }
-
-    private String formatAsMarkdownQuote(String content) {
-        if (StringUtils.isBlank(content)) {
-            return "";
-        }
-        String normalized = content.replace("\r\n", "\n").replace("\r", "\n").trim();
-        return Arrays.stream(normalized.split("\n", -1))
-                .map(line -> StringUtils.isBlank(line) ? ">" : "> " + line)
-                .collect(Collectors.joining("\n")) + "\n\n";
+        sendReasoningEvent(aiMessage.thinking(), 0, agent, emitter);
     }
 
     private List<ChatMessage> compactExecutionMessages(List<ChatMessage> messages) {

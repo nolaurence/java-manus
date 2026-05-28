@@ -438,9 +438,12 @@ public class ConversationHistoryService {
                 MessageEventData messageEventData = new MessageEventData();
                 messageEventData.setTimestamp(messageTimeStamp);
                 String rawContent = conversation.getContent();
-                // Detect deep thinking messages and split reasoningContent from content
+                // Detect deep thinking messages and split reasoningContent from content.
                 if (rawContent != null && rawContent.startsWith("**Deep Thinking:**\n")) {
                     messageEventData.setReasoningContent(rawContent.substring("**Deep Thinking:**\n".length()));
+                    messageEventData.setContent("");
+                } else if (rawContent != null && rawContent.startsWith("**深度思考:**\n")) {
+                    messageEventData.setReasoningContent(rawContent.substring("**深度思考:**\n".length()));
                     messageEventData.setContent("");
                 } else {
                     messageEventData.setContent(rawContent);
