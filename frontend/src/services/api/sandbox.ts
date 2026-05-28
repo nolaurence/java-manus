@@ -86,9 +86,9 @@ export async function fetchSessionMessages(sessionId: string): Promise<Conversat
   return res.data || [];
 }
 
-export async function fetchConversationTitle(sessionId: string): Promise<{sessionId: string; title: string} | null> {
+export async function fetchConversationTitle(sessionId: string): Promise<{sessionId: string; userId?: string; title: string} | null> {
   try {
-    const res = await request<API.Response<{sessionId: string; title: string}>>(`/conversations/title`, {
+    const res = await request<API.Response<{sessionId: string; userId?: string; title: string}>>(`/conversations/title`, {
       method: 'GET',
       params: { sessionId },
     });

@@ -61,14 +61,14 @@ const ChatMessage: React.FC<{
             </div>
           </div>
         </div>
-        <div className="flex max-w-[90%] relative flex-col gap-2 items-end">
+        <div className="flex w-fit max-w-[90%] relative flex-col gap-2 items-end">
           {/*
           <div
             className="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(asUserContent().content) }}
           >
           */}
-          <div className="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0 break-words break-all whitespace-pre-wrap">
+          <div className="relative inline-block w-fit max-w-full rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:normal]">
             {asUserContent().content}
           </div>
         </div>

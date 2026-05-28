@@ -20,6 +20,7 @@ import { Bubble } from '@ant-design/x';
 import LoginModal from '@/components/LoginModal';
 import dayjs from 'dayjs';
 import { attachToolsToSteps, mapToFrontendMessage, mergeReasoningMessages } from '@/utils/message';
+import { currentUser } from '@/services/api/login';
 
 const ChatComponent: React.FC = () => {
 
@@ -380,9 +381,33 @@ const ChatComponent: React.FC = () => {
     const init = async () => {
       if (agentId) {
         try {
+          const loginInfo = await currentUser();
+          const currentUserId = loginInfo?.success && loginInfo.data?.userid
+            ? String(loginInfo.data.userid)
+            : '';
+          if (!currentUserId) {
+            navigate('/', { replace: true });
+            return;
+          }
+
+          const titleInfo = await fetchConversationTitle(agentId);
+          if (titleInfo?.userId && titleInfo.userId !== currentUserId) {
+            navigate('/', { replace: true });
+            return;
+          }
+
           // TODO: 重写下渲染逻辑
           const history: ConversationMessage[] = await fetchSessionMessages(agentId);
+          if (history.some(item => item.userId && item.userId !== currentUserId)) {
+            navigate('/', { replace: true });
+            return;
+          }
+
           if (history.length === 0) {
+            if (!titleInfo && localStorage.getItem('agentId') !== agentId) {
+              navigate('/', { replace: true });
+              return;
+            }
             // send first message for new chat
             const msg = localStorage.getItem('firstMessage') || '';
             if (msg) {
@@ -406,7 +431,6 @@ const ChatComponent: React.FC = () => {
           console.log('mapped message',  finalMessages);
           setMessages(finalMessages);
           // 从 conversation_info 获取标题
-          const titleInfo = await fetchConversationTitle(agentId);
           if (titleInfo?.title) {
             setTitle(titleInfo.title);
           } else {
@@ -426,6 +450,7 @@ const ChatComponent: React.FC = () => {
           return;
         } catch (e) {
           console.error('load history failed', e);
+          navigate('/', { replace: true });
         }
       }
 
