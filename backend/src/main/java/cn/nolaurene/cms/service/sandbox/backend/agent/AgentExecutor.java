@@ -1,6 +1,9 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.dto.ConversationResponse;
+import cn.nolaurene.cms.common.dto.skill.SkillDefinitionDTO;
+import cn.nolaurene.cms.common.dto.skill.SkillExecutionRequest;
+import cn.nolaurene.cms.common.dto.skill.SkillExecutionResult;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMemory;
 import cn.nolaurene.cms.common.sandbox.backend.llm.ChatMessage;
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
@@ -8,6 +11,9 @@ import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import cn.nolaurene.cms.common.sandbox.backend.model.data.*;
 import cn.nolaurene.cms.service.sandbox.backend.message.Plan;
 import cn.nolaurene.cms.service.sandbox.backend.message.Step;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillFileStorageService;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
@@ -18,9 +24,20 @@ import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
 import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
 import cn.nolaurene.cms.service.AgentSessionServerService;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.RateLimitException;
+import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
 import io.mybatis.mapper.example.Example;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.service.tool.ToolExecutionResult;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +47,7 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
@@ -40,6 +58,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.annotation.Resource;
+
+import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.loadPrompt;
+import static cn.nolaurene.cms.service.sandbox.backend.utils.PromptRenderer.render;
 
 
 /**
@@ -63,6 +84,8 @@ public class AgentExecutor {
     private final ChatMemory memory = new ChatMemory();
     private static final String START_SIGNAL = "[START]";
     private static final String DONE_SIGNAL = "[DONE]";
+    private static final String THINK_TOOL_NAME = "dummy-server-think";
+    private static final int MCP_TOOL_RETRY_TIMES = 3;
     private static final ThreadPoolExecutor executor = new ThreadPoolExecutor(
             5,
             20,
@@ -90,6 +113,15 @@ public class AgentExecutor {
 
     @Resource
     private ExecutionSubAgent executionSubAgent;
+
+    @Resource
+    private SkillToolProvider skillToolProvider;
+
+    @Resource
+    private SkillExecutionEngine skillExecutionEngine;
+
+    @Resource
+    private SkillFileStorageService skillFileStorageService;
 
     public AgentExecutor() {
         this.MAX_ROUNDS = 30;
@@ -335,6 +367,345 @@ public class AgentExecutor {
                 break;
             }
         }
+    }
+
+    public void skillBasedAgentLoop(String input, SseEmitter emitter) {
+        this.currentSseEmitter = emitter;
+        this.frontendConnected.set(true);
+
+        setupSseEmitterListeners(emitter);
+        ensureMemory();
+
+        if (StringUtils.isBlank(input)) {
+            syncRespondContent(DONE_SIGNAL, emitter);
+            syncAgentStatusToConversationInfo(AgentStatus.COMPLETED);
+            return;
+        }
+
+        addMessageToMemory(new ChatMessage(ChatMessage.Role.user, input));
+        syncConversationInfo(buildConversationTitle(input), AgentStatus.EXECUTING);
+        sendTitleEvent(buildConversationTitle(input), emitter);
+
+        try {
+            List<dev.langchain4j.data.message.ChatMessage> messages = buildSkillBasedInitialMessages();
+            List<ToolSpecification> toolSpecs = buildSkillBasedToolSpecs();
+
+            String finalResult = "";
+            for (int round = 1; round <= MAX_ROUNDS; round++) {
+                log.info("[SKILL LOOP] round {}/{} start, messages={}, tools={}",
+                        round, MAX_ROUNDS, messages.size(), toolSpecs.size());
+
+                dev.langchain4j.model.chat.request.ChatRequest request =
+                        dev.langchain4j.model.chat.request.ChatRequest.builder()
+                                .messages(messages)
+                                .toolSpecifications(toolSpecs)
+                                .build();
+
+                ChatResponse response = chatModel.chat(request);
+                AiMessage aiMessage = response.aiMessage();
+                messages.add(aiMessage);
+
+                String aiText = aiMessage.text();
+                if (StringUtils.isNotBlank(aiText)) {
+                    finalResult = aiText;
+                    syncRespondContent(aiText, emitter);
+                    saveAssistantMessage(aiText, SSEEventType.MESSAGE);
+                }
+
+                if (!aiMessage.hasToolExecutionRequests()) {
+                    log.info("[SKILL LOOP] no tool calls in round {}, finishing", round);
+                    break;
+                }
+
+                List<ToolExecutionRequest> toolRequests = aiMessage.toolExecutionRequests();
+                log.info("[SKILL LOOP] round {} requested {} tool calls", round, toolRequests.size());
+                for (ToolExecutionRequest toolRequest : toolRequests) {
+                    ToolExecutionResultMessage toolResultMessage = executeAgentLoopTool(toolRequest, emitter);
+                    messages.add(toolResultMessage);
+                }
+
+                if (round == MAX_ROUNDS) {
+                    finalResult = StringUtils.defaultIfBlank(finalResult,
+                            "Reached the maximum tool loop rounds before producing a final answer.");
+                    log.warn("[SKILL LOOP] reached max rounds for agentId={}", agent.getAgentId());
+                }
+            }
+
+            if (StringUtils.isBlank(finalResult)) {
+                String fallback = "Task completed.";
+                syncRespondContent(fallback, emitter);
+                saveAssistantMessage(fallback, SSEEventType.MESSAGE);
+            }
+            syncRespondContent(DONE_SIGNAL, emitter);
+            syncAgentStatusToConversationInfo(AgentStatus.COMPLETED);
+        } catch (RateLimitException e) {
+            log.error("[SKILL LOOP] Rate limit reached", e);
+            syncRespondContent("TPM到达上限了，请稍后再试。", emitter);
+            syncRespondContent(DONE_SIGNAL, emitter);
+            syncAgentStatusToConversationInfo(AgentStatus.IDLE);
+        } catch (Exception e) {
+            log.error("[SKILL LOOP] execution failed", e);
+            syncRespondContent("执行失败: " + e.getMessage(), emitter);
+            syncRespondContent(DONE_SIGNAL, emitter);
+            syncAgentStatusToConversationInfo(AgentStatus.IDLE);
+        }
+    }
+
+    private List<dev.langchain4j.data.message.ChatMessage> buildSkillBasedInitialMessages() throws IOException {
+        List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
+        String systemPrompt = loadPrompt("prompts/system.jinja");
+        String loopPromptTemplate = loadPrompt("prompts/skillBasedAgentLoopSystem.jinja");
+        Map<String, Object> context = new HashMap<>();
+        context.put("toolSkill", loadPrompt("prompts/builtinSandboxMcpSkill.md"));
+        context.put("availableSkills", buildAvailableImportedSkillsSection());
+
+        messages.add(SystemMessage.from(systemPrompt + "\n\n" + render(loopPromptTemplate, context)));
+        messages.addAll(memory.toLangchain4jMessages());
+        return messages;
+    }
+
+    private List<ToolSpecification> buildSkillBasedToolSpecs() {
+        List<ToolSpecification> mcpToolSpecs = agent.getToolSpecifications().stream()
+                .filter(tool -> !tool.name().startsWith(SkillToolProvider.SKILL_TOOL_PREFIX))
+                .collect(Collectors.toList());
+        List<ToolSpecification> specs = new ArrayList<>(mcpToolSpecs);
+        specs.add(ToolSpecification.builder()
+                .name(THINK_TOOL_NAME)
+                .description("Use this tool to briefly share useful reasoning or progress before continuing. It does not gather information or change state.")
+                .parameters(JsonObjectSchema.builder()
+                        .addStringProperty("thought", "Brief reasoning or progress update.")
+                        .required("thought")
+                        .build())
+                .build());
+        return specs;
+    }
+
+    private String buildAvailableImportedSkillsSection() {
+        try {
+            List<SkillDefinitionDTO> skills = skillToolProvider.getEnabledSkillDefinitionsForUser(parseUserId(agent.getUserId()));
+            if (CollectionUtils.isEmpty(skills)) {
+                return "(No imported skills are currently enabled.)";
+            }
+
+            String extractedPath = skillFileStorageService.getExtractedPath();
+            StringBuilder sb = new StringBuilder();
+            sb.append("<available_skills>\n");
+            for (SkillDefinitionDTO skill : skills) {
+                sb.append("  <skill>\n");
+                sb.append("    <name>").append(escapeXml(StringUtils.defaultString(skill.getName()))).append("</name>\n");
+                sb.append("    <skill_id>").append(escapeXml(StringUtils.defaultString(skill.getSkillId()))).append("</skill_id>\n");
+                sb.append("    <description>").append(escapeXml(StringUtils.defaultString(skill.getDescription()))).append("</description>\n");
+                sb.append("    <location>").append(escapeXml(extractedPath + "/" + skill.getSkillId() + "/SKILL.md")).append("</location>\n");
+                sb.append("  </skill>\n");
+            }
+            sb.append("</available_skills>");
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("[SKILL LOOP] failed to build imported skills section", e);
+            return "(Imported skills could not be loaded for this turn.)";
+        }
+    }
+
+    private ToolExecutionResultMessage executeAgentLoopTool(ToolExecutionRequest toolRequest, SseEmitter emitter) {
+        String toolName = toolRequest.name();
+        String arguments = toolRequest.arguments();
+        log.info("[SKILL LOOP] tool call: {}, args={}", toolName, arguments);
+
+        if (THINK_TOOL_NAME.equals(toolName)) {
+            String thought = extractThought(arguments);
+            if (StringUtils.isNotBlank(thought)) {
+                syncRespondContent(thought, emitter);
+                saveAssistantMessage(thought, SSEEventType.MESSAGE);
+            }
+            return ToolExecutionResultMessage.from(toolRequest, "Thought logged.");
+        }
+
+        ToolExecutionRequest finalToolRequest = toolRequest;
+        String finalArguments = arguments;
+        if (toolName.startsWith("shell_")) {
+            finalToolRequest = injectAgentIdForShellTool(toolRequest, agent.getAgentId());
+            finalArguments = finalToolRequest.arguments();
+        }
+
+        reportToolEvent(toolName, finalArguments, emitter);
+        String observation = skillToolProvider.isSkillTool(toolName)
+                ? executeSkillTool(toolName, finalToolRequest)
+                : executeMcpToolWithRetry(toolName, finalToolRequest);
+        log.info("[SKILL LOOP] tool {} result: {}", toolName, observation);
+        return ToolExecutionResultMessage.from(toolRequest, observation);
+    }
+
+    private String executeMcpToolWithRetry(String toolName, ToolExecutionRequest request) {
+        McpClient mcpClient = selectMcpClient(toolName);
+        if (mcpClient == null) {
+            return "No MCP client available for tool: " + toolName;
+        }
+
+        Exception lastException = null;
+        for (int i = 0; i < MCP_TOOL_RETRY_TIMES; i++) {
+            try {
+                ToolExecutionResult result = mcpClient.executeTool(request);
+                return result.resultText() != null ? result.resultText() : "(empty result)";
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("[SKILL LOOP] tool {} failed, attempt {}/{}: {}",
+                        toolName, i + 1, MCP_TOOL_RETRY_TIMES, e.getMessage());
+                if (i < MCP_TOOL_RETRY_TIMES - 1) {
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException interruptedException) {
+                        Thread.currentThread().interrupt();
+                        return "Tool execution interrupted: " + interruptedException.getMessage();
+                    }
+                }
+            }
+        }
+
+        return "Tool call error after retries: " + (lastException != null ? lastException.getMessage() : "unknown");
+    }
+
+    private McpClient selectMcpClient(String toolName) {
+        if (toolName != null && toolName.startsWith("browser")) {
+            return agent.getBrowserMcpClient();
+        }
+        return agent.getNativeMcpClient();
+    }
+
+    private String executeSkillTool(String toolName, ToolExecutionRequest request) {
+        String skillId = skillToolProvider.parseSkillIdFromToolName(toolName);
+        if (skillId == null) {
+            return "Cannot find Skill ID for tool: " + toolName;
+        }
+
+        try {
+            JSONObject argsJson = JSON.parseObject(request.arguments());
+            if (argsJson == null) {
+                argsJson = new JSONObject();
+            }
+
+            SkillExecutionRequest skillRequest = new SkillExecutionRequest();
+            skillRequest.setSkillId(skillId);
+            skillRequest.setSessionId(StringUtils.defaultIfBlank(argsJson.getString("session_id"), agent.getAgentId()));
+            skillRequest.setUserId(parseUserId(agent.getUserId()));
+            skillRequest.setWorkingDir("");
+
+            Map<String, Object> params = new HashMap<>();
+            for (String key : argsJson.keySet()) {
+                if (!"session_id".equals(key)) {
+                    params.put(key, argsJson.get(key));
+                }
+            }
+            skillRequest.setParams(params);
+
+            SkillExecutionResult result = skillExecutionEngine.execute(skillRequest, agent.getNativeMcpClient());
+            if ("SUCCESS".equals(result.getStatus())) {
+                return result.getOutput() != null ? result.getOutput() : "(skill executed successfully)";
+            }
+            return "Skill execution failed: " + StringUtils.defaultIfBlank(result.getError(), "unknown error");
+        } catch (Exception e) {
+            log.error("[SKILL LOOP] failed to execute skill tool {}", toolName, e);
+            return "Skill execution error: " + e.getMessage();
+        }
+    }
+
+    private ToolExecutionRequest injectAgentIdForShellTool(ToolExecutionRequest originalRequest, String agentId) {
+        try {
+            JSONObject argsJson = JSON.parseObject(originalRequest.arguments());
+            if (argsJson == null) {
+                argsJson = new JSONObject();
+            }
+            argsJson.put("id", agentId);
+            return ToolExecutionRequest.builder()
+                    .id(originalRequest.id())
+                    .name(originalRequest.name())
+                    .arguments(argsJson.toJSONString())
+                    .build();
+        } catch (Exception e) {
+            log.warn("[SKILL LOOP] failed to inject agentId for shell tool: {}", e.getMessage());
+            return originalRequest;
+        }
+    }
+
+    private String extractThought(String arguments) {
+        try {
+            JSONObject obj = JSON.parseObject(arguments);
+            String thought = obj.getString("thought");
+            return thought != null ? thought : arguments;
+        } catch (Exception e) {
+            return arguments;
+        }
+    }
+
+    private void reportToolEvent(String toolName, String arguments, SseEmitter emitter) {
+        ToolEventData toolEventData = new ToolEventData();
+        toolEventData.setTimestamp(System.currentTimeMillis());
+        toolEventData.setName(resolveToolType(toolName));
+        toolEventData.setFunction(toolName);
+        try {
+            toolEventData.setArgs(JSON.parseObject(arguments, Map.class));
+        } catch (Exception e) {
+            Map<String, Object> fallbackArgs = new HashMap<>();
+            fallbackArgs.put("raw", arguments);
+            toolEventData.setArgs(fallbackArgs);
+        }
+
+        sendOrForwardMessage(emitter, SSEEventType.TOOL.getType(), toolEventData);
+        Long toolMessageId = saveAssistantMessageWithId(JSON.toJSONString(toolEventData), SSEEventType.TOOL);
+        if (toolMessageId != null) {
+            currentStepToolIds.add(toolMessageId);
+        }
+    }
+
+    private String resolveToolType(String toolName) {
+        if (toolName == null) {
+            return "tool";
+        }
+        if (toolName.startsWith("browser")) {
+            return "browser";
+        }
+        if (toolName.startsWith("shell")) {
+            return "shell";
+        }
+        if (toolName.startsWith("file")) {
+            return "file";
+        }
+        return "tool";
+    }
+
+    private void sendTitleEvent(String title, SseEmitter emitter) {
+        TitleEventData titleEvent = new TitleEventData();
+        titleEvent.setTitle(title);
+        titleEvent.setTimestamp(System.currentTimeMillis());
+        sendOrForwardMessage(emitter, SSEEventType.TITLE.getType(), titleEvent);
+    }
+
+    private String buildConversationTitle(String input) {
+        String title = StringUtils.normalizeSpace(input);
+        if (StringUtils.isBlank(title)) {
+            return "New Chat";
+        }
+        return title.length() > 40 ? title.substring(0, 40) + "..." : title;
+    }
+
+    private Long parseUserId(String userId) {
+        if (StringUtils.isBlank(userId)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException e) {
+            log.warn("[SKILL LOOP] invalid userId for skill loading: {}", userId);
+            return null;
+        }
+    }
+
+    private String escapeXml(String value) {
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
     }
 
     public void resumeSseEmitter(SseEmitter emitter) {

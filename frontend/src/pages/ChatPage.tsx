@@ -36,6 +36,7 @@ const ChatComponent: React.FC = () => {
   const [title, setTitle] = useState<string>('New Chat');
   const [isShowPlanPanel, setIsShowPlanPanel] = useState<boolean>(false);
   const [plan, setPlan] = useState<PlanEventData | undefined>(undefined);
+  const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem('planMode') === 'true');
   const [realTime, setRealTime] = useState<boolean>(true);
   const [follow, setFollow] = useState<boolean>(true);
   const [lastNoMessageTool, setLastNoMessageTool] = useState<ToolContent | undefined>(undefined);
@@ -341,12 +342,17 @@ const ChatComponent: React.FC = () => {
  
     setFollow(true);
     setInputMessage('');
+    if (!planMode) {
+      setPlan(undefined);
+      setIsShowPlanPanel(false);
+    }
     setIsLoading(true);
 
     try {
       await chatWithAgent(
         agentId,
         message,
+        planMode,
         handleEvent,  // on message
         (error: any) => {
           console.error('Chat error:', error);
@@ -358,6 +364,10 @@ const ChatComponent: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    localStorage.setItem('planMode', String(planMode));
+  }, [planMode]);
 
   // 初始化：如果带 sessionId，则加载历史；否则按原逻辑
   useEffect(() => {
@@ -660,6 +670,8 @@ const ChatComponent: React.FC = () => {
                     modelValue={inputMessage}
                     onUpdateModelValue={(value) => setInputMessage(value)}
                     onSubmit={() => sendMessage(inputMessage)}
+                    planMode={planMode}
+                    onPlanModeChange={setPlanMode}
                     disabled={isLoading}
                   />
                 </div>

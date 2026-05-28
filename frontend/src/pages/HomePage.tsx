@@ -119,6 +119,7 @@ const Home: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelFixed, setPanelFixed] = useState(false);
+  const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem('planMode') === 'true');
   const [userInfo, setUserInfo] = useState<API.UserInfo | null>(null);
 
   useEffect(() => {
@@ -145,6 +146,7 @@ const Home: React.FC = () => {
         console.log("First message: ", message);
         localStorage.setItem('firstMessage', message);
         localStorage.setItem('agentId', agent.agentId);
+        localStorage.setItem('planMode', String(planMode));
         navigate(`/chat/${agent.agentId}`, {
           state: { message }
         });
@@ -223,6 +225,8 @@ const Home: React.FC = () => {
                 modelValue={message}
                 onUpdateModelValue={(e) => setMessage(e)}
                 onSubmit={handleSubmit}
+                planMode={planMode}
+                onPlanModeChange={setPlanMode}
                 disabled={isSubmitting}
               />
             </div>

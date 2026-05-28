@@ -1,17 +1,17 @@
 package cn.nolaurene.cms.controller.sandbox.backend;
 
+import cn.nolaurene.cms.common.dto.skill.SkillDefinitionDTO;
 import cn.nolaurene.cms.common.sandbox.Response;
 import cn.nolaurene.cms.common.sandbox.backend.skill.Skill;
-import cn.nolaurene.cms.service.sandbox.backend.skill.SkillService;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillManagementService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Skill management REST API.
@@ -23,14 +23,17 @@ import java.util.Map;
 public class SkillController {
 
     @Resource
-    private SkillService skillService;
+    private SkillManagementService skillManagementService;
 
     /**
      * List all skills for current user.
      */
     @GetMapping("/{userId}")
     public Response<List<Skill>> listSkills(@PathVariable("userId") String userId) {
-        List<Skill> skills = skillService.listSkills(userId);
+        Long parsedUserId = parseUserId(userId);
+        List<Skill> skills = skillManagementService.listAvailableSkillsForUser(parsedUserId).stream()
+                .map(this::convertToSkill)
+                .collect(Collectors.toList());
         return Response.success(skills);
     }
 
@@ -42,7 +45,14 @@ public class SkillController {
             @PathVariable("userId") String userId,
             @RequestBody InstallSkillRequest request) {
         try {
-            Skill skill = skillService.installSkill(userId, request.getFileName(), request.getContentBase64());
+            Long parsedUserId = parseUserId(userId);
+            if (parsedUserId == null) {
+                return Response.error("Invalid userId", null);
+            }
+            byte[] zipData = Base64.getDecoder().decode(request.getContentBase64());
+            String skillId = skillManagementService.importSkillFromZip(zipData, parsedUserId);
+            SkillDefinitionDTO skillDefinition = skillManagementService.getSkill(skillId);
+            Skill skill = convertToSkill(skillDefinition);
             return Response.success(skill);
         } catch (IllegalArgumentException e) {
             return Response.error(e.getMessage(), null);
@@ -60,7 +70,21 @@ public class SkillController {
             @PathVariable("userId") String userId,
             @PathVariable("skillId") String skillId,
             @RequestBody ToggleSkillRequest request) {
-        Skill skill = skillService.toggleSkill(userId, skillId, request.isEnabled());
+        Long parsedUserId = parseUserId(userId);
+        if (parsedUserId == null) {
+            return Response.error("Invalid userId", null);
+        }
+        if (request.isEnabled()) {
+            skillManagementService.enableSkillForUser(parsedUserId, skillId);
+        } else {
+            skillManagementService.disableSkillForUser(parsedUserId, skillId);
+        }
+
+        SkillDefinitionDTO skillDefinition = skillManagementService.getSkill(skillId);
+        Skill skill = convertToSkill(skillDefinition);
+        if (skill != null) {
+            skill.setEnabled(request.isEnabled());
+        }
         return Response.success(skill);
     }
 
@@ -69,8 +93,7 @@ public class SkillController {
      */
     @GetMapping("/agent/{agentId}")
     public Response<List<Skill>> getAgentSkills(@PathVariable("agentId") String agentId) {
-        List<Skill> skills = skillService.getAgentSkills(agentId);
-        return Response.success(skills);
+        return Response.success(List.of());
     }
 
     /**
@@ -80,8 +103,33 @@ public class SkillController {
     public Response<Void> setAgentSkills(
             @PathVariable("agentId") String agentId,
             @RequestBody SetAgentSkillsRequest request) {
-        skillService.setAgentSkills(agentId, request.getSkillIds());
         return Response.success(null);
+    }
+
+    private Long parseUserId(String userId) {
+        if (userId == null || userId.isBlank() || "anonymous".equalsIgnoreCase(userId)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException e) {
+            log.warn("[SkillController] Invalid userId: {}", userId);
+            return null;
+        }
+    }
+
+    private Skill convertToSkill(SkillDefinitionDTO dto) {
+        if (dto == null) {
+            return null;
+        }
+        Skill skill = new Skill();
+        skill.setId(dto.getSkillId());
+        skill.setName(dto.getName());
+        skill.setDescription(dto.getDescription());
+        skill.setVersion(dto.getVersion());
+        skill.setEnabled(dto.getStatus() == 1);
+        skill.setTags(List.of());
+        return skill;
     }
 
     // Request DTOs

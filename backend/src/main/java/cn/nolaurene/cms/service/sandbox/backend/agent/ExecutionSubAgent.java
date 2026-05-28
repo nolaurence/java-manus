@@ -702,8 +702,8 @@ public class ExecutionSubAgent {
         // Extract skill IDs from tool specifications
         List<String> skillIds = agent.getToolSpecifications().stream()
                 .filter(tool -> tool.name().startsWith(SkillToolProvider.SKILL_TOOL_PREFIX))
-                .map(tool -> tool.name().substring(SkillToolProvider.SKILL_TOOL_PREFIX.length()))
-                .map(this::denormalizeSkillId)
+                .map(tool -> skillToolProvider.parseSkillIdFromToolName(tool.name()))
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         // Load full skill definitions
@@ -715,15 +715,6 @@ public class ExecutionSubAgent {
         }
 
         return skills;
-    }
-
-    /**
-     * Denormalize skill ID from tool name format.
-     */
-    private String denormalizeSkillId(String normalizedId) {
-        // The normalized ID uses underscores, we need to find the original
-        // This is a simplified version - in practice, you might need to query the database
-        return normalizedId.replace("_", "/");
     }
 
     /**

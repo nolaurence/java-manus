@@ -131,6 +131,7 @@ export const getVNCUrl = (agentId: string): string => {
 export const chatWithAgent = async (
   agentId: string,
   message: string = '',
+  planMode: boolean = false,
   onMessage: (event: SSEEvent) => void,
   onError?: (error: Error) => void
 ) => {
@@ -143,7 +144,7 @@ export const chatWithAgent = async (
         'Content-Type': 'application/json',
       },
       openWhenHidden: true,
-      body: JSON.stringify({message, timestamp: Math.floor(Date.now() / 1000)}),
+      body: JSON.stringify({message, planMode, timestamp: Math.floor(Date.now() / 1000)}),
       onmessage(event: EventSourceMessage) {
         if (event.event && event.event.trim() !== '') {
           // 处理心跳消息，不传递给上层

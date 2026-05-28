@@ -1,13 +1,11 @@
 package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
-import cn.nolaurene.cms.common.sandbox.backend.skill.Skill;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
-import cn.nolaurene.cms.service.sandbox.backend.skill.SkillService;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
@@ -54,9 +52,6 @@ public class AgentSession {
     @Autowired
     private SkillToolProvider skillToolProvider;
 
-    @Autowired
-    private SkillService skillService;
-
     private AgentExecutor executor;
 
     private final AtomicBoolean frontendConnected = new AtomicBoolean(true);
@@ -73,9 +68,6 @@ public class AgentSession {
         this.agent = agent;
         this.agent.setPlanner(new Planner());
         this.agent.setExecutor(new Executor());
-
-        // Load skills for this agent (both via SkillService and SkillToolProvider)
-        loadAgentSkills(agent);
 
         // start langchain4j MCP clients
         McpClient browserMcpClient = startLangchain4jMcpClient(workerUrl, sseEndpoint, "BrowserMCP");
@@ -114,8 +106,8 @@ public class AgentSession {
         // collect all tool specifications
         List<ToolSpecification> allTools = new ArrayList<>(browserTools);
         allTools.addAll(nativeTools);
-        // Load Skill tools and add to tool specifications
-        List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecifications();
+        // Load Skill tools for the current user and add to tool specifications
+        List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()));
         allTools.addAll(skillTools);
         log.info("Skill tools discovered: {}", skillTools.size());
 
@@ -127,25 +119,15 @@ public class AgentSession {
         this.executor = agentExecutorFactory.createAgentExecutor(agent);
     }
 
-    /**
-     * Load enabled skills for the agent.
-     */
-    private void loadAgentSkills(Agent agent) {
+    private Long parseUserId(String userId) {
+        if (StringUtils.isBlank(userId)) {
+            return null;
+        }
         try {
-            List<Skill> skills = skillService.getAgentSkills(agent.getAgentId());
-            if (skills != null && !skills.isEmpty()) {
-                // Load tool specifications for each skill
-                for (Skill skill : skills) {
-                    List<ToolSpecification> skillTools = skillService.loadSkillTools(skill);
-                    skill.setToolSpecifications(skillTools);
-                }
-                agent.setSkills(skills);
-                log.info("[AgentSession] Loaded {} skills for agent {}", skills.size(), agent.getAgentId());
-            } else {
-                log.info("[AgentSession] No skills configured for agent {}", agent.getAgentId());
-            }
-        } catch (Exception e) {
-            log.warn("[AgentSession] Failed to load skills for agent {}: {}", agent.getAgentId(), e.getMessage());
+            return Long.valueOf(userId);
+        } catch (NumberFormatException e) {
+            log.warn("Invalid userId for skill loading: {}", userId);
+            return null;
         }
     }
 
@@ -177,6 +159,13 @@ public class AgentSession {
      * 启动 Agent 执行流程 (前台模式)
      */
     public void reactFlow(String input, SseEmitter emitter) throws InterruptedException {
+        reactFlow(input, false, emitter);
+    }
+
+    /**
+     * 启动 Agent 执行流程 (前台模式)
+     */
+    public void reactFlow(String input, boolean planMode, SseEmitter emitter) throws InterruptedException {
         if (this.sessionStatus == TaskStatus.RUNNING) {
             log.warn("AgentSession is already running.");
             try {
@@ -192,12 +181,16 @@ public class AgentSession {
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
 
-        log.info("Starting AgentSession reactFlow for input: {}", input);
+        log.info("Starting AgentSession reactFlow for input: {}, planMode: {}", input, planMode);
 
         setupSseEmitterListeners(emitter);
 
         try {
-            executor.planAct(input, emitter);
+            if (planMode) {
+                executor.planAct(input, emitter);
+            } else {
+                executor.skillBasedAgentLoop(input, emitter);
+            }
             this.sessionStatus = TaskStatus.COMPLETED;
             log.info("AgentSession execution completed.");
             if (!frontendConnected.get() && currentSseEmitter != null) {

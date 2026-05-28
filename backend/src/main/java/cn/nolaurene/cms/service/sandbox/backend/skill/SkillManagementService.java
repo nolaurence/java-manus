@@ -484,6 +484,45 @@ public class SkillManagementService {
     }
 
     /**
+     * 列出当前用户可见的 Skill，并将 DTO status 设置为用户级启用状态。
+     * 系统级 Skill（user_id 为 NULL）和用户自己的 Skill 都可见。
+     */
+    public List<SkillDefinitionDTO> listAvailableSkillsForUser(Long userId) {
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        example.orderByDesc(SkillInfoDO::getGmtCreate);
+
+        Map<String, Integer> userStatusMap = loadUserSkillStatusMap(userId);
+        return skillInfoMapper.selectByExample(example).stream()
+                .filter(skill -> skill.getUserId() == null || Objects.equals(skill.getUserId(), userId))
+                .map(skill -> {
+                    SkillDefinitionDTO dto = convertToDTO(skill);
+                    dto.setStatus(userStatusMap.getOrDefault(skill.getSkillId(), 1));
+                    return dto;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private Map<String, Integer> loadUserSkillStatusMap(Long userId) {
+        if (userId == null) {
+            return Collections.emptyMap();
+        }
+
+        Example<UserSkillStatusDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId);
+
+        return userSkillStatusMapper.selectByExample(example).stream()
+                .collect(Collectors.toMap(
+                        UserSkillStatusDO::getSkillId,
+                        status -> status.getStatus() == null ? 1 : status.getStatus(),
+                        (left, right) -> right
+                ));
+    }
+
+    /**
      * 添加Skill文档
      */
     @Transactional

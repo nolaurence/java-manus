@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Sender } from '@ant-design/x';
 import { LinkOutlined } from '@ant-design/icons';
-import { Button, Popover, Flex } from 'antd';
+import { Button, Flex, Switch, Tooltip } from 'antd';
 
 
 interface ChatInputProps {
   modelValue: string;
   onSubmit?: () => void;
   onUpdateModelValue: (value: string) => void;
+  planMode?: boolean;
+  onPlanModeChange?: (checked: boolean) => void;
   disabled?: boolean;
 }
 
@@ -15,6 +17,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   modelValue,
   onSubmit,
   onUpdateModelValue,
+  planMode = false,
+  onPlanModeChange,
   disabled = false
 }) => {
   const [isComposing, setIsComposing] = useState(false);
@@ -59,8 +63,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
         return (
           <Flex justify="space-between" align="center" >
-            <Flex gap="small" align="cemter" >
+            <Flex gap="small" align="center" >
               <Button style={{ fontSize: 18 }} type="text" icon={<LinkOutlined />} />
+              <Tooltip title="Open plan-act mode">
+                <Switch
+                  size="small"
+                  checked={planMode}
+                  checkedChildren="Plan"
+                  unCheckedChildren="Skill"
+                  onChange={(checked) => onPlanModeChange?.(checked)}
+                />
+              </Tooltip>
             </Flex>
             <Flex align="center">
               {disabled ? (
