@@ -101,18 +101,18 @@ const ChatMessage: React.FC<{
             defaultExpanded={!hasContent}
             style={{ marginBottom: hasContent ? 8 : 0 }}
           >
-            <XMarkdown
-              content={msgContent.reasoningContent!}
-              className="max-w-none p-0 m-0 prose prose-sm dark:prose-invert text-sm text-[var(--text-secondary)]"
-            />
-          </Think>
-        )}
-        {hasContent && (
-          <XMarkdown 
-            content={msgContent.content}
-            className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
+          <XMarkdown
+            content={msgContent.reasoningContent!}
+            className="max-w-none p-0 m-0 prose prose-sm dark:prose-invert text-sm text-[var(--text-secondary)] [&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:not-italic"
           />
-        )}
+        </Think>
+      )}
+      {hasContent && (
+        <XMarkdown
+          content={msgContent.content}
+          className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] [&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:not-italic text-base text-[var(--text-primary)]"
+        />
+      )}
       </div>
     );
   }

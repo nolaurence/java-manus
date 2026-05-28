@@ -202,7 +202,7 @@ public class ExecutionSubAgent {
                     if (THINK_TOOL_NAME.equals(toolName)) {
                         String thought = extractThought(arguments);
                         log.info("[ExecutionSubAgent] Round {} - think tool invoked, thought length: {}", round, thought.length());
-                        sendMessageEvent(thought, agent, emitterOpt);
+                        sendMessageEvent(formatAsMarkdownQuote(thought), agent, emitterOpt);
                         messages.add(ToolExecutionResultMessage.from(toolRequest, "Thought logged."));
                         continue;
                     }
@@ -387,7 +387,7 @@ public class ExecutionSubAgent {
                 String thinkContent = extractThinkContent(aiText);
                 if (thinkContent != null && !thinkContent.isEmpty()) {
                     log.info("[ExecutionSubAgent] Skill Round {} - Think block length: {}", round, thinkContent.length());
-                    sendMessageEvent(thinkContent, agent, emitterOpt);
+                    sendMessageEvent(formatAsMarkdownQuote(thinkContent), agent, emitterOpt);
                 }
             }
 
@@ -407,7 +407,7 @@ public class ExecutionSubAgent {
                     // Local think tool
                     if (THINK_TOOL_NAME.equals(toolName)) {
                         String thought = extractThought(arguments);
-                        sendMessageEvent(thought, agent, emitterOpt);
+                        sendMessageEvent(formatAsMarkdownQuote(thought), agent, emitterOpt);
                         messages.add(ToolExecutionResultMessage.from(toolRequest, "Thought logged."));
                         continue;
                     }

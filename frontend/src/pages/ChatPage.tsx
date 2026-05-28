@@ -393,8 +393,14 @@ const ChatComponent: React.FC = () => {
             return;
           }
 
-          const mapped: Message[] = mapToFrontendMessage(history);
-          const attachedMessages: Message[] = attachToolsToSteps(mapped, history);
+          const latestContextMessage = [...history].reverse().find((item) => item.eventType === 'CONTEXT');
+          if (latestContextMessage) {
+            setContextUsage(latestContextMessage.content as ContextEventData);
+          }
+
+          const renderableHistory = history.filter((item) => item.eventType !== 'CONTEXT');
+          const mapped: Message[] = mapToFrontendMessage(renderableHistory);
+          const attachedMessages: Message[] = attachToolsToSteps(mapped, renderableHistory);
           const finalMessages: Message[] = mergeReasoningMessages(attachedMessages);
 
           console.log('mapped message',  finalMessages);

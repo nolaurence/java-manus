@@ -485,6 +485,12 @@ public class ConversationHistoryService {
                 response.setContent(toolEventData);
                 response.setEventType(SSEEventType.TOOL);
                 break;
+            case CONTEXT:
+                ContextEventData contextEventData = JSON.parseObject(conversation.getContent(), ContextEventData.class);
+                contextEventData.setTimestamp(messageTimeStamp);
+                response.setContent(contextEventData);
+                response.setEventType(SSEEventType.CONTEXT);
+                break;
             case UNKNOWN:
                 log.error("[ConversationHistoryService#convertToResponse] unknow message type");
                 break;

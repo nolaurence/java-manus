@@ -551,8 +551,9 @@ public class AgentExecutor {
         if (THINK_TOOL_NAME.equals(toolName)) {
             String thought = extractThought(arguments);
             if (StringUtils.isNotBlank(thought)) {
-                syncRespondContent(thought, emitter);
-                saveAssistantMessage(thought, SSEEventType.MESSAGE);
+                String quotedThought = formatAsMarkdownQuote(thought);
+                syncRespondContent(quotedThought, emitter);
+                saveAssistantMessage(quotedThought, SSEEventType.MESSAGE);
             }
             return ToolExecutionResultMessage.from(toolRequest, "Thought logged.");
         }
@@ -824,6 +825,7 @@ public class AgentExecutor {
         data.put("percent", usage.percent);
         data.put("compacted", compacted);
         sendOrForwardMessage(emitter, SSEEventType.CONTEXT.getType(), data);
+        saveAssistantEventWithoutMemory(JSON.toJSONString(data), SSEEventType.CONTEXT);
     }
 
     private static class ContextUsage {
@@ -1097,6 +1099,26 @@ public class AgentExecutor {
             return response.getId();
         } catch (Exception e) {
             log.warn("failed to persist assistant message", e);
+            return null;
+        }
+    }
+
+    private Long saveAssistantEventWithoutMemory(String content, SSEEventType eventType) {
+        if (conversationHistoryService == null) {
+            return null;
+        }
+        try {
+            ConversationRequest req = new ConversationRequest();
+            req.setUserId(conversationUserId);
+            req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
+            req.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            req.setEventType(eventType);
+            req.setContent(content);
+            req.setMetadata(null);
+            ConversationResponse response = conversationHistoryService.saveConversation(req);
+            return response.getId();
+        } catch (Exception e) {
+            log.warn("failed to persist assistant event", e);
             return null;
         }
     }
