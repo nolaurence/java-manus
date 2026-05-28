@@ -87,7 +87,7 @@ public class SkillService {
         existingParam.setUserId(userId);
         List<SkillDO> existing = skillMapper.selectList(existingParam);
         for (SkillDO e : existing) {
-            skillMapper.deleteById(e.getId());
+            skillMapper.deleteByPrimaryKey(e.getId());
         }
 
         // Save to DB
@@ -121,7 +121,7 @@ public class SkillService {
         SkillDO skillDO = skillDOs.get(0);
         skillDO.setEnabled(enabled);
         skillDO.setUpdatedAt(new Date());
-        skillMapper.updateById(skillDO);
+        skillMapper.updateByPrimaryKeySelective(skillDO);
         return convertToSkill(skillDO);
     }
 
@@ -155,7 +155,7 @@ public class SkillService {
         param.setAgentId(agentId);
         List<AgentSkillDO> existing = agentSkillMapper.selectList(param);
         for (AgentSkillDO e : existing) {
-            agentSkillMapper.deleteById(e.getId());
+            agentSkillMapper.deleteByPrimaryKey(e.getId());
         }
 
         // Add new associations
@@ -321,8 +321,8 @@ public class SkillService {
     private List<ToolSpecification> parseToolSpecifications(String json) {
         List<ToolSpecification> specs = new ArrayList<>();
         try {
-            List<Map<String, Object>> tools = JSON.parseArray(json, Map.class);
-            for (Map<String, Object> tool : tools) {
+            List<Map> tools = JSON.parseArray(json, Map.class);
+            for (Map<?, ?> tool : tools) {
                 String name = (String) tool.get("name");
                 String description = (String) tool.get("description");
                 if (name != null && description != null) {

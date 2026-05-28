@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'umi';
 import { Card, Switch, Button, Upload, Typography, Tag, message as antdMessage, Spin, Empty, Divider } from 'antd';
-import { UploadOutlined, ArrowLeftOutlined, PlusOutlined, Wrench } from '@ant-design/icons';
+import { UploadOutlined, ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
+import { Wrench } from 'lucide-react';
 import { listSkills, installSkill, toggleSkill, Skill } from '@/services/api/skill';
 import { createStyles } from 'antd-style';
 
