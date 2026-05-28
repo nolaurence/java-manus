@@ -10,7 +10,7 @@ import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from
 import {useNavigate, useLocation} from "react-router";
 import { useParams } from 'umi';
 import StepSuccessIcon from '@/components/icons/StepSuccessIcon';
-import type {MessageEventData, StepEventData, ToolEventData, PlanEventData} from '@/types/sseEvent';
+import type {MessageEventData, StepEventData, ToolEventData, PlanEventData, ContextEventData} from '@/types/sseEvent';
 // import '@/assets/global.css';
 // import '@/assets/theme.css';
 import {useStyles} from '@/assets/chatPageStyle';
@@ -37,6 +37,7 @@ const ChatComponent: React.FC = () => {
   const [isShowPlanPanel, setIsShowPlanPanel] = useState<boolean>(false);
   const [plan, setPlan] = useState<PlanEventData | undefined>(undefined);
   const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem('planMode') === 'true');
+  const [contextUsage, setContextUsage] = useState<ContextEventData | undefined>(undefined);
   const [realTime, setRealTime] = useState<boolean>(true);
   const [follow, setFollow] = useState<boolean>(true);
   const [lastNoMessageTool, setLastNoMessageTool] = useState<ToolContent | undefined>(undefined);
@@ -72,6 +73,8 @@ const ChatComponent: React.FC = () => {
   // const {search} = useLocation();
   const params = useParams();
   const agentId = params.agentId;
+
+  const isMobileViewport = () => window.matchMedia('(max-width: 768px)').matches;
 
   // 获取最后一步
   const getLastStep = (): StepContent | undefined => {
@@ -237,7 +240,7 @@ const ChatComponent: React.FC = () => {
     // 处理非消息工具
     if (toolData.name !== 'message') {
       setLastNoMessageTool(toolData);
-      if (realTime) {
+      if (realTime && !isMobileViewport()) {
         toolPanelOps.show(toolData);
       }
     }
@@ -320,6 +323,8 @@ const ChatComponent: React.FC = () => {
       setTitle(event.data.title);
     } else if (event.event === 'plan') {
       setPlan(event.data);
+    } else if (event.event === 'context') {
+      setContextUsage(event.data);
     }
   };
 
@@ -346,6 +351,7 @@ const ChatComponent: React.FC = () => {
       setPlan(undefined);
       setIsShowPlanPanel(false);
     }
+    setContextUsage(undefined);
     setIsLoading(true);
 
     try {
@@ -672,6 +678,7 @@ const ChatComponent: React.FC = () => {
                     onSubmit={() => sendMessage(inputMessage)}
                     planMode={planMode}
                     onPlanModeChange={setPlanMode}
+                    contextPercent={contextUsage?.percent}
                     disabled={isLoading}
                   />
                 </div>

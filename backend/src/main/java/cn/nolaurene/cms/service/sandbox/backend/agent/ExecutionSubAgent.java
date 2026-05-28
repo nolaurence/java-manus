@@ -23,6 +23,7 @@ import org.apache.commons.lang3.StringUtils;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
@@ -55,6 +56,7 @@ public class ExecutionSubAgent {
 
     private static final int MCP_TOOL_RETRY_TIMES = 3;
     private static final String THINK_TOOL_NAME = "dummy-server-think";
+    private static final int COMPACTED_CONTEXT_MAX_CHARS = 60_000;
 
     @Resource
     private ConversationHistoryService conversationHistoryService;
@@ -167,8 +169,20 @@ public class ExecutionSubAgent {
             } catch (RateLimitException e) {
                 log.error("[ExecutionSubAgent] Rate limit reached in round {}: {}", round, e.getMessage());
                 throw e;
+            } catch (InvalidRequestException e) {
+                if (!isContextLengthExceeded(e)) {
+                    throw e;
+                }
+                log.warn("[ExecutionSubAgent] Context length exceeded in direct round {}, compacting and retrying once", round);
+                messages = compactExecutionMessages(messages);
+                request = ChatRequest.builder()
+                        .messages(messages)
+                        .toolSpecifications(toolSpecs)
+                        .build();
+                response = chatModel.chat(request);
             }
             AiMessage aiMessage = response.aiMessage();
+            sendThinkingMessageEvent(aiMessage, agent, emitterOpt);
 
             // Add AI message to conversation
             messages.add(aiMessage);
@@ -344,8 +358,27 @@ public class ExecutionSubAgent {
             } catch (RateLimitException e) {
                 log.error("[ExecutionSubAgent] Rate limit reached in skill round {}: {}", round, e.getMessage());
                 throw e;
+            } catch (InvalidRequestException e) {
+                if (!isContextLengthExceeded(e)) {
+                    throw e;
+                }
+                log.warn("[ExecutionSubAgent] Context length exceeded in skill round {}, compacting and retrying once", round);
+                messages = compactExecutionMessages(messages);
+                if (injectedFilesSb.length() > COMPACTED_CONTEXT_MAX_CHARS) {
+                    String truncatedFiles = truncateForCompaction(injectedFilesSb.toString(), COMPACTED_CONTEXT_MAX_CHARS);
+                    injectedFilesSb.setLength(0);
+                    injectedFilesSb.append(truncatedFiles);
+                }
+                roundMessages = new ArrayList<>(messages);
+                roundMessages.add(UserMessage.from(truncateForCompaction(executionContext, COMPACTED_CONTEXT_MAX_CHARS)));
+                request = ChatRequest.builder()
+                        .messages(roundMessages)
+                        .toolSpecifications(toolSpecs)
+                        .build();
+                response = chatModel.chat(request);
             }
             AiMessage aiMessage = response.aiMessage();
+            sendThinkingMessageEvent(aiMessage, agent, emitterOpt);
             String aiText = aiMessage.text();
             log.info("[ExecutionSubAgent] Skill Round {} - LLM response: {}", round, aiText);
 
@@ -925,6 +958,30 @@ public class ExecutionSubAgent {
             }
 
             return null;
+        } catch (InvalidRequestException e) {
+            if (!isContextLengthExceeded(e)) {
+                log.warn("[ExecutionSubAgent] Failed to check step completion: {}", e.getMessage());
+                return null;
+            }
+            log.warn("[ExecutionSubAgent] Context length exceeded during completion check, compacting and retrying once");
+            try {
+                List<ChatMessage> compactedMessages = compactExecutionMessages(messages);
+                compactedMessages.add(UserMessage.from(checkPrompt));
+                ChatResponse checkResponse = chatModel.chat(ChatRequest.builder()
+                        .messages(compactedMessages)
+                        .build());
+                AiMessage checkAiMessage = checkResponse.aiMessage();
+                String responseText = checkAiMessage.text();
+                if (responseText != null && responseText.startsWith("COMPLETED:")) {
+                    messages.clear();
+                    messages.addAll(compactedMessages);
+                    messages.add(checkAiMessage);
+                    return responseText.substring("COMPLETED:".length()).trim();
+                }
+            } catch (Exception retryException) {
+                log.warn("[ExecutionSubAgent] Failed to retry completion check after compaction: {}", retryException.getMessage());
+            }
+            return null;
         } catch (Exception e) {
             log.warn("[ExecutionSubAgent] Failed to check step completion: {}", e.getMessage());
             return null;
@@ -1053,6 +1110,99 @@ public class ExecutionSubAgent {
         conversationHistoryService.saveAssistantMessageWithId(
                 content, SSEEventType.MESSAGE,
                 agent.getUserId(), agent.getAgentId());
+    }
+
+    private void sendThinkingMessageEvent(AiMessage aiMessage, Agent agent, SseEmitter emitter) {
+        if (aiMessage == null || StringUtils.isBlank(aiMessage.thinking())) {
+            return;
+        }
+        sendMessageEvent(formatAsMarkdownQuote(aiMessage.thinking()), agent, emitter);
+    }
+
+    private String formatAsMarkdownQuote(String content) {
+        if (StringUtils.isBlank(content)) {
+            return "";
+        }
+        String normalized = content.replace("\r\n", "\n").replace("\r", "\n").trim();
+        return Arrays.stream(normalized.split("\n", -1))
+                .map(line -> StringUtils.isBlank(line) ? ">" : "> " + line)
+                .collect(Collectors.joining("\n")) + "\n\n";
+    }
+
+    private List<ChatMessage> compactExecutionMessages(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return messages;
+        }
+
+        List<ChatMessage> compacted = new ArrayList<>();
+        compacted.add(messages.get(0));
+
+        int startIndex = Math.max(1, messages.size() - 20);
+        StringBuilder summary = new StringBuilder();
+        summary.append("The execution context was compacted because it exceeded the model context limit.\n");
+        summary.append("Continue the current task from this compacted recent context:\n\n");
+        for (int i = startIndex; i < messages.size(); i++) {
+            ChatMessage message = messages.get(i);
+            summary.append("## ").append(message.type()).append("\n");
+            summary.append(truncateForCompaction(extractMessageText(message), 8_000)).append("\n\n");
+            if (summary.length() > COMPACTED_CONTEXT_MAX_CHARS) {
+                break;
+            }
+        }
+
+        compacted.add(UserMessage.from(truncateForCompaction(summary.toString(), COMPACTED_CONTEXT_MAX_CHARS)));
+        return compacted;
+    }
+
+    private String truncateForCompaction(String text, int maxChars) {
+        if (text == null) {
+            return "";
+        }
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars) + "\n... (context truncated during compaction)";
+    }
+
+    private String extractMessageText(ChatMessage message) {
+        if (message == null) {
+            return "";
+        }
+        if (message instanceof SystemMessage) {
+            return ((SystemMessage) message).text();
+        }
+        if (message instanceof UserMessage) {
+            UserMessage userMessage = (UserMessage) message;
+            return userMessage.hasSingleText() ? userMessage.singleText() : userMessage.toString();
+        }
+        if (message instanceof AiMessage) {
+            AiMessage aiMessage = (AiMessage) message;
+            String text = StringUtils.defaultString(aiMessage.text());
+            if (StringUtils.isNotBlank(aiMessage.thinking())) {
+                text += "\n" + aiMessage.thinking();
+            }
+            if (aiMessage.hasToolExecutionRequests()) {
+                text += "\n" + aiMessage.toolExecutionRequests();
+            }
+            return text;
+        }
+        if (message instanceof ToolExecutionResultMessage) {
+            ToolExecutionResultMessage toolResultMessage = (ToolExecutionResultMessage) message;
+            return toolResultMessage.toolName() + "\n" + toolResultMessage.text();
+        }
+        return message.toString();
+    }
+
+    private boolean isContextLengthExceeded(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("maximum context length")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**

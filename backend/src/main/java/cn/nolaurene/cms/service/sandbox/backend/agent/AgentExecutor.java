@@ -31,6 +31,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
@@ -86,6 +87,9 @@ public class AgentExecutor {
     private static final String DONE_SIGNAL = "[DONE]";
     private static final String THINK_TOOL_NAME = "dummy-server-think";
     private static final int MCP_TOOL_RETRY_TIMES = 3;
+    private static final int DEFAULT_CONTEXT_WINDOW_TOKENS = 1_048_576;
+    private static final int CONTEXT_COMPACT_THRESHOLD_PERCENT = 90;
+    private static final int COMPACTED_CONTEXT_MAX_CHARS = 60_000;
     private static final ThreadPoolExecutor executor = new ThreadPoolExecutor(
             5,
             20,
@@ -395,15 +399,40 @@ public class AgentExecutor {
                 log.info("[SKILL LOOP] round {}/{} start, messages={}, tools={}",
                         round, MAX_ROUNDS, messages.size(), toolSpecs.size());
 
+                ContextUsage contextUsage = calculateContextUsage(messages, toolSpecs);
+                syncContextUsage(contextUsage, false, emitter);
+                if (contextUsage.percent >= CONTEXT_COMPACT_THRESHOLD_PERCENT) {
+                    log.info("[SKILL LOOP] context usage {}% reached threshold, compacting messages", contextUsage.percent);
+                    messages = compactAgentLoopMessages(messages);
+                    contextUsage = calculateContextUsage(messages, toolSpecs);
+                    syncContextUsage(contextUsage, true, emitter);
+                }
+
                 dev.langchain4j.model.chat.request.ChatRequest request =
                         dev.langchain4j.model.chat.request.ChatRequest.builder()
                                 .messages(messages)
                                 .toolSpecifications(toolSpecs)
                                 .build();
 
-                ChatResponse response = chatModel.chat(request);
+                ChatResponse response;
+                try {
+                    response = chatModel.chat(request);
+                } catch (InvalidRequestException e) {
+                    if (!isContextLengthExceeded(e)) {
+                        throw e;
+                    }
+                    log.warn("[SKILL LOOP] context length exceeded, compacting and retrying once: {}", e.getMessage());
+                    messages = compactAgentLoopMessages(messages);
+                    syncContextUsage(calculateContextUsage(messages, toolSpecs), true, emitter);
+                    request = dev.langchain4j.model.chat.request.ChatRequest.builder()
+                            .messages(messages)
+                            .toolSpecifications(toolSpecs)
+                            .build();
+                    response = chatModel.chat(request);
+                }
                 AiMessage aiMessage = response.aiMessage();
                 messages.add(aiMessage);
+                syncRespondThinking(aiMessage, emitter);
 
                 String aiText = aiMessage.text();
                 if (StringUtils.isNotBlank(aiText)) {
@@ -482,7 +511,15 @@ public class AgentExecutor {
 
     private String buildAvailableImportedSkillsSection() {
         try {
-            List<SkillDefinitionDTO> skills = skillToolProvider.getEnabledSkillDefinitionsForUser(parseUserId(agent.getUserId()));
+            Set<String> enabledSkillIds = skillToolProvider.getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()))
+                    .stream()
+                    .map(tool -> skillToolProvider.parseSkillIdFromToolName(tool.name()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            List<SkillDefinitionDTO> skills = enabledSkillIds.stream()
+                    .map(skillToolProvider::getSkillDefinition)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
             if (CollectionUtils.isEmpty(skills)) {
                 return "(No imported skills are currently enabled.)";
             }
@@ -633,6 +670,171 @@ public class AgentExecutor {
             return thought != null ? thought : arguments;
         } catch (Exception e) {
             return arguments;
+        }
+    }
+
+    private void syncRespondThinking(AiMessage aiMessage, SseEmitter sseEmitter) {
+        if (aiMessage == null || StringUtils.isBlank(aiMessage.thinking())) {
+            return;
+        }
+
+        String quotedThinking = formatAsMarkdownQuote(aiMessage.thinking());
+        syncRespondContent(quotedThinking, sseEmitter);
+        saveAssistantMessage(quotedThinking, SSEEventType.MESSAGE);
+    }
+
+    private String formatAsMarkdownQuote(String content) {
+        if (StringUtils.isBlank(content)) {
+            return "";
+        }
+
+        String normalized = content.replace("\r\n", "\n").replace("\r", "\n").trim();
+        return Arrays.stream(normalized.split("\n", -1))
+                .map(line -> StringUtils.isBlank(line) ? ">" : "> " + line)
+                .collect(Collectors.joining("\n")) + "\n\n";
+    }
+
+    private ContextUsage calculateContextUsage(List<dev.langchain4j.data.message.ChatMessage> messages,
+                                               List<ToolSpecification> toolSpecs) {
+        int usedTokens = 0;
+        for (dev.langchain4j.data.message.ChatMessage message : messages) {
+            usedTokens += estimateTokens(extractMessageText(message)) + 4;
+        }
+        for (ToolSpecification toolSpec : toolSpecs) {
+            usedTokens += estimateTokens(toolSpec.name());
+            usedTokens += estimateTokens(toolSpec.description());
+            usedTokens += estimateTokens(toolSpec.parameters() == null ? "" : toolSpec.parameters().toString());
+        }
+        int percent = Math.min(100, (int) Math.ceil((usedTokens * 100.0) / DEFAULT_CONTEXT_WINDOW_TOKENS));
+        return new ContextUsage(usedTokens, DEFAULT_CONTEXT_WINDOW_TOKENS, percent);
+    }
+
+    private List<dev.langchain4j.data.message.ChatMessage> compactAgentLoopMessages(
+            List<dev.langchain4j.data.message.ChatMessage> messages) {
+        if (CollectionUtils.isEmpty(messages)) {
+            return messages;
+        }
+
+        List<dev.langchain4j.data.message.ChatMessage> compacted = new ArrayList<>();
+        compacted.add(messages.get(0));
+
+        int startIndex = Math.max(1, messages.size() - 24);
+        StringBuilder summary = new StringBuilder();
+        summary.append("The previous conversation/tool context was compacted because it was close to the model context limit.\n");
+        summary.append("Keep working from this compacted recent context:\n\n");
+        for (int i = startIndex; i < messages.size(); i++) {
+            dev.langchain4j.data.message.ChatMessage message = messages.get(i);
+            summary.append("## ").append(message.type()).append("\n");
+            summary.append(truncateForCompaction(extractMessageText(message), 8_000)).append("\n\n");
+            if (summary.length() > COMPACTED_CONTEXT_MAX_CHARS) {
+                break;
+            }
+        }
+
+        compacted.add(UserMessage.from(truncateForCompaction(summary.toString(), COMPACTED_CONTEXT_MAX_CHARS)));
+        return compacted;
+    }
+
+    private String truncateForCompaction(String text, int maxChars) {
+        if (text == null) {
+            return "";
+        }
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars) + "\n... (context truncated during compaction)";
+    }
+
+    private String extractMessageText(dev.langchain4j.data.message.ChatMessage message) {
+        if (message == null) {
+            return "";
+        }
+        if (message instanceof SystemMessage) {
+            return ((SystemMessage) message).text();
+        }
+        if (message instanceof UserMessage) {
+            UserMessage userMessage = (UserMessage) message;
+            return userMessage.hasSingleText() ? userMessage.singleText() : userMessage.toString();
+        }
+        if (message instanceof AiMessage) {
+            AiMessage aiMessage = (AiMessage) message;
+            String text = StringUtils.defaultString(aiMessage.text());
+            if (StringUtils.isNotBlank(aiMessage.thinking())) {
+                text += "\n" + aiMessage.thinking();
+            }
+            if (aiMessage.hasToolExecutionRequests()) {
+                text += "\n" + aiMessage.toolExecutionRequests();
+            }
+            return text;
+        }
+        if (message instanceof ToolExecutionResultMessage) {
+            ToolExecutionResultMessage toolResultMessage = (ToolExecutionResultMessage) message;
+            return toolResultMessage.toolName() + "\n" + toolResultMessage.text();
+        }
+        return message.toString();
+    }
+
+    private int estimateTokens(String text) {
+        if (StringUtils.isBlank(text)) {
+            return 0;
+        }
+
+        int chineseCount = 0;
+        int englishWordCount = 0;
+        int otherCharCount = 0;
+        boolean inWord = false;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c >= 0x4E00 && c <= 0x9FFF) {
+                chineseCount++;
+                inWord = false;
+            } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+                if (!inWord) {
+                    englishWordCount++;
+                    inWord = true;
+                }
+            } else if (Character.isWhitespace(c)) {
+                inWord = false;
+                otherCharCount++;
+            } else {
+                otherCharCount++;
+                inWord = false;
+            }
+        }
+        return (int) Math.ceil(chineseCount * 1.5 + englishWordCount * 1.3 + otherCharCount * 0.5);
+    }
+
+    private boolean isContextLengthExceeded(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("maximum context length")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void syncContextUsage(ContextUsage usage, boolean compacted, SseEmitter emitter) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("timestamp", System.currentTimeMillis());
+        data.put("usedTokens", usage.usedTokens);
+        data.put("maxTokens", usage.maxTokens);
+        data.put("percent", usage.percent);
+        data.put("compacted", compacted);
+        sendOrForwardMessage(emitter, SSEEventType.CONTEXT.getType(), data);
+    }
+
+    private static class ContextUsage {
+        private final int usedTokens;
+        private final int maxTokens;
+        private final int percent;
+
+        private ContextUsage(int usedTokens, int maxTokens, int percent) {
+            this.usedTokens = usedTokens;
+            this.maxTokens = maxTokens;
+            this.percent = percent;
         }
     }
 

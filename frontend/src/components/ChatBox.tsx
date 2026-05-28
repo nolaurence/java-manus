@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Sender } from '@ant-design/x';
 import { LinkOutlined } from '@ant-design/icons';
-import { Button, Flex, Switch, Tooltip } from 'antd';
+import { Button, Flex, Progress, Switch, Tooltip } from 'antd';
 
 
 interface ChatInputProps {
@@ -10,6 +10,7 @@ interface ChatInputProps {
   onUpdateModelValue: (value: string) => void;
   planMode?: boolean;
   onPlanModeChange?: (checked: boolean) => void;
+  contextPercent?: number;
   disabled?: boolean;
 }
 
@@ -19,6 +20,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onUpdateModelValue,
   planMode = false,
   onPlanModeChange,
+  contextPercent,
   disabled = false
 }) => {
   const [isComposing, setIsComposing] = useState(false);
@@ -74,6 +76,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   onChange={(checked) => onPlanModeChange?.(checked)}
                 />
               </Tooltip>
+              {typeof contextPercent === 'number' && !planMode && (
+                <Tooltip title={`Context usage ${Math.round(contextPercent)}%`}>
+                  <Progress
+                    type="circle"
+                    size={28}
+                    percent={Math.round(contextPercent)}
+                    showInfo={false}
+                    strokeColor={contextPercent >= 90 ? '#ff4d4f' : contextPercent >= 70 ? '#faad14' : '#52c41a'}
+                  />
+                </Tooltip>
+              )}
             </Flex>
             <Flex align="center">
               {disabled ? (

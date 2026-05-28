@@ -11,7 +11,8 @@ public enum SSEEventType {
     ERROR("error"),
     DONE("DONE"),
     TITLE("title"),
-    PLAN("plan");
+    PLAN("plan"),
+    CONTEXT("context");
 
     private final String type;
 

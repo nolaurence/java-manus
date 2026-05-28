@@ -1,6 +1,8 @@
 package cn.nolaurene.cms.service.sandbox.backend.skill;
 
 import cn.nolaurene.cms.common.dto.skill.SkillDefinitionDTO;
+import cn.nolaurene.cms.common.dto.skill.ToolDefinition;
+import cn.nolaurene.cms.common.dto.skill.TriggerConfig;
 import cn.nolaurene.cms.dal.entity.SkillInfoDO;
 import cn.nolaurene.cms.dal.entity.UserSkillStatusDO;
 import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
@@ -267,63 +269,44 @@ public class SkillToolProvider {
      * @return ToolSpecification 列表
      */
     public List<ToolSpecification> getSkillToolSpecificationsForUser(Long userId) {
+        // 获取用户启用的Skill ID列表
+        Example<UserSkillStatusDO> statusExample = new Example<>();
+        statusExample.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getStatus, 1);
+        List<String> enabledSkillIds = userSkillStatusMapper.selectByExample(statusExample).stream()
+                .map(UserSkillStatusDO::getSkillId)
+                .collect(Collectors.toList());
+
+        if (enabledSkillIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
         List<ToolSpecification> specs = new ArrayList<>();
 
-        for (SkillInfoDO skillInfo : listEnabledSkillInfosForUser(userId)) {
-            try {
-                ToolSpecification spec = convertToToolSpecification(skillInfo);
-                if (spec != null) {
-                    specs.add(spec);
+        for (String skillId : enabledSkillIds) {
+            SkillDefinitionDTO skill = getSkillDefinition(skillId);
+            if (skill != null) {
+                try {
+                    // 从缓存获取或转换
+                    Example<SkillInfoDO> infoExample = new Example<>();
+                    infoExample.createCriteria()
+                            .andEqualTo(SkillInfoDO::getSkillId, skillId)
+                            .andEqualTo(SkillInfoDO::getIsDelete, false);
+                    SkillInfoDO skillInfo = skillInfoMapper.selectOneByExample(infoExample).orElse(null);
+                    if (skillInfo != null && skillInfo.getStatus() != null && skillInfo.getStatus() == 1) {
+                        ToolSpecification spec = convertToToolSpecification(skillInfo);
+                        if (spec != null) {
+                            specs.add(spec);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to convert skill {} to ToolSpecification for user {}", skillId, userId, e);
                 }
-            } catch (Exception e) {
-                log.error("Failed to convert skill {} to ToolSpecification for user {}", skillInfo.getSkillId(), userId, e);
             }
         }
 
         log.info("Loaded {} skill tool specifications for user {}", specs.size(), userId);
         return specs;
-    }
-
-    /**
-     * 获取当前用户可用且启用的 Skill 定义。
-     * NULL user_id 表示系统级 Skill；用户级状态缺省时按启用处理，显式 status=0 才禁用。
-     */
-    public List<SkillDefinitionDTO> getEnabledSkillDefinitionsForUser(Long userId) {
-        return listEnabledSkillInfosForUser(userId).stream()
-                .map(this::convertToDefinitionDTO)
-                .collect(Collectors.toList());
-    }
-
-    private List<SkillInfoDO> listEnabledSkillInfosForUser(Long userId) {
-        Example<SkillInfoDO> skillExample = new Example<>();
-        skillExample.createCriteria()
-                .andEqualTo(SkillInfoDO::getStatus, 1)
-                .andEqualTo(SkillInfoDO::getIsDelete, false);
-        skillExample.orderByDesc(SkillInfoDO::getGmtCreate);
-
-        List<SkillInfoDO> activeSkills = skillInfoMapper.selectByExample(skillExample);
-        Map<String, Integer> userStatusMap = loadUserSkillStatusMap(userId);
-
-        return activeSkills.stream()
-                .filter(skill -> skill.getUserId() == null || Objects.equals(skill.getUserId(), userId))
-                .filter(skill -> userStatusMap.getOrDefault(skill.getSkillId(), 1) == 1)
-                .collect(Collectors.toList());
-    }
-
-    private Map<String, Integer> loadUserSkillStatusMap(Long userId) {
-        if (userId == null) {
-            return Collections.emptyMap();
-        }
-
-        Example<UserSkillStatusDO> statusExample = new Example<>();
-        statusExample.createCriteria()
-                .andEqualTo(UserSkillStatusDO::getUserId, userId);
-
-        return userSkillStatusMapper.selectByExample(statusExample).stream()
-                .collect(Collectors.toMap(
-                        UserSkillStatusDO::getSkillId,
-                        status -> status.getStatus() == null ? 1 : status.getStatus(),
-                        (left, right) -> right
-                ));
     }
 }
