@@ -431,6 +431,11 @@ public class AgentExecutor {
                     response = chatModel.chat(request);
                 }
                 AiMessage aiMessage = response.aiMessage();
+                log.info("[LLM Response] round={} text={} thinking={} toolCalls={}",
+                        round,
+                        StringUtils.abbreviate(aiMessage.text(), 200),
+                        StringUtils.abbreviate(aiMessage.thinking(), 200),
+                        aiMessage.hasToolExecutionRequests() ? aiMessage.toolExecutionRequests().size() : 0);
                 messages.add(aiMessage);
                 syncRespondThinking(aiMessage, emitter);
 

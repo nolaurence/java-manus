@@ -182,6 +182,11 @@ public class ExecutionSubAgent {
                 response = chatModel.chat(request);
             }
             AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] round={} text={} thinking={} toolCalls={}",
+                    round,
+                    StringUtils.abbreviate(aiMessage.text(), 200),
+                    StringUtils.abbreviate(aiMessage.thinking(), 200),
+                    aiMessage.hasToolExecutionRequests() ? aiMessage.toolExecutionRequests().size() : 0);
             sendThinkingMessageEvent(aiMessage, agent, emitterOpt);
 
             // Add AI message to conversation
@@ -381,6 +386,11 @@ public class ExecutionSubAgent {
                 response = chatModel.chat(request);
             }
             AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] round={} text={} thinking={} toolCalls={}",
+                    round,
+                    StringUtils.abbreviate(aiMessage.text(), 200),
+                    StringUtils.abbreviate(aiMessage.thinking(), 200),
+                    aiMessage.hasToolExecutionRequests() ? aiMessage.toolExecutionRequests().size() : 0);
             sendThinkingMessageEvent(aiMessage, agent, emitterOpt);
             String aiText = aiMessage.text();
             log.info("[ExecutionSubAgent] Skill Round {} - LLM response: {}", round, aiText);
@@ -704,7 +714,9 @@ public class ExecutionSubAgent {
 
         try {
             ChatResponse response = chatModel.chat(request);
-            String selectedSkillId = response.aiMessage().text().trim();
+            AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] selectSkill text={}", StringUtils.abbreviate(aiMessage.text(), 200));
+            String selectedSkillId = aiMessage.text().trim();
 
             // Clean up response
             if (selectedSkillId.startsWith("```") && selectedSkillId.endsWith("```")) {
@@ -951,6 +963,9 @@ public class ExecutionSubAgent {
         try {
             ChatResponse checkResponse = chatModel.chat(checkRequest);
             AiMessage checkAiMessage = checkResponse.aiMessage();
+            log.info("[LLM Response] checkStepCompletion text={} toolCalls={}",
+                    StringUtils.abbreviate(checkAiMessage.text(), 200),
+                    checkAiMessage.hasToolExecutionRequests() ? checkAiMessage.toolExecutionRequests().size() : 0);
             String responseText = checkAiMessage.text();
 
             if (responseText != null && responseText.startsWith("COMPLETED:")) {
@@ -980,6 +995,7 @@ public class ExecutionSubAgent {
                         .messages(compactedMessages)
                         .build());
                 AiMessage checkAiMessage = checkResponse.aiMessage();
+                log.info("[LLM Response] checkStepCompletion retry text={}", StringUtils.abbreviate(checkAiMessage.text(), 200));
                 String responseText = checkAiMessage.text();
                 if (responseText != null && responseText.startsWith("COMPLETED:")) {
                     messages.clear();
@@ -1063,6 +1079,9 @@ public class ExecutionSubAgent {
             long thinkTime = System.currentTimeMillis() - startTime;
 
             AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] deepThinking text={} thinking={}",
+                    StringUtils.abbreviate(aiMessage.text(), 200),
+                    StringUtils.abbreviate(aiMessage.thinking(), 200));
             String thinkingContent = aiMessage.text();
 
             if (StringUtils.isNotBlank(thinkingContent)) {
