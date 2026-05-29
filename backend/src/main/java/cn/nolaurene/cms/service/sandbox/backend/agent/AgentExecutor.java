@@ -1247,27 +1247,11 @@ public class AgentExecutor {
 
     public String getLocalIpAddress() {
         try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements()) {
-                NetworkInterface networkInterface = interfaces.nextElement();
-
-                if (networkInterface.isLoopback() || !networkInterface.isUp()) {
-                    continue;
-                }
-
-                Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    InetAddress address = addresses.nextElement();
-
-                    if (!address.isLoopbackAddress() && address.isSiteLocalAddress()) {
-                        return address.getHostAddress();
-                    }
-                }
-            }
-        } catch (SocketException e) {
-            e.printStackTrace();
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception e) {
+            log.warn("获取本地IP失败，使用默认值127.0.0.1", e);
+            return "127.0.0.1";
         }
-        return null;
     }
 
     private void ensureMemory() {
