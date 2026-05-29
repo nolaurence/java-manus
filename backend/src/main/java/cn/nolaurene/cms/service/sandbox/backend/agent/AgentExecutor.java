@@ -50,8 +50,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -158,10 +156,16 @@ public class AgentExecutor {
             return true;
         }
 
-        return localServerIp.equals(serverInfo.getServerIp());
+        return Objects.equals(localServerIp, serverInfo.getServerIp());
     }
 
     private void sendOrForwardMessage(SseEmitter emitter, String eventName, Object data) {
+        SseEmitter activeEmitter = currentSseEmitter != null ? currentSseEmitter : emitter;
+        if (frontendConnected.get() && activeEmitter != null) {
+            sendDirectMessage(activeEmitter, eventName, data);
+            return;
+        }
+
         if (!shouldDirectSend(agent.getAgentId())) {
             AgentSessionServerDO serverInfo = agentSessionServerService.getByAgentId(agent.getAgentId());
             if (serverInfo != null) {
@@ -171,14 +175,16 @@ public class AgentExecutor {
             }
         }
 
+        log.warn("无法发送SSE消息: agentId={}, eventName={}, emitter={}, connected={}",
+                agent.getAgentId(), eventName, activeEmitter != null, frontendConnected.get());
+    }
+
+    private void sendDirectMessage(SseEmitter emitter, String eventName, Object data) {
         try {
-            SseEmitter activeEmitter = currentSseEmitter != null ? currentSseEmitter : emitter;
-            if (activeEmitter != null) {
-                activeEmitter.send(SseEmitter.event()
-                        .name(eventName)
-                        .data(data)
-                        .id(String.valueOf(System.currentTimeMillis())));
-            }
+            emitter.send(SseEmitter.event()
+                    .name(eventName)
+                    .data(data)
+                    .id(String.valueOf(System.currentTimeMillis())));
         } catch (Exception e) {
             log.error("直接发送SSE消息失败: agentId={}, eventName={}", agent.getAgentId(), eventName, e);
             if (frontendConnected.compareAndSet(true, false)) {
