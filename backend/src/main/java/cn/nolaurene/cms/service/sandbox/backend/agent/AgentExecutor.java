@@ -584,7 +584,9 @@ public class AgentExecutor {
                 : executeMcpToolWithRetry(toolName, finalToolRequest);
         log.info("[SKILL LOOP] tool {} result: {}", toolName, observation);
         if (toolMessageId != null) {
-            conversationHistoryService.updateToolResult(toolMessageId, observation);
+            conversationHistoryService.updateToolResult(
+                    toolMessageId,
+                    ToolObservationSummarizer.forPersistence(toolName, observation));
         }
         return ToolExecutionResultMessage.from(toolRequest, observation);
     }

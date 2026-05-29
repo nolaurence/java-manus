@@ -227,7 +227,9 @@ public class ExecutionSubAgent {
                     String observation = executeToolWithRetry(toolName, finalToolRequest, agent);
                     log.info("[ExecutionSubAgent] Round {} - Tool {} result: {}", round, toolName, observation);
                     if (toolMessageId != null) {
-                        conversationHistoryService.updateToolResult(toolMessageId, observation);
+                        conversationHistoryService.updateToolResult(
+                                toolMessageId,
+                                ToolObservationSummarizer.forPersistence(toolName, observation));
                     }
 
                     // Add tool result to messages
@@ -438,7 +440,9 @@ public class ExecutionSubAgent {
                     String observation = executeToolWithRetry(toolName, finalToolRequest, agent);
                     log.info("[ExecutionSubAgent] Skill Round {} - Tool {} result: {}", round, toolName, observation);
                     if (toolMessageId != null) {
-                        conversationHistoryService.updateToolResult(toolMessageId, observation);
+                        conversationHistoryService.updateToolResult(
+                                toolMessageId,
+                                ToolObservationSummarizer.forPersistence(toolName, observation));
                     }
 
                     messages.add(ToolExecutionResultMessage.from(toolRequest, observation));
@@ -513,7 +517,9 @@ public class ExecutionSubAgent {
                 String observation = executeSkillCommand(selectedSkillId, sessionId, command, agent);
                 log.info("[ExecutionSubAgent] Skill command result: {}", observation);
                 if (toolMessageId != null) {
-                    conversationHistoryService.updateToolResult(toolMessageId, observation);
+                    conversationHistoryService.updateToolResult(
+                            toolMessageId,
+                            ToolObservationSummarizer.forPersistence("shell_skill_execute", observation));
                 }
 
                 messages.add(UserMessage.from("Command output:\n" + observation));
