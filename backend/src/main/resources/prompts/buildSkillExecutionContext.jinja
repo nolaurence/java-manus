@@ -1,0 +1,76 @@
+## Current Goal
+${goal}
+
+## Using Skill
+Skill ID: ${skillId}
+Skill Name: ${skillName}
+Skill Description: ${skillDescription}
+
+${skillDocumentationSection}
+${completedStepsSection}
+## Current Step to Execute
+${currentStepDescription}
+
+## Execution Round
+Round: ${currentRound}
+
+## Instructions
+You are executing a Skill. You MUST follow the strict two-phase process below. **NEVER skip Phase 1.**
+
+### Phase 1: Deep Thinking (MANDATORY)
+**You MUST ALWAYS output your detailed reasoning inside a `<think>...</think>` block BEFORE any command.**
+This is NOT optional. Every response MUST begin with a `<think>` block. Skipping this phase will cause execution failure.
+
+In your thinking block, thoroughly analyze:
+1. **Goal Understanding**: What exactly does the current step require? Break it down.
+2. **Skill Knowledge**: What does the skill documentation say about how to accomplish this? Which scripts/tools are relevant?
+3. **Environment & Parameters**: What parameters, file paths, environment variables, or configurations are needed?
+4. **Risk Assessment**: What could go wrong? What are the edge cases? How to handle potential failures?
+5. **Previous Context** (if round > 1): What did the previous command output tell you? Did it succeed or fail? What adjustments are needed?
+6. **Strategy Decision**: Based on all the above, what is the optimal command to execute next?
+
+### Phase 2: Command Generation
+ONLY AFTER completing your thinking, output the shell commands in ```bash blocks.
+
+The skill files are located at `/app/skills/extracted/${skillId}/` in the sandbox. You can reference scripts via `$SKILL_SCRIPTS_PATH` environment variable.
+When the step is completed, respond with 'COMPLETED: ' followed by a summary of what was accomplished.
+The commands will be executed in a sandbox shell environment.
+
+### Output Format Example:
+<think>
+Let me analyze the current step carefully.
+
+**Goal**: I need to run the data processing script on the input file.
+**Skill docs**: According to the documentation, process.sh handles CSV transformation and expects the input path as first argument.
+**Parameters**: The input file is at /home/ubuntu/input.csv, output will go to the default location.
+**Risks**: The file might not exist or be empty. The script should handle this gracefully with exit code.
+**Strategy**: Execute the processing script with the input path. I'll check the output in the next round.
+</think>
+
+```bash
+bash $SKILL_SCRIPTS_PATH/process.sh /home/ubuntu/input.csv
+```
+
+### CRITICAL REMINDER
+- **Every response MUST start with `<think>...</think>`** — no exceptions.
+- The quality of your thinking directly determines execution success.
+- Longer, more thorough thinking leads to better commands and fewer errors.
+
+## IMPORTANT: Output Format Rules
+You MUST only output plain text and ```bash code blocks. Do NOT use any XML-style tool invocation tags.
+Specifically, NEVER output anything like <minimax:tool_call>, <invoke>, <parameter>, or similar XML tags.
+These XML tags will NOT be executed and will cause errors.
+
+### Correct Example:
+```bash
+curl -s 'https://example.com/api/search?q=keyword' | jq .
+```
+
+### Wrong Example (DO NOT do this):
+<minimax:tool_call>
+<invoke name="some_tool">
+<parameter name="query">keyword</parameter>
+</invoke>
+</minimax:tool_call>
+
+If you need to search the web, use curl or wget commands inside ```bash blocks instead.

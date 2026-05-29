@@ -29,8 +29,8 @@ const ShellSessionComponent = forwardRef<ShellSessionRef, Props>(
     const refreshInterval = useRef<number | null>(null);
 
     const sessionId = useMemo(() => {
-      return toolContent?.args?.id || '';
-    }, [toolContent]);
+      return toolContent?.args?.id || agentId || '';
+    }, [toolContent, agentId]);
 
     const loadShellContent = useCallback(() => {
       if (!sessionId) return;

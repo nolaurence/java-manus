@@ -21,11 +21,31 @@ export async function logout(options?: { [key: string]: any }) {
   });
 }
 
+let _currentUserPromise: Promise<API.LoginResult> | null = null;
+let _currentUserTimer: ReturnType<typeof setTimeout> | null = null;
+
 export async function currentUser(options?: { [key: string]: any }) {
-  return request<API.LoginResult>('/user/current', {
-    method: 'GET',
-    ...(options || {}),
-  });
+  if (!_currentUserPromise) {
+    _currentUserPromise = request<API.LoginResult>('/user/current', {
+      method: 'GET',
+      skipErrorHandler: true,
+      ...(options || {}),
+    }).then((res) => {
+      if (res && !res.success) {
+        console.error(res.errorMessage);
+      }
+      return res;
+    }).catch((err) => {
+      console.error(err?.message || err);
+      return { success: false, errorMessage: err?.message || '请求异常' } as API.LoginResult;
+    });
+    // 短时间窗口内的多次调用共享同一个 Promise，窗口结束后清除缓存
+    _currentUserTimer = setTimeout(() => {
+      _currentUserPromise = null;
+      _currentUserTimer = null;
+    }, 200);
+  }
+  return _currentUserPromise;
 }
 
 /** 注册接口 POST /user/register */

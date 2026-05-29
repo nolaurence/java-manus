@@ -65,6 +65,34 @@ public class ConversationHistoryService {
     }
 
     /**
+     * Update tool result in conversation history after execution completes.
+     * Parses the existing JSON content, adds the result field, and updates the record.
+     */
+    public void updateToolResult(Long messageId, String result) {
+        if (messageId == null || result == null) {
+            return;
+        }
+        try {
+            ConversationHistoryDO existing = conversationHistoryTkMapper.selectByPrimaryKey(messageId).orElse(null);
+            if (existing == null) {
+                log.warn("updateToolResult: message not found, id={}", messageId);
+                return;
+            }
+            String content = existing.getContent();
+            if (StringUtils.isBlank(content)) {
+                return;
+            }
+            JSONObject json = JSON.parseObject(content);
+            json.put("result", result);
+            existing.setContent(json.toJSONString());
+            conversationHistoryTkMapper.updateByPrimaryKeySelective(existing);
+            log.info("updateToolResult: updated tool result for message id={}", messageId);
+        } catch (Exception e) {
+            log.warn("failed to update tool result, messageId={}", messageId, e);
+        }
+    }
+
+    /**
      * 保存对话历史
      */
     @Transactional
@@ -242,6 +270,22 @@ public class ConversationHistoryService {
                 .collect(Collectors.toList());
     }
 
+    public List<ConversationResponse> getSessionConversationsAfterId(String sessionId, Long afterId) {
+        log.debug("获取会话增量历史: sessionId={}, afterId={}", sessionId, afterId);
+        Example<ConversationHistoryDO> example = new Example<>();
+        Example.Criteria<ConversationHistoryDO> criteria = example.createCriteria()
+                .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getIsDeleted, false);
+        if (afterId != null && afterId > 0) {
+            criteria.andGreaterThan(ConversationHistoryDO::getId, afterId);
+        }
+        example.orderBy(ConversationHistoryDO::getId, Example.Order.ASC);
+        return conversationHistoryTkMapper.selectByExample(example)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
     /**
      * 获取用户的所有会话摘要
      */
@@ -359,20 +403,41 @@ public class ConversationHistoryService {
 
             ConversationInfoDO newDataObject = new ConversationInfoDO();
             newDataObject.setSessionId(dataObject.getSessionId());
-            newDataObject.setTitle(conversationInfo.getTitle());
-            newDataObject.setStatus(conversationInfo.getStatus());
+            if (conversationInfo.getTitle() != null) {
+                newDataObject.setTitle(conversationInfo.getTitle());
+            }
+            if (conversationInfo.getStatus() != null) {
+                newDataObject.setStatus(conversationInfo.getStatus());
+            }
+            if (conversationInfo.getUserId() != null) {
+                newDataObject.setUserId(conversationInfo.getUserId());
+            }
             newDataObject.setGmtModified(new Date());
 
             conversationInfoMapper.updateByPrimaryKeySelective(newDataObject);
+            return;
         }
 
         ConversationInfoDO newDataObject = new ConversationInfoDO();
         newDataObject.setSessionId(conversationInfo.getSessionId());
         newDataObject.setTitle(conversationInfo.getTitle());
         newDataObject.setStatus(conversationInfo.getStatus());
+        newDataObject.setUserId(conversationInfo.getUserId());
         newDataObject.setGmtCreate(new Date());
         newDataObject.setGmtModified(new Date());
         conversationInfoMapper.insertSelective(newDataObject);
+    }
+
+    /**
+     * 获取用户的对话信息列表（从 conversation_info 表）
+     */
+    public List<ConversationInfoDO> getUserConversationInfoList(String userId) {
+        Example<ConversationInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(ConversationInfoDO::getUserId, userId)
+                .andIsNull(ConversationInfoDO::getGmtDeleted);
+        example.orderByDesc(ConversationInfoDO::getGmtModified);
+        return conversationInfoMapper.selectByExample(example);
     }
 
     /**
@@ -399,8 +464,18 @@ public class ConversationHistoryService {
         switch(SSEEventType.fromType(conversation.getEventType())) {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
-                messageEventData.setContent(conversation.getContent());
                 messageEventData.setTimestamp(messageTimeStamp);
+                String rawContent = conversation.getContent();
+                // Detect deep thinking messages and split reasoningContent from content.
+                if (rawContent != null && rawContent.startsWith("**Deep Thinking:**\n")) {
+                    messageEventData.setReasoningContent(rawContent.substring("**Deep Thinking:**\n".length()));
+                    messageEventData.setContent("");
+                } else if (rawContent != null && rawContent.startsWith("**深度思考:**\n")) {
+                    messageEventData.setReasoningContent(rawContent.substring("**深度思考:**\n".length()));
+                    messageEventData.setContent("");
+                } else {
+                    messageEventData.setContent(rawContent);
+                }
                 response.setContent(messageEventData);
                 response.setEventType(SSEEventType.MESSAGE);
                 break;
@@ -440,6 +515,12 @@ public class ConversationHistoryService {
                 toolEventData.setTimestamp(messageTimeStamp);
                 response.setContent(toolEventData);
                 response.setEventType(SSEEventType.TOOL);
+                break;
+            case CONTEXT:
+                ContextEventData contextEventData = JSON.parseObject(conversation.getContent(), ContextEventData.class);
+                contextEventData.setTimestamp(messageTimeStamp);
+                response.setContent(contextEventData);
+                response.setEventType(SSEEventType.CONTEXT);
                 break;
             case UNKNOWN:
                 log.error("[ConversationHistoryService#convertToResponse] unknow message type");

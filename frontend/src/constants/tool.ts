@@ -10,6 +10,7 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "shell_wait": "Waiting for command completion",
   "shell_write_to_process": "Writing data to process",
   "shell_kill_process": "Terminating process",
+  "shell_skill_execute": "Executing skill command",
 
   // File tools
   "file_read": "Reading file",
@@ -49,6 +50,7 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "shell_wait": "shell",
   "shell_write_to_process": "input",
   "shell_kill_process": "shell",
+  "shell_skill_execute": "command",
   "file_read": "file",
   "file_write": "file",
   "file_str_replace": "file",

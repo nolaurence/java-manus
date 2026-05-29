@@ -26,6 +26,9 @@ public class ChatMessage {
 
     private SSEEventType eventType;
 
+    /** reasoning/thinking content from DeepSeek R1 or similar models */
+    private String thinking;
+
     public ChatMessage(Role role, String content) {
         this.role = role;
         this.eventType = SSEEventType.MESSAGE;
@@ -48,7 +51,26 @@ public class ChatMessage {
             case user:
                 return UserMessage.from(content != null ? content : "");
             case assistant:
-                return AiMessage.from(content != null ? content : "");
+                if (eventType == SSEEventType.TOOL) {
+                    cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData toolData =
+                            com.alibaba.fastjson.JSON.parseObject(content, cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData.class);
+                    String result = toolData.getResult();
+                    if (result == null || result.isEmpty()) {
+                        result = "(no result)";
+                    }
+                    String toolDesc = "[Tool] " + toolData.getFunction() + "\nResult: " + result;
+                    return UserMessage.from(toolDesc);
+                }
+                if (eventType == SSEEventType.COMPACT) {
+                    // Compaction summary is already formatted as a summary text
+                    return UserMessage.from(content != null ? content : "");
+                }
+                AiMessage.Builder builder = AiMessage.builder()
+                        .text(content != null ? content : "");
+                if (thinking != null && !thinking.isEmpty()) {
+                    builder.thinking(thinking);
+                }
+                return builder.build();
             default:
                 throw new IllegalStateException("Unsupported role for langchain4j conversion: " + role);
         }
@@ -65,7 +87,12 @@ public class ChatMessage {
             return new ChatMessage(Role.user, eventType, ((UserMessage) msg).singleText());
         }
         if (msg instanceof AiMessage) {
-            return new ChatMessage(Role.assistant, eventType, ((AiMessage) msg).text());
+            AiMessage aiMsg = (AiMessage) msg;
+            ChatMessage chatMsg = new ChatMessage(Role.assistant, eventType, aiMsg.text());
+            if (aiMsg.thinking() != null && !aiMsg.thinking().isEmpty()) {
+                chatMsg.setThinking(aiMsg.thinking());
+            }
+            return chatMsg;
         }
         throw new IllegalArgumentException("Unsupported langchain4j message type: " + msg.getClass());
     }

@@ -11,6 +11,11 @@ public class ChatRequest {
     private String message;
 
     private Long timestamp;
+
+    /**
+     * When true, execute the legacy plan-act loop. Default false uses the skill-based agent loop.
+     */
+    private Boolean planMode;
   
     // optional: identify user and session for persistence
     private String userId;

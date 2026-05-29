@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import ChatBox from '@/components/ChatBox';
 import { createAgent } from '@/services/api/sandbox';
-import { message as antdMessage } from 'antd';
+import { currentUser } from '@/services/api/login';
+import { message as antdMessage, Tooltip } from 'antd';
 import ManusLogoTextIcon from '@/components/icons/ManusLogoTextIcon';
-import {Bot, PanelLeft, Settings} from 'lucide-react';
+import {Bot, PanelLeft, Settings, Wrench} from 'lucide-react';
 import { createStyles } from 'antd-style';
 import Panel from '@/components/Panel';
 import UserInfoComponent from "@/components/LoginModal";
@@ -118,6 +119,23 @@ const Home: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelFixed, setPanelFixed] = useState(false);
+  const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem('planMode') === 'true');
+  const [userInfo, setUserInfo] = useState<API.UserInfo | null>(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const loginInfo = await currentUser();
+      if (loginInfo && loginInfo.success && loginInfo.data) {
+        setUserInfo(loginInfo.data);
+      } else {
+        setUserInfo(null);
+      }
+    };
+    fetchUser();
+
+    window.addEventListener('loginSuccess', fetchUser);
+    return () => window.removeEventListener('loginSuccess', fetchUser);
+  }, []);
 
   const handleSubmit = async () => {
     if (message.trim() && !isSubmitting) {
@@ -128,6 +146,7 @@ const Home: React.FC = () => {
         console.log("First message: ", message);
         localStorage.setItem('firstMessage', message);
         localStorage.setItem('agentId', agent.agentId);
+        localStorage.setItem('planMode', String(planMode));
         navigate(`/chat/${agent.agentId}`, {
           state: { message }
         });
@@ -143,6 +162,9 @@ const Home: React.FC = () => {
     navigate('/settings');
   };
 
+  const handleGoSkills = () => {
+    navigate('/skills');
+  };
   return (
     <div className="relative h-screen bg-[var(--background-gray-main)]" >
       <div
@@ -157,9 +179,15 @@ const Home: React.FC = () => {
       </div>
       <div
         className={`container mx-auto flex min-h-screen w-full max-w-full flex-col justify-center gap-2 bg-[var(--background-gray-main)] px-5`}
-        style={{ paddingLeft: panelFixed ? historyPanelWidth + 20 : 20 }}
+        style={{
+          marginLeft: panelFixed ? historyPanelWidth : 0,
+          width: `calc(100% - ${panelFixed ? historyPanelWidth : 0}px)`,
+        }}
       >
-        <div className="flex mt-4 ml-5 items-center justify-between w-full" style={{ marginLeft: panelFixed ? historyPanelWidth : 0 }}>
+        <div
+          className="flex mt-4 ml-5 items-center justify-between w-full"
+          style={{ marginLeft: panelFixed ? historyPanelWidth : 0 }}
+        >
           <div className="flex items-center space-x-4">
             { !panelFixed && (
               <div onClick={() => setPanelFixed(!panelFixed)} className={styles.panelLeftIcon}>
@@ -173,6 +201,9 @@ const Home: React.FC = () => {
             <div onClick={handleGoSettings} className={styles.settingsIcon}>
               <Settings size={20} />
             </div>
+            <div onClick={handleGoSkills} className={styles.settingsIcon}>
+              <Wrench size={20} />
+            </div>
             <UserInfoComponent />
           </div>
         </div>
@@ -180,7 +211,7 @@ const Home: React.FC = () => {
         <div className={styles.chatBoxRoot}>
           <div className={styles.greetingContainer}>
           <span className={styles.greetingTextSpan}>
-            你好,<br />
+            你好{userInfo?.name ? `, ${userInfo.name}` : ''}<br />
             <span style={{ color: 'var(--icon-tertiary)' }}>
               我能为你做什么？
             </span>
@@ -194,6 +225,8 @@ const Home: React.FC = () => {
                 modelValue={message}
                 onUpdateModelValue={(e) => setMessage(e)}
                 onSubmit={handleSubmit}
+                planMode={planMode}
+                onPlanModeChange={setPlanMode}
                 disabled={isSubmitting}
               />
             </div>

@@ -191,7 +191,14 @@ public class McpServer {
                         // parse arguments
                         Object shellExecInput = JSON.parseObject(JSON.toJSONString(arguments), fileTool.getSchema().getInputSchema().getClass());
                         ToolResult executeResult = ((Tool) fileTool).getHandler().execute(null, shellExecInput);
-                        ToolActionResult toolActionResult = executeResult.getAction().get().join();
+                        ToolActionResult toolActionResult;
+                        if (executeResult.hasAction()) {
+                            toolActionResult = executeResult.getAction().get().join();
+                        } else {
+                            // File tools execute synchronously without action, construct result from code
+                            String textContent = String.join("\n", executeResult.getCode());
+                            toolActionResult = new ToolActionResult(new McpSchema.TextContent(textContent));
+                        }
                         log.info("[MCP SERVER] tool result: {}", JSON.toJSONString(toolActionResult));
                         return new McpSchema.CallToolResult(toolActionResult.getContent(), false);
                     }

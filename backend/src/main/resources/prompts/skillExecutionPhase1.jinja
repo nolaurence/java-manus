@@ -1,0 +1,85 @@
+## Current Goal
+${goal}
+
+## Using Skill
+Skill ID: ${skillId}
+Skill Name: ${skillName}
+Skill Description: ${skillDescription}
+
+## Skill Main Document (SKILL.md)
+```markdown
+${skillMdContent}
+```
+
+## Available Support Files
+The following support files are available in this skill. You may request to read any of them by outputting a `READ_FILE` instruction (see below).
+${supportFileList}
+
+${completedStepsSection}
+## Current Step to Execute
+${currentStepDescription}
+
+## Execution Round
+Round: 1
+
+## Instructions
+You are executing a Skill. Follow the two-phase process below.
+
+### Phase 1: Deep Thinking (MANDATORY)
+You MUST output your detailed reasoning inside a `<think>...</think>` block BEFORE anything else.
+
+In your thinking block, analyze:
+1. **Goal Understanding**: What exactly does the current step require?
+2. **Skill Knowledge**: What does SKILL.md tell you? Which scripts or files are relevant?
+3. **File Decision**: Do you need to read any support file (scripts, reference, examples) before writing the command? If yes, request it first.
+4. **Environment & Parameters**: What paths, environment variables, or configs are needed?
+5. **Risk Assessment**: What could go wrong and how to handle it?
+6. **Strategy**: What is the optimal next action — read a file first, or execute a command directly?
+
+### Phase 2: Action Output
+After your `<think>` block, take **exactly one** of the following actions:
+
+#### Option A — Request to read a skill support file first:
+If you need the content of a skill support file listed above before deciding the command, output:
+
+```
+READ_FILE: <relative-path>
+```
+
+Example:
+```
+READ_FILE: scripts/run.sh
+```
+Only one file per round. The file content will be provided in the next round.
+
+#### Option B — Execute a skill shell command:
+If you have enough information, output the command in a ```bash block:
+
+```bash
+bash $SKILL_SCRIPTS_PATH/process.sh /home/ubuntu/input.csv
+```
+
+The skill files are located at `/app/skills/extracted/${skillId}/` in the sandbox.
+You can reference scripts via the `$SKILL_SCRIPTS_PATH` environment variable.
+
+#### Option C — Invoke an MCP tool (native function call):
+In addition to skill-scoped actions, you have access to general-purpose MCP tools (e.g., `browser_*`, `file_*`, `shell_*`) via native function calling. Use an MCP tool when the action is outside the skill's own support files / scripts — for example, browsing the web, inspecting arbitrary sandbox files, or running ad-hoc shell commands.
+
+Guidance:
+- Prefer Option A (`READ_FILE`) for files listed in this skill's support files.
+- Prefer Option B (```bash```) for invoking this skill's own scripts.
+- Prefer Option C (MCP tools) for generic browser / file / shell operations that are not part of the skill.
+
+When calling an MCP tool, emit the tool call via the function-calling interface — do NOT write `<invoke>` / `<parameter>` / `<minimax:tool_call>` tags in the text.
+
+#### Option D — Mark as completed:
+When the current step is fully done, respond with:
+```
+COMPLETED: <brief summary of what was accomplished>
+```
+
+### CRITICAL RULES
+- Every response MUST start with `<think>...</think>` — no exceptions.
+- Output ONLY ONE action (READ_FILE, bash command, an MCP tool call, or COMPLETED) per round.
+- NEVER output XML-style tool invocation tags like `<invoke>`, `<parameter>`, or `<minimax:tool_call>` in text — use the native function-calling interface for tool calls.
+- If you need a skill support file, request it with READ_FILE. Do NOT guess file contents.

@@ -1,6 +1,7 @@
 package cn.nolaurene.cms.common.sandbox.backend.model;
 
 
+import cn.nolaurene.cms.common.sandbox.backend.skill.Skill;
 import cn.nolaurene.cms.service.sandbox.backend.agent.Executor;
 import cn.nolaurene.cms.service.sandbox.backend.agent.Planner;
 import cn.nolaurene.cms.service.sandbox.backend.tool.Tool;
@@ -49,4 +50,9 @@ public class Agent {
     private List<ToolSpecification> toolSpecifications;
 
     private List<Tool> vanillaTools;
+
+    /**
+     * Skills enabled for this agent.
+     */
+    private List<Skill> skills;
 }

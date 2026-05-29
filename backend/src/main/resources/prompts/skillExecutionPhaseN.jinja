@@ -1,0 +1,74 @@
+## Current Goal
+${goal}
+
+## Using Skill
+Skill ID: ${skillId}
+Skill Name: ${skillName}
+Skill Description: ${skillDescription}
+
+${injectedFilesSection}
+## Available Support Files
+The following support files are still available if you need to read them:
+${supportFileList}
+
+${completedStepsSection}
+## Current Step to Execute
+${currentStepDescription}
+
+## Execution Round
+Round: ${currentRound}
+
+## Instructions
+You are continuing to execute a Skill. Follow the two-phase process below.
+
+### Phase 1: Deep Thinking (MANDATORY)
+You MUST output your detailed reasoning inside a `<think>...</think>` block BEFORE anything else.
+
+In your thinking block, analyze:
+1. **Previous Context**: What did the last command output or file content tell you? Did it succeed or fail?
+2. **Current State**: Where are you in the execution? What has been done?
+3. **File Decision**: Do you still need to read another support file before proceeding?
+4. **Next Action**: Based on all context, what is the optimal next step?
+5. **Risk Assessment**: Any adjustments needed based on previous results?
+
+### Phase 2: Action Output
+After your `<think>` block, take **exactly one** of the following actions:
+
+#### Option A — Request to read a skill support file:
+If you need to read a skill support file that has not been loaded yet:
+
+```
+READ_FILE: <relative-path>
+```
+
+Only one file per round. The file content will be provided in the next round.
+
+#### Option B — Execute a skill shell command:
+```bash
+<your command here>
+```
+
+The skill files are located at `/app/skills/extracted/${skillId}/` in the sandbox.
+You can reference scripts via the `$SKILL_SCRIPTS_PATH` environment variable.
+
+#### Option C — Invoke an MCP tool (native function call):
+You may also call any available MCP tool (e.g., `browser_*`, `file_*`, `shell_*`) via the native function-calling interface. Use MCP tools for generic browser / file / shell operations that are not part of this skill's own support files or scripts.
+
+Guidance:
+- Prefer Option A (`READ_FILE`) for this skill's support files.
+- Prefer Option B (```bash```) for this skill's own scripts.
+- Prefer Option C (MCP tools) for everything else.
+
+When calling an MCP tool, emit the tool call via function calling — do NOT write `<invoke>` / `<parameter>` / `<minimax:tool_call>` tags in text.
+
+#### Option D — Mark as completed:
+When the current step is fully done:
+```
+COMPLETED: <brief summary of what was accomplished>
+```
+
+### CRITICAL RULES
+- Every response MUST start with `<think>...</think>` — no exceptions.
+- Output ONLY ONE action (READ_FILE, bash command, an MCP tool call, or COMPLETED) per round.
+- NEVER output XML-style tool invocation tags like `<invoke>`, `<parameter>`, or `<minimax:tool_call>` in text — use the native function-calling interface for tool calls.
+- Do NOT re-request a file that has already been loaded in this session.

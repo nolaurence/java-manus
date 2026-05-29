@@ -1,9 +1,8 @@
 import React, {useState, useRef, useEffect, useCallback} from 'react';
 import ChatBox from '@/components/ChatBox';
 import ChatMessage from '@/components/ChatMessage';
-import SimpleBar, {type ScrollableContentRef} from '@/components/SimpleBar';
 import ToolPanel from '@/components/ToolPanel';
-import {chatWithAgent, fetchSessionMessages, type ConversationMessage} from '@/services/api/sandbox';
+import {chatWithAgent, resumeAgentStream, fetchSessionMessages, fetchConversationTitle, type ConversationMessage} from '@/services/api/sandbox';
 import type {Message, MessageContent, ToolContent, StepContent} from '@/types/message';
 // @ts-ignore
 import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from 'lucide-react';
@@ -11,16 +10,17 @@ import {ArrowDown, Bot, Clock, ChevronUp, ChevronDown, PanelLeft, Settings} from
 import {useNavigate, useLocation} from "react-router";
 import { useParams } from 'umi';
 import StepSuccessIcon from '@/components/icons/StepSuccessIcon';
-import type {MessageEventData, StepEventData, ToolEventData, PlanEventData} from '@/types/sseEvent';
+import type {MessageEventData, StepEventData, ToolEventData, PlanEventData, ContextEventData} from '@/types/sseEvent';
 // import '@/assets/global.css';
 // import '@/assets/theme.css';
 import {useStyles} from '@/assets/chatPageStyle';
 import Panel from '@/components/Panel';
 import { Button, message as antdMessage } from 'antd';
-import ScrollableFeed from 'react-scrollable-feed';
+import { Bubble } from '@ant-design/x';
 import LoginModal from '@/components/LoginModal';
 import dayjs from 'dayjs';
-import { attachToolsToSteps, mapToFrontendMessage } from '@/utils/message';
+import { attachToolsToSteps, mapToFrontendMessage, mergeReasoningMessages } from '@/utils/message';
+import { currentUser } from '@/services/api/login';
 
 const ChatComponent: React.FC = () => {
 
@@ -37,15 +37,14 @@ const ChatComponent: React.FC = () => {
   const [title, setTitle] = useState<string>('New Chat');
   const [isShowPlanPanel, setIsShowPlanPanel] = useState<boolean>(false);
   const [plan, setPlan] = useState<PlanEventData | undefined>(undefined);
+  const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem('planMode') === 'true');
+  const [contextUsage, setContextUsage] = useState<ContextEventData | undefined>(undefined);
   const [realTime, setRealTime] = useState<boolean>(true);
   const [follow, setFollow] = useState<boolean>(true);
   const [lastNoMessageTool, setLastNoMessageTool] = useState<ToolContent | undefined>(undefined);
 
-  // const [reasoningContentDelta, setReasoningContentDelta] = useState<string>('Thought:\n');
-  // const [stagingReasoningContent, setStagingReasoningContent] = useState<string>('');
-  // const [contentDelta, setContentDelta] = useState<string>('');
-  const reasoningContentDeltaRef = useRef<string>('**Thought:**\n');
-  const stagingReasoningContentRef = useRef<string>('');
+  // Refs for incremental content accumulation
+  const reasoningContentDeltaRef = useRef<string>('');
   const contentDeltaRef = useRef<string>('');
   // const [agentId, setAgentId] = useState<string>();
 
@@ -56,10 +55,13 @@ const ChatComponent: React.FC = () => {
   const [toolContent, setToolContent] = useState<ToolContent | undefined>(undefined);
 
   // Refs
-  const simpleBarRef = useRef<ScrollableContentRef>(null);
   // const toolPanelRef = useRef<ToolPanelRef>(null);
   const toolPanelOps = {
     show: (content: ToolContent) => {
+      setTimeout(() => {
+        setToolContent(content);
+        setToolPanelShow(true);
+      }, 1000);
       setToolContent(content);
       setToolPanelShow(true);
     },
@@ -73,76 +75,69 @@ const ChatComponent: React.FC = () => {
   const params = useParams();
   const agentId = params.agentId;
 
+  const isMobileViewport = () => window.matchMedia('(max-width: 768px)').matches;
+
   // 获取最后一步
   const getLastStep = (): StepContent | undefined => {
     return messages.filter(message => message.type === 'step').pop()?.content as StepContent;
   };
 
-  // 处理滚动事件
-  const handleScroll = useCallback(() => {
-    const isBottom = simpleBarRef.current?.isScrolledToBottom(10) ?? false;
-    setFollow(isBottom);
-  }, []);
 
-  // 自动滚动到底部
-  useEffect(() => {
-    if (follow && simpleBarRef.current) {
-      simpleBarRef.current.scrollToBottom();
+
+  const increaseLastMessage = (thoughtDelta: string, localContentDelta: string, fullReasoningContent?: string) => {
+    let newContent: string = contentDeltaRef.current;
+    let newReasoning: string = reasoningContentDeltaRef.current;
+
+    // Handle full reasoning content (from deep thinking step)
+    if (fullReasoningContent) {
+      newReasoning = fullReasoningContent;
+      reasoningContentDeltaRef.current = newReasoning;
     }
-  }, [messages, follow]);
 
-  const increaseLastMessage = (thoughtDelta: string, localContentDelta: string) => {
-    let newContent: string = '';
     if (thoughtDelta) {
       if ("[DONE]" === thoughtDelta) {
         setIsLoading(false);
-        stagingReasoningContentRef.current = reasoningContentDeltaRef.current;
-        newContent = reasoningContentDeltaRef.current;  // do not append if done;
-        reasoningContentDeltaRef.current = '**Thought:** \n';  // added "Thought: \n" in '[START]' signal
-        return;  // 收到停止信号，停止追加消息
+        reasoningContentDeltaRef.current = '';
+        return;
       } else {
         reasoningContentDeltaRef.current += thoughtDelta;
-        newContent = reasoningContentDeltaRef.current;
+        newReasoning = reasoningContentDeltaRef.current;
       }
     }
+
     if (localContentDelta) {
       if ("[DONE]" === localContentDelta) {
         setIsLoading(false);
-        newContent = contentDeltaRef.current;  // do not append if done;
-        contentDeltaRef.current = "";
-        return;  // 收到停止信号，停止追加消息
+        contentDeltaRef.current = '';
+        return;
       } else {
-        if (!contentDeltaRef.current) {
-          newContent = `${stagingReasoningContentRef.current}\n**Response:**\n${localContentDelta}`;
-          stagingReasoningContentRef.current = "";
-        } else {
-          newContent = contentDeltaRef.current + localContentDelta;  //append delta
-        }
-        contentDeltaRef.current = newContent;
+        contentDeltaRef.current += localContentDelta;
+        newContent = contentDeltaRef.current;
       }
     }
+
     setMessages(prevMsgs => {
       const lastMsg = prevMsgs[prevMsgs.length - 1];
       if (lastMsg && lastMsg.type === 'assistant') {
-        // 更新最后一条 assistant 消息
         const updatedMsgs = [...prevMsgs];
         updatedMsgs[updatedMsgs.length - 1] = {
           ...lastMsg,
           content: {
             ...lastMsg.content,
-            content: newContent as string,
+            content: newContent,
+            reasoningContent: newReasoning || undefined,
             timestamp: lastMsg.content.timestamp,
           } as MessageContent,
         };
         return updatedMsgs;
       } else {
-        // 新增一条 assistant 消息
         return [
           ...prevMsgs,
           {
             type: 'assistant',
             content: {
-              content: newContent as string,
+              content: newContent,
+              reasoningContent: newReasoning || undefined,
               timestamp: Date.now(),
             } as MessageContent,
           },
@@ -154,19 +149,24 @@ const ChatComponent: React.FC = () => {
   // 处理消息事件
   const handleMessageEvent = (messageData: MessageEventData) => {
     if (messageData.reasoningContentDelta === '[START]') {
+      // Reset refs for new message
+      reasoningContentDeltaRef.current = '';
+      contentDeltaRef.current = '';
       setMessages(prevMsgs => {
-        // 新增一条 assistant 消息
         return [
           ...prevMsgs,
           {
             type: 'assistant',
             content: {
-              content: '**Thought:** \n',
+              content: '',
               timestamp: Date.now(),
             } as MessageContent,
           },
         ];
-      })
+      });
+    } else if (messageData.reasoningContent) {
+      // Full reasoning content from deep thinking step
+      increaseLastMessage('', '', messageData.reasoningContent);
     } else {
       increaseLastMessage(messageData.reasoningContentDelta, messageData.contentDelta);
     }
@@ -174,19 +174,53 @@ const ChatComponent: React.FC = () => {
 
   // 处理工具事件
   const handleToolEvent = (toolData: ToolEventData) => {
+    const isSameTool = (a: ToolContent, b: ToolEventData) => {
+      return a.timestamp === b.timestamp
+        && a.name === b.name
+        && a.function === b.function
+        && JSON.stringify(a.args ?? {}) === JSON.stringify(b.args ?? {});
+    };
+
+    const hasVisibleAssistantContent = (content: MessageContent) => {
+      return !!content.content || !!content.reasoningContent;
+    };
+
+    const findAttachableStepIndex = (messages: Message[]) => {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+
+        if (msg.type === 'step') {
+          return i;
+        }
+
+        if (msg.type === 'user') {
+          return -1;
+        }
+
+        if (msg.type === 'assistant' && hasVisibleAssistantContent(msg.content as MessageContent)) {
+          return -1;
+        }
+      }
+
+      return -1;
+    };
+
     setMessages(prevMsgs => {
-      // 从 prevMsgs 中获取最后一个 step 类型的消息
-      const lastStep = prevMsgs.filter(msg => msg.type === 'step').pop()?.content as StepContent | undefined;
+      const stepIndex = findAttachableStepIndex(prevMsgs);
       
-      if (lastStep?.status === 'running') {
+      if (stepIndex !== -1) {
         // 添加到步骤工具列表
-        return prevMsgs.map(msg => {
-          if (msg.type === 'step' && (msg.content as StepContent).id === lastStep.id) {
+        return prevMsgs.map((msg, index) => {
+          if (index === stepIndex && msg.type === 'step') {
+            const tools = (msg.content as StepContent).tools || [];
+            if (tools.some(tool => isSameTool(tool, toolData))) {
+              return msg;
+            }
             return {
               ...msg,
               content: {
                 ...msg.content,
-                tools: [...((msg.content as StepContent).tools || []), toolData],
+                tools: [...tools, toolData],
               },
             };
           }
@@ -207,7 +241,7 @@ const ChatComponent: React.FC = () => {
     // 处理非消息工具
     if (toolData.name !== 'message') {
       setLastNoMessageTool(toolData);
-      if (realTime) {
+      if (realTime && !isMobileViewport()) {
         toolPanelOps.show(toolData);
       }
     }
@@ -290,6 +324,8 @@ const ChatComponent: React.FC = () => {
       setTitle(event.data.title);
     } else if (event.event === 'plan') {
       setPlan(event.data);
+    } else if (event.event === 'context') {
+      setContextUsage(event.data);
     }
   };
 
@@ -298,13 +334,13 @@ const ChatComponent: React.FC = () => {
     if (!agentId) return;
 
     if (message.trim()) {
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         {
           type: 'user',
           content: {
             content: message,
-            timestamp: Math.floor(Date.now() / 1000),
+            timestamp: Date.now(),
           },
         },
       ]);
@@ -312,12 +348,18 @@ const ChatComponent: React.FC = () => {
  
     setFollow(true);
     setInputMessage('');
+    if (!planMode) {
+      setPlan(undefined);
+      setIsShowPlanPanel(false);
+    }
+    setContextUsage(undefined);
     setIsLoading(true);
 
     try {
       await chatWithAgent(
         agentId,
         message,
+        planMode,
         handleEvent,  // on message
         (error: any) => {
           console.error('Chat error:', error);
@@ -330,14 +372,42 @@ const ChatComponent: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    localStorage.setItem('planMode', String(planMode));
+  }, [planMode]);
+
   // 初始化：如果带 sessionId，则加载历史；否则按原逻辑
   useEffect(() => {
     const init = async () => {
       if (agentId) {
         try {
+          const loginInfo = await currentUser();
+          const currentUserId = loginInfo?.success && loginInfo.data?.userid
+            ? String(loginInfo.data.userid)
+            : '';
+          if (!currentUserId) {
+            navigate('/', { replace: true });
+            return;
+          }
+
+          const titleInfo = await fetchConversationTitle(agentId);
+          if (titleInfo?.userId && titleInfo.userId !== currentUserId) {
+            navigate('/', { replace: true });
+            return;
+          }
+
           // TODO: 重写下渲染逻辑
           const history: ConversationMessage[] = await fetchSessionMessages(agentId);
+          if (history.some(item => item.userId && item.userId !== currentUserId)) {
+            navigate('/', { replace: true });
+            return;
+          }
+
           if (history.length === 0) {
+            if (!titleInfo && localStorage.getItem('agentId') !== agentId) {
+              navigate('/', { replace: true });
+              return;
+            }
             // send first message for new chat
             const msg = localStorage.getItem('firstMessage') || '';
             if (msg) {
@@ -348,15 +418,39 @@ const ChatComponent: React.FC = () => {
             return;
           }
 
-          const mapped: Message[] = mapToFrontendMessage(history);
-          const attachedMessages: Message[] = attachToolsToSteps(mapped, history);
+          const latestContextMessage = [...history].reverse().find((item) => item.eventType === 'CONTEXT');
+          if (latestContextMessage) {
+            setContextUsage(latestContextMessage.content as ContextEventData);
+          }
 
-          console.log('mapped message',  attachedMessages);
-          setMessages(attachedMessages);
-          setTitle('History');
+          const renderableHistory = history.filter((item) => item.eventType !== 'CONTEXT');
+          const mapped: Message[] = mapToFrontendMessage(renderableHistory);
+          const attachedMessages: Message[] = attachToolsToSteps(mapped, renderableHistory);
+          const finalMessages: Message[] = mergeReasoningMessages(attachedMessages);
+
+          console.log('mapped message',  finalMessages);
+          setMessages(finalMessages);
+          // 从 conversation_info 获取标题
+          if (titleInfo?.title) {
+            setTitle(titleInfo.title);
+          } else {
+            setTitle('History');
+          }
+          const lastHistoryId = history.reduce((maxId, item) => Math.max(maxId, item.id || 0), 0);
+          setIsLoading(true);
+          void resumeAgentStream(
+            agentId,
+            lastHistoryId,
+            handleEvent,
+            (error: any) => {
+              console.error('Resume chat error:', error);
+              setIsLoading(false);
+            },
+          );
           return;
         } catch (e) {
           console.error('load history failed', e);
+          navigate('/', { replace: true });
         }
       }
 
@@ -371,7 +465,7 @@ const ChatComponent: React.FC = () => {
       }
     };
     init();
-  }, []);
+  }, [agentId]);
 
 
   // 计划相关计算
@@ -410,7 +504,6 @@ const ChatComponent: React.FC = () => {
 
   const handleFollow = () => {
     setFollow(true);
-    simpleBarRef.current?.scrollToBottom();
   };
 
   const handleGoHome = () => {
@@ -442,10 +535,10 @@ const ChatComponent: React.FC = () => {
         }}
       >
         <div className={`flex h-screen`}  >
-          <div className={`flex flex-col h-full transition-all duration-300 ${toolPanelShow ? 'w-[calc(100%-768px)]' : 'w-full'}`}>
+          <div className={`flex flex-col h-full overflow-hidden transition-all duration-300 ${toolPanelShow ? 'w-[calc(100%-768px)]' : 'w-full'}`}>
 
             {/*header*/}
-            <div className="flex items-center justify-center px-6 py-4" >
+            <div className="flex items-center justify-center px-6 py-4 flex-shrink-0" >
               <div className="relative flex items-center" >
                 { !panelFixed && (
                   <Button type="text" onClick={() => setPanelFixed(!panelFixed)} icon={<PanelLeft/>}/>
@@ -460,34 +553,54 @@ const ChatComponent: React.FC = () => {
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-3">
-                <div onClick={handleGoSettings} className={styles.settingsIcon}>
-                  <Settings size={20} />
-                </div>
                 <LoginModal />
               </div>
             </div>
 
             {/* message feed */}
-            <ScrollableFeed className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center flex-grow pb-3 px-4">
-              {messages.map((message, index) => (
-                <ChatMessage key={index} message={message} onToolClick={handleToolClick}/>
-              ))}
-
-              {/* 加载指示器 loading indicator */}
-              {isLoading && (
-                <div className={styles.loadingIndicatorContainer}>
-                  <span>Thinking</span>
-                  <span className={styles.animateBounceDotContainer}>
-                  <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
-                  <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
-                  <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
-                </span>
-                </div>
-              )}
-            </ScrollableFeed>
+            <div className="flex-1 min-h-0 overflow-y-auto mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] px-4">
+              <Bubble.List
+                autoScroll
+                className="h-full"
+                styles={{
+                  content: {flex: 1 },
+                }}
+                items={[
+                  ...messages.map((message, index) => ({
+                    key: `msg-${index}`,
+                    role: message.type,
+                    placement: (message.type === 'user' ? 'end' : 'start') as 'start' | 'end',
+                    variant: 'borderless' as const,
+                    content: message as any,
+                    style:{ paddingTop: 0, paddingBottom: 0 },
+                    styles: { content: { padding: 0, maxWidth: '100%' } },
+                    contentRender: () => (
+                      <ChatMessage message={message} onToolClick={handleToolClick} />
+                    ),
+                  })),
+                  ...(isLoading ? [{
+                    key: 'loading',
+                    role: 'assistant',
+                    variant: 'borderless' as const,
+                    content: 'loading' as any,
+                    styles: { content: { padding: 0 } },
+                    contentRender: () => (
+                      <div className={styles.loadingIndicatorContainer}>
+                        <span>Thinking</span>
+                        <span className={styles.animateBounceDotContainer}>
+                          <span className={styles.loadingDot} style={{animationDelay: '0ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '200ms'}}/>
+                          <span className={styles.loadingDot} style={{animationDelay: '400ms'}}/>
+                        </span>
+                      </div>
+                    ),
+                  }] : []),
+                ]}
+              />
+            </div>
 
             {/* input area*/}
-            <div className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center mt-auto px-4">
+            <div className="mx-auto w-full max-w-[768px] min-w-0 sm:min-w-[390px] justify-center mt-auto px-4flex-shrink-0">
               {/* TODO: extract plan to a single element*/}
               {plan && plan.steps.length > 0 && (
                 <>
@@ -594,6 +707,10 @@ const ChatComponent: React.FC = () => {
                     modelValue={inputMessage}
                     onUpdateModelValue={(value) => setInputMessage(value)}
                     onSubmit={() => sendMessage(inputMessage)}
+                    planMode={planMode}
+                    onPlanModeChange={setPlanMode}
+                    contextPercent={contextUsage?.percent}
+                    disabled={isLoading}
                   />
                 </div>
               </div>

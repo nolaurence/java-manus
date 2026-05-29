@@ -5,6 +5,7 @@ import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
@@ -16,6 +17,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -46,6 +48,9 @@ public class AgentSession {
 
     @Value("${sandbox.backend.worker-mcp-url}")
     private String workerNativeMcpUrl;
+
+    @Autowired
+    private SkillToolProvider skillToolProvider;
 
     private AgentExecutor executor;
 
@@ -101,12 +106,29 @@ public class AgentSession {
         // collect all tool specifications
         List<ToolSpecification> allTools = new ArrayList<>(browserTools);
         allTools.addAll(nativeTools);
+        // Load Skill tools for the current user and add to tool specifications
+        List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()));
+        allTools.addAll(skillTools);
+        log.info("Skill tools discovered: {}", skillTools.size());
+
         agent.setToolSpecifications(allTools);
-        log.info("Total MCP tools available: {}", allTools.size());
+        log.info("Total tools available (MCP + Skills): {}", allTools.size());
 
         ToolRegistry registry = new ToolRegistry();
         registry.register(new CalculatorTool());
         this.executor = agentExecutorFactory.createAgentExecutor(agent);
+    }
+
+    private Long parseUserId(String userId) {
+        if (StringUtils.isBlank(userId)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException e) {
+            log.warn("Invalid userId for skill loading: {}", userId);
+            return null;
+        }
     }
 
     /**
@@ -137,6 +159,13 @@ public class AgentSession {
      * 启动 Agent 执行流程 (前台模式)
      */
     public void reactFlow(String input, SseEmitter emitter) throws InterruptedException {
+        reactFlow(input, false, emitter);
+    }
+
+    /**
+     * 启动 Agent 执行流程 (前台模式)
+     */
+    public void reactFlow(String input, boolean planMode, SseEmitter emitter) throws InterruptedException {
         if (this.sessionStatus == TaskStatus.RUNNING) {
             log.warn("AgentSession is already running.");
             try {
@@ -152,12 +181,16 @@ public class AgentSession {
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
 
-        log.info("Starting AgentSession reactFlow for input: {}", input);
+        log.info("Starting AgentSession reactFlow for input: {}, planMode: {}", input, planMode);
 
         setupSseEmitterListeners(emitter);
 
         try {
-            executor.planAct(input, emitter);
+            if (planMode) {
+                executor.planAct(input, emitter);
+            } else {
+                executor.skillBasedAgentLoop(input, emitter);
+            }
             this.sessionStatus = TaskStatus.COMPLETED;
             log.info("AgentSession execution completed.");
             if (!frontendConnected.get() && currentSseEmitter != null) {
@@ -194,6 +227,9 @@ public class AgentSession {
         log.info("Resuming AgentSession flow.");
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
+        if (this.executor != null) {
+            this.executor.resumeSseEmitter(emitter);
+        }
 
         setupSseEmitterListeners(emitter);
 
@@ -227,17 +263,21 @@ public class AgentSession {
     private void setupSseEmitterListeners(SseEmitter sseEmitter) {
         sseEmitter.onCompletion(() -> {
             log.info("SSE connection completed for AgentSession (user likely left)");
-            if (frontendConnected.compareAndSet(true, false)) {
+            if (currentSseEmitter == sseEmitter && frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onCompletion.");
             }
-            this.currentSseEmitter = null;
+            if (currentSseEmitter == sseEmitter) {
+                this.currentSseEmitter = null;
+            }
         });
         sseEmitter.onError((Throwable t) -> {
             log.warn("SSE connection encountered error for AgentSession", t);
-            if (frontendConnected.compareAndSet(true, false)) {
+            if (currentSseEmitter == sseEmitter && frontendConnected.compareAndSet(true, false)) {
                 log.info("Frontend connection marked as disconnected via onError.");
             }
-            this.currentSseEmitter = null;
+            if (currentSseEmitter == sseEmitter) {
+                this.currentSseEmitter = null;
+            }
         });
     }
 
@@ -260,9 +300,5 @@ public class AgentSession {
             log.warn("无法发送SSE消息: agentId={}, eventName={}, emitter={}, connected={}",
                     this.agent.getAgentId(), eventName, this.currentSseEmitter != null, this.frontendConnected.get());
         }
-    }
-
-    public void setConversationPersistence(ConversationHistoryService service, String userId, String sessionId) {
-        this.executor.setConversationPersistence(service, userId, sessionId);
     }
 }

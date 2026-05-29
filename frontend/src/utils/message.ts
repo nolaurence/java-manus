@@ -7,6 +7,23 @@ import {
 import { ConversationMessage } from '@/services/api/sandbox';
 import type { PlanEventData } from '@/types/sseEvent';
 
+const hasMessageBoundaryBetween = (
+  conversationMessages: ConversationMessage[],
+  fromIndex: number,
+  toIndex: number,
+): boolean => {
+  const start = Math.min(fromIndex, toIndex) + 1;
+  const end = Math.max(fromIndex, toIndex);
+
+  for (let i = start; i < end; i++) {
+    if (conversationMessages[i]?.eventType === 'MESSAGE') {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 export const attachToolsToSteps = (messages: Message[], conversationMessages: ConversationMessage[]): Message[] => {
   // 构建 Tool 消息的数据库 ID -> index 映射
   const toolIdToIndex = new Map<number, number>();
@@ -58,7 +75,10 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
           const toolIndex = toolIdToIndex.get(toolId);
           if (toolIndex !== undefined) {
             const toolMsg = messages[toolIndex];
-            if (toolMsg.type === 'tool') {
+            if (
+              toolMsg.type === 'tool' &&
+              !hasMessageBoundaryBetween(conversationMessages, i, toolIndex)
+            ) {
               stepContent.tools.push(toolMsg.content as ToolContent);
               toolsToFilter.add(toolIndex);
             }
@@ -96,8 +116,10 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
           if (stepContent.tools === undefined) {
             stepContent.tools = [];
           }
-          stepContent.tools.push(messages[tool.index].content as ToolContent);
-          toolsToFilter.add(tool.index);
+          if (!hasMessageBoundaryBetween(conversationMessages, candidateStep.index, tool.index)) {
+            stepContent.tools.push(messages[tool.index].content as ToolContent);
+            toolsToFilter.add(tool.index);
+          }
         }
       }
     }
@@ -110,6 +132,12 @@ export const attachToolsToSteps = (messages: Message[], conversationMessages: Co
 export const mapToFrontendMessage = (conversationMessages: ConversationMessage[]): Message[] => {
   return conversationMessages?.map((m) => {
     if (m.eventType === 'MESSAGE') {
+      const rawContent = m.content as any;
+      const messageContent: MessageContent = {
+        content: rawContent?.content || '',
+        reasoningContent: rawContent?.reasoningContent || undefined,
+        timestamp: rawContent?.timestamp || new Date(m.createdTime).getTime(),
+      };
       return {
         type: m.messageType === 'USER' ? 'user' : 'assistant',
         content: m.content as MessageContent,
@@ -131,9 +159,45 @@ export const mapToFrontendMessage = (conversationMessages: ConversationMessage[]
         content: m.content as StepContent,
       };
     }
-    return {
-      type: 'assistant',
-      content: m.content as MessageContent,
-    };
+    return { type: 'assistant', content: m.content as MessageContent };
   });
+}
+
+/**
+ * Merge adjacent reasoning-only assistant messages with the next assistant response message.
+ * A reasoning-only message has reasoningContent but empty content.
+ * This should be called AFTER attachToolsToSteps since it changes array length.
+ */
+export const mergeReasoningMessages = (messages: Message[]): Message[] => {
+  const result: Message[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    if (msg.type === 'assistant') {
+      const content = msg.content as MessageContent;
+      // Detect reasoning-only message
+      if (content.reasoningContent && !content.content) {
+        const next = messages[i + 1];
+        if (next && next.type === 'assistant') {
+          const nextContent = next.content as MessageContent;
+          // Merge: reasoning from current + content from next
+          result.push({
+            type: 'assistant',
+            content: {
+              content: nextContent.content,
+              reasoningContent: content.reasoningContent,
+              timestamp: content.timestamp,
+            } as MessageContent,
+          });
+          i++; // skip next
+          continue;
+        }
+      }
+    }
+
+    result.push(msg);
+  }
+
+  return result;
 }

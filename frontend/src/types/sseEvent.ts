@@ -1,6 +1,6 @@
 export type SSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData;
+  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'plan' | 'context';
+  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | PlanEventData | ContextEventData;
 }
 
 export interface ToolEventData {
@@ -43,4 +43,12 @@ export interface TitleEventData {
 export interface PlanEventData {
   timestamp: number;
   steps: StepEventData[];
+}
+
+export interface ContextEventData {
+  timestamp: number;
+  usedTokens: number;
+  maxTokens: number;
+  percent: number;
+  compacted?: boolean;
 }

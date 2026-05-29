@@ -8,6 +8,8 @@ services:
 #    command: ["./dev.sh"]  # Start in reload mode
     volumes:
       - ./:/app  # Mount source code directory
+      - ./skills-data:/app/skills  # Skill文件共享存储
+      - /etc/timezone:/etc/timezone  # sync time zone
 #      - /var/run/docker.sock:/var/run/docker.sock:ro
 #      - /app/__pycache__  # Avoid overwriting cache files
 #      - /app/.venv  # Avoid overwriting virtual environment
@@ -25,6 +27,7 @@ services:
 #      - .env
     environment:
       - SANDBOX_ADDRESS=sandbox # Use single container as sandbox
+      - SKILL_STORAGE_PATH=/app/skills
 
   worker:
     build:
@@ -34,6 +37,8 @@ services:
     hostname: sandbox
     volumes:
       - ./:/app  # Mount source code directory
+      - ./skills-data:/app/skills  # Skill文件共享存储（与backend共享）
+      - /etc/timezone:/etc/timezone  # sync time zone
 #      - ./supervisord.conf:/etc/supervisor/conf.d/app.conf
 #      - /app/__pycache__  # Avoid overwriting cache files
 #      - /app/.venv  # Avoid overwriting virtual environment
@@ -48,6 +53,7 @@ services:
     environment:
       - UVI_ARGS="--reload"
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - SKILL_SCRIPTS_PATH=/app/skills/extracted
 #    restart: unless-stopped
     networks:
       - manus-network
@@ -56,3 +62,7 @@ networks:
   manus-network:
     name: manus-network
     driver: bridge
+
+volumes:
+  skills-data:
+    driver: local

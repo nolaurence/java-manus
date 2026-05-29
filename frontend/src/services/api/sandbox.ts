@@ -46,6 +46,8 @@ export interface SessionSummary {
   messageCount: number;
   lastMessageTime?: string;
   lastMessage?: string;
+  title?: string;
+  status?: string;
 }
 
 export interface ConversationMessage {
@@ -53,7 +55,7 @@ export interface ConversationMessage {
   userId: string;
   sessionId: string;
   messageType: 'USER' | 'ASSISTANT';
-  eventType: 'MESSAGE' | 'TOOL' | 'STEP' | 'PLAN' | 'ERROR' | 'DONE' | 'TITLE';
+  eventType: 'MESSAGE' | 'TOOL' | 'STEP' | 'PLAN' | 'ERROR' | 'DONE' | 'TITLE' | 'CONTEXT';
   content: object;
   metadata?: string;
   createdTime: string;
@@ -82,6 +84,22 @@ export async function fetchSessionMessages(sessionId: string): Promise<Conversat
   }
   // @ts-ignore
   return res.data || [];
+}
+
+export async function fetchConversationTitle(sessionId: string): Promise<{sessionId: string; userId?: string; title: string} | null> {
+  try {
+    const res = await request<API.Response<{sessionId: string; userId?: string; title: string}>>(`/conversations/title`, {
+      method: 'GET',
+      params: { sessionId },
+    });
+    if (!res || !res.success) {
+      return null;
+    }
+    // @ts-ignore
+    return res.data;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -113,6 +131,7 @@ export const getVNCUrl = (agentId: string): string => {
 export const chatWithAgent = async (
   agentId: string,
   message: string = '',
+  planMode: boolean = false,
   onMessage: (event: SSEEvent) => void,
   onError?: (error: Error) => void
 ) => {
@@ -125,9 +144,14 @@ export const chatWithAgent = async (
         'Content-Type': 'application/json',
       },
       openWhenHidden: true,
-      body: JSON.stringify({message, timestamp: Math.floor(Date.now() / 1000)}),
+      body: JSON.stringify({message, planMode, timestamp: Math.floor(Date.now() / 1000)}),
       onmessage(event: EventSourceMessage) {
         if (event.event && event.event.trim() !== '') {
+          // 处理心跳消息，不传递给上层
+          if (event.event === 'heartbeat') {
+            console.debug('SSE heartbeat received:', event.data);
+            return;
+          }
           onMessage({
             event: event.event as SSEEvent['event'],
             data: JSON.parse(event.data) as SSEEvent['data']
@@ -144,6 +168,61 @@ export const chatWithAgent = async (
     });
   } catch (error) {
     console.error('Chat error:', error);
+    if (onError) {
+      onError(error instanceof Error ? error : new Error(String(error)));
+    }
+    throw error;
+  }
+};
+
+export const resumeAgentStream = async (
+  agentId: string,
+  afterId: number,
+  onMessage: (event: SSEEvent) => void,
+  onError?: (error: Error) => void
+) => {
+  try {
+    const apiUrl = `${BASE_URL}/agents/${agentId}/resume?afterId=${afterId || 0}`;
+
+    await fetchEventSource(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      openWhenHidden: true,
+      onmessage(event: EventSourceMessage) {
+        if (event.event && event.event.trim() !== '') {
+          if (
+            event.event === 'heartbeat' ||
+            event.event === 'RESUMED' ||
+            event.event === 'TASK_ALREADY_FINISHED' ||
+            event.event === 'TASK_ALREADY_FAILED' ||
+            event.event === 'TASK_FINISHED_BG'
+          ) {
+            if (event.event !== 'heartbeat' && event.event !== 'RESUMED') {
+              onMessage({event: 'done' as SSEEvent['event'], data: {} as SSEEvent['data']});
+            }
+            return;
+          }
+          onMessage({
+            event: event.event as SSEEvent['event'],
+            data: JSON.parse(event.data) as SSEEvent['data']
+          });
+        }
+      },
+      onerror(err) {
+        console.error('Resume EventSource error:', err);
+        if (onError) {
+          onError(err instanceof Error ? err : new Error(String(err)));
+        }
+        throw err;
+      },
+      onclose() {
+        onMessage({event: 'done' as SSEEvent['event'], data: {} as SSEEvent['data']});
+      },
+    });
+  } catch (error) {
+    console.error('Resume chat error:', error);
     if (onError) {
       onError(error instanceof Error ? error : new Error(String(error)));
     }

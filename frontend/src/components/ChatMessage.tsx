@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { XMarkdown } from '@ant-design/x-markdown';
+import { Think } from '@ant-design/x';
 import ManusTextIcon from './icons/ManusTextIcon';
 import ToolUse from './ToolUse';
 import { marked } from 'marked';
@@ -51,7 +53,7 @@ const ChatMessage: React.FC<{
   // 用户消息渲染
   if (message.type === 'user') {
     return (
-      <div className="flex w-full flex-col items-end justify-end gap-1 group mt-3">
+      <div className="flex w-full flex-col items-end justify-end gap-1 group mt-1">
         <div className="flex items-end">
           <div className="flex items-center justify-end gap-[2px] invisible group-hover:visible">
             <div className="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
@@ -59,14 +61,14 @@ const ChatMessage: React.FC<{
             </div>
           </div>
         </div>
-        <div className="flex max-w-[90%] relative flex-col gap-2 items-end">
+        <div className="flex w-fit max-w-[90%] relative flex-col gap-2 items-end">
           {/*
           <div
             className="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(asUserContent().content) }}
           >
           */}
-          <div className="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0 break-words break-all whitespace-pre-wrap">
+          <div className="relative inline-block w-fit max-w-full rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:normal]">
             {asUserContent().content}
           </div>
         </div>
@@ -76,8 +78,12 @@ const ChatMessage: React.FC<{
 
   // 助手消息渲染
   if (message.type === 'assistant') {
+    const msgContent = asUserContent();
+    const hasReasoning = !!msgContent.reasoningContent;
+    const hasContent = !!msgContent.content;
+
     return (
-      <div className="flex flex-col gap-2 w-full group my-3">
+      <div className="flex flex-col gap-2 w-full group my-1">
         <div className="flex items-center justify-between h-7 group">
           <div className="flex items-center gap-[3px]">
             <Bot size={24} className="w-6 h-6" />
@@ -89,12 +95,24 @@ const ChatMessage: React.FC<{
             </div>
           </div>
         </div>
-        <div
-          className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
-          dangerouslySetInnerHTML={{
-            __html: renderMarkdown(asUserContent().content),
-          }}
+        {hasReasoning && (
+          <Think
+            title="深度思考"
+            defaultExpanded={false}
+            style={{ marginBottom: hasContent ? 8 : 0 }}
+          >
+          <XMarkdown
+            content={msgContent.reasoningContent!}
+            className="max-w-none p-0 m-0 prose prose-sm dark:prose-invert text-sm text-[var(--text-secondary)] [&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:not-italic"
+          />
+        </Think>
+      )}
+      {hasContent && (
+        <XMarkdown
+          content={msgContent.content}
+          className="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] [&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:not-italic text-base text-[var(--text-primary)]"
         />
+      )}
       </div>
     );
   }
@@ -103,10 +121,12 @@ const ChatMessage: React.FC<{
   if (message.type === 'tool') {
     // @ts-ignore
     return (
-      <ToolUse
-        tool={asToolContent()}
-        onClick={() => onToolClick(asToolContent())}
-      />
+      <div className="w-full my-1">
+        <ToolUse
+          tool={asToolContent()}
+          onClick={() => onToolClick(asToolContent())}
+        />
+      </div>
     );
   }
 
@@ -115,7 +135,7 @@ const ChatMessage: React.FC<{
     const content = asStepContent();
 
     return (
-      <div className="flex flex-col my-3">
+      <div className="flex flex-col my-1">
         <div
           className="text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]"
           data-event-id="HNtP7XOMUOhPemItd2EkK2"
@@ -146,13 +166,17 @@ const ChatMessage: React.FC<{
               <div className="w-4 h-4 flex-shrink-0 flex items-center justify-center border border-[var(--border-dark)] rounded-[15px]"></div>
             )}
 
-            <div
+            {/* <div
               className="truncate font-medium markdown-content"
               dangerouslySetInnerHTML={{
                 __html: content.description
                   ? renderMarkdown(content.description)
                   : '',
               }}
+            /> */}
+            <XMarkdown 
+              content={content.description || ''}
+              className="truncate font-medium markdown-content"
             />
 
             <span

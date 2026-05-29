@@ -26,6 +26,9 @@ public class ChatMemory {
         List<ChatMessage> copy = new ArrayList<>();
         for (ChatMessage message : history) {
             ChatMessage cloned = new ChatMessage(message.getRole(), message.getEventType(), message.getContent());
+            if (message.getThinking() != null) {
+                cloned.setThinking(message.getThinking());
+            }
             copy.add(cloned);
         }
         return copy;
@@ -40,7 +43,9 @@ public class ChatMemory {
                 .filter(msg -> msg.getRole() != ChatMessage.Role.tool)
                 .filter(msg -> msg.getEventType() == SSEEventType.MESSAGE
                         || msg.getEventType() == SSEEventType.PLAN
-                        || msg.getEventType() == SSEEventType.STEP)
+                        || msg.getEventType() == SSEEventType.STEP
+                        || msg.getEventType() == SSEEventType.TOOL
+                        || msg.getEventType() == SSEEventType.COMPACT)
                 .map(ChatMessage::toLangchain4j)
                 .collect(Collectors.toList());
     }

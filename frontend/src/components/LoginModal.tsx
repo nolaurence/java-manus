@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Form, Input, ConfigProvider, message, Avatar, Dropdown, Space } from 'antd';
+import { Modal, Button, Form, Input, Select, ConfigProvider, message, Avatar, Dropdown, Space } from 'antd';
 import { SettingOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { login, logout, currentUser, register } from '@/services/api/login';
-
-// 固定的邀请码
-const VALID_INVITE_CODE = 'MANUS2024';
+import { Zap } from 'lucide-react';
+import { history } from 'umi';
 
 const UserInfoComponent: React.FC = () => {
 
@@ -30,6 +29,8 @@ const UserInfoComponent: React.FC = () => {
       setLoginOpen(false);
       setIsLoggedIn(true);
       setUserInfo(response.data);
+      // 发送事件通知其他组件（如 Panel）刷新数据
+      window.dispatchEvent(new Event('loginSuccess'));
       loginForm.resetFields();
     } else {
       message.error(response.message || "登录失败");
@@ -38,23 +39,23 @@ const UserInfoComponent: React.FC = () => {
   };
 
   const handleRegister = async (values: any) => {
-    // 验证邀请码
-    if (values.inviteCode !== VALID_INVITE_CODE) {
-      message.error("邀请码无效");
-      return;
-    }
-    
     setRegisterLoading(true);
     const response = await register({
       account: values.username,
       password: values.password,
+      checkPassword: values.confirmPassword,
       name: values.nickname,
       inviteCode: values.inviteCode,
+      gender: values.gender,
+      email: values.email,
+      phone: values.phone,
     });
     if (response.success) {
       message.success("注册成功，请登录");
       setRegisterOpen(false);
       setLoginOpen(true);
+      // 发送事件通知其他组件（如 Panel）刷新数据
+      window.dispatchEvent(new Event('loginSuccess'));
       registerForm.resetFields();
     } else {
       message.error(response.message || "注册失败");
@@ -68,13 +69,19 @@ const UserInfoComponent: React.FC = () => {
       message.success("已退出登录");
       setIsLoggedIn(false);
       setUserInfo(null);
+      // 发送事件通知其他组件（如 Panel）刷新数据
+      window.dispatchEvent(new Event('loginSuccess'));
     } else {
       message.error("退出失败");
     }
   };
 
-  const handleSettings = () => {
-    message.info("设置功能开发中");
+  const handleGoSettings = () => {
+    history.push('/settings');
+  };
+
+  const handleGoSkills = () => {
+    history.push('/skills');
   };
 
   useEffect(() => {
@@ -92,10 +99,16 @@ const UserInfoComponent: React.FC = () => {
   // 下拉菜单项
   const dropdownItems: MenuProps['items'] = [
     {
+      key: 'skill',
+      label: '技能',
+      icon: <Zap size={16} />,
+      onClick: handleGoSkills,
+    },
+    {
       key: 'settings',
       label: '设置',
       icon: <SettingOutlined />,
-      onClick: handleSettings,
+      onClick: handleGoSettings,
     },
     {
       type: 'divider',
@@ -243,6 +256,27 @@ const UserInfoComponent: React.FC = () => {
               rules={[{ required: true, message: '请输入邀请码' }]}
             >
               <Input maxLength={20} placeholder="请输入邀请码" />
+            </Form.Item>
+            <Form.Item
+              name="gender"
+              label="性别"
+            >
+              <Select placeholder="请选择性别" allowClear>
+                <Select.Option value={1}>男</Select.Option>
+                <Select.Option value={2}>女</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="email"
+              label="邮箱"
+            >
+              <Input maxLength={50} placeholder="请输入邮箱" />
+            </Form.Item>
+            <Form.Item
+              name="phone"
+              label="手机号"
+            >
+              <Input maxLength={20} placeholder="请输入手机号" />
             </Form.Item>
             <Form.Item className="pt-5">
               <Button
