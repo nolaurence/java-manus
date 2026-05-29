@@ -73,7 +73,7 @@ public class ConversationHistoryService {
             return;
         }
         try {
-            ConversationHistoryDO existing = conversationHistoryTkMapper.selectByPrimaryKey(messageId);
+            ConversationHistoryDO existing = conversationHistoryTkMapper.selectByPrimaryKey(messageId).orElse(null);
             if (existing == null) {
                 log.warn("updateToolResult: message not found, id={}", messageId);
                 return;
