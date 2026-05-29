@@ -61,6 +61,10 @@ public class ChatMessage {
                     String toolDesc = "[Tool] " + toolData.getFunction() + "\nResult: " + result;
                     return UserMessage.from(toolDesc);
                 }
+                if (eventType == SSEEventType.COMPACT) {
+                    // Compaction summary is already formatted as a summary text
+                    return UserMessage.from(content != null ? content : "");
+                }
                 AiMessage.Builder builder = AiMessage.builder()
                         .text(content != null ? content : "");
                 if (thinking != null && !thinking.isEmpty()) {

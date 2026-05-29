@@ -88,6 +88,8 @@ public class AgentExecutor {
     private static final String THINK_TOOL_NAME = "dummy-server-think";
     private static final int MCP_TOOL_RETRY_TIMES = 3;
     private static final int DEFAULT_CONTEXT_WINDOW_TOKENS = 1_048_576;
+    private static final int RESERVE_TOKENS = 16_384;
+    private static final int KEEP_RECENT_TOKENS = 20_000;
     private static final int CONTEXT_COMPACT_THRESHOLD_PERCENT = 90;
     private static final int COMPACTED_CONTEXT_MAX_CHARS = 60_000;
     private static final ThreadPoolExecutor executor = new ThreadPoolExecutor(
@@ -401,9 +403,11 @@ public class AgentExecutor {
 
                 ContextUsage contextUsage = calculateContextUsage(messages, toolSpecs);
                 syncContextUsage(contextUsage, false, emitter);
-                if (contextUsage.percent >= CONTEXT_COMPACT_THRESHOLD_PERCENT) {
-                    log.info("[SKILL LOOP] context usage {}% reached threshold, compacting messages", contextUsage.percent);
-                    messages = compactAgentLoopMessages(messages);
+                // Trigger compaction when used tokens exceed context window minus reserve (room for LLM response)
+                if (contextUsage.usedTokens > DEFAULT_CONTEXT_WINDOW_TOKENS - RESERVE_TOKENS) {
+                    log.info("[SKILL LOOP] context usage {}/{} tokens exceeded threshold (reserve={}), compacting messages",
+                            contextUsage.usedTokens, DEFAULT_CONTEXT_WINDOW_TOKENS, RESERVE_TOKENS);
+                    messages = compactAgentLoopMessages(messages, toolSpecs);
                     contextUsage = calculateContextUsage(messages, toolSpecs);
                     syncContextUsage(contextUsage, true, emitter);
                 }
@@ -422,7 +426,7 @@ public class AgentExecutor {
                         throw e;
                     }
                     log.warn("[SKILL LOOP] context length exceeded, compacting and retrying once: {}", e.getMessage());
-                    messages = compactAgentLoopMessages(messages);
+                    messages = compactAgentLoopMessages(messages, toolSpecs);
                     syncContextUsage(calculateContextUsage(messages, toolSpecs), true, emitter);
                     request = dev.langchain4j.model.chat.request.ChatRequest.builder()
                             .messages(messages)
@@ -704,32 +708,140 @@ public class AgentExecutor {
     }
 
     private List<dev.langchain4j.data.message.ChatMessage> compactAgentLoopMessages(
-            List<dev.langchain4j.data.message.ChatMessage> messages) {
-        if (CollectionUtils.isEmpty(messages)) {
+            List<dev.langchain4j.data.message.ChatMessage> messages,
+            List<ToolSpecification> toolSpecs) {
+        if (CollectionUtils.isEmpty(messages) || messages.size() <= 2) {
             return messages;
         }
 
-        List<dev.langchain4j.data.message.ChatMessage> compacted = new ArrayList<>();
-        compacted.add(messages.get(0));
+        // 1. Walk backwards from the newest message, accumulating token estimates
+        //    until KEEP_RECENT_TOKENS is reached. This mimics pi's cut-point logic.
+        int accumulated = 0;
+        int cutIndex = messages.size(); // default: keep everything
 
-        int startIndex = Math.max(1, messages.size() - 24);
-        StringBuilder summary = new StringBuilder();
-        summary.append("The previous conversation/tool context was compacted because it was close to the model context limit.\n");
-        summary.append("Keep working from this compacted recent context:\n\n");
-        for (int i = startIndex; i < messages.size(); i++) {
-            dev.langchain4j.data.message.ChatMessage message = messages.get(i);
-            summary.append("## ").append(message.type()).append("\n");
-            summary.append(truncateForCompaction(extractMessageText(message), 8_000)).append("\n\n");
-            if (summary.length() > COMPACTED_CONTEXT_MAX_CHARS) {
+        for (int i = messages.size() - 1; i >= 1; i--) {
+            dev.langchain4j.data.message.ChatMessage msg = messages.get(i);
+            int msgTokens = estimateTokens(extractMessageText(msg)) + 4;
+
+            if (accumulated + msgTokens > KEEP_RECENT_TOKENS && i > 1) {
+                // Cut point found — but never cut on a ToolExecutionResultMessage
+                // (tool results must stay paired with their tool call).
+                if (msg instanceof ToolExecutionResultMessage) {
+                    // Step back to before the tool call that produced this result
+                    int j = i - 1;
+                    while (j >= 1 && messages.get(j) instanceof ToolExecutionResultMessage) {
+                        j--;
+                    }
+                    // j now points to the AiMessage (tool call) or earlier
+                    // Step back one more so the tool call itself is also kept
+                    if (j > 1) {
+                        cutIndex = j;
+                    } else {
+                        cutIndex = 1; // keep everything after system prompt
+                    }
+                } else {
+                    cutIndex = i;
+                }
+                break;
+            }
+            accumulated += msgTokens;
+        }
+
+        if (cutIndex <= 1) {
+            // Nothing to compact — keep everything
+            return messages;
+        }
+
+        // 2. Collect messages that will be summarized (skip system prompt at index 0)
+        List<dev.langchain4j.data.message.ChatMessage> messagesToSummarize = new ArrayList<>();
+        for (int i = 1; i < cutIndex; i++) {
+            messagesToSummarize.add(messages.get(i));
+        }
+
+        // 3. Generate structured summary (pi-style)
+        String summary = generateStructuredSummary(messagesToSummarize);
+
+        // 4. Assemble compacted message list: system + summary + kept recent messages
+        List<dev.langchain4j.data.message.ChatMessage> compacted = new ArrayList<>();
+        compacted.add(messages.get(0)); // system prompt
+
+        String compactedText = "## Context Summary\n"
+                + "The previous conversation context was compacted to stay within the model's context window.\n"
+                + "Keep working from this compacted summary:\n\n"
+                + summary;
+        compacted.add(UserMessage.from(truncateForCompaction(compactedText, COMPACTED_CONTEXT_MAX_CHARS)));
+
+        for (int i = cutIndex; i < messages.size(); i++) {
+            compacted.add(messages.get(i));
+        }
+
+        // 5. Persist compaction boundary to DB so ensureMemory() can reconstruct it
+        saveCompactionEvent(summary, cutIndex, messages.size());
+
+        log.info("[SKILL LOOP] Compacted {} messages -> {} messages (cut at index {}, kept {} recent tokens)",
+                messages.size(), compacted.size(), cutIndex, accumulated);
+
+        return compacted;
+    }
+
+    private String generateStructuredSummary(
+            List<dev.langchain4j.data.message.ChatMessage> messages) {
+        StringBuilder sb = new StringBuilder();
+
+        // Goal — from the first user message
+        sb.append("## Goal\n");
+        for (dev.langchain4j.data.message.ChatMessage msg : messages) {
+            if (msg instanceof UserMessage) {
+                sb.append(truncateForCompaction(extractMessageText(msg), 1_000)).append("\n");
                 break;
             }
         }
 
-        compacted.add(UserMessage.from(truncateForCompaction(summary.toString(), COMPACTED_CONTEXT_MAX_CHARS)));
-        return compacted;
+        // Progress — tool calls, results, and assistant responses
+        sb.append("\n## Progress\n");
+        for (dev.langchain4j.data.message.ChatMessage msg : messages) {
+            if (msg instanceof ToolExecutionResultMessage) {
+                String text = truncateForCompaction(extractMessageText(msg), 500);
+                sb.append("- [Tool Result] ").append(text).append("\n");
+            } else if (msg instanceof AiMessage) {
+                AiMessage ai = (AiMessage) msg;
+                if (ai.hasToolExecutionRequests()) {
+                    for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
+                        sb.append("- [Tool Call] ").append(req.name())
+                          .append(" args=").append(truncateForCompaction(req.arguments(), 300)).append("\n");
+                    }
+                } else {
+                    sb.append("- [Assistant] ").append(truncateForCompaction(extractMessageText(msg), 500)).append("\n");
+                }
+            }
+        }
+
+        sb.append("\n## Next Steps\n");
+        sb.append("Continue from the current state.\n");
+
+        return sb.toString();
+    }
+
+    private void saveCompactionEvent(String summary, int cutIndex, int totalMessages) {
+        if (conversationHistoryService == null) {
+            return;
+        }
+        try {
+            // Persist only the human-readable summary text (not JSON metadata)
+            // so that when restored, LLM sees a clean summary UserMessage.
+            String compactText = "## Context Summary\n"
+                    + "The previous conversation context was compacted to stay within the model's context window.\n"
+                    + "Keep working from this compacted summary:\n\n"
+                    + summary;
+
+            saveAssistantEventWithoutMemory(compactText, SSEEventType.COMPACT);
+        } catch (Exception e) {
+            log.warn("failed to persist compaction event", e);
+        }
     }
 
     private String truncateForCompaction(String text, int maxChars) {
+
         if (text == null) {
             return "";
         }
