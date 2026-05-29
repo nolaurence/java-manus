@@ -8,4 +8,6 @@ public class TitleEventData {
     private long timestamp;
 
     private String title;
+
+    private String icon;
 }

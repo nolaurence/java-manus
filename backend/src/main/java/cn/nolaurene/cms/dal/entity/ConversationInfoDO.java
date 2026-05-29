@@ -34,6 +34,12 @@ public class ConversationInfoDO {
     private String title;
 
     /**
+     * lucide-react icon component name
+     */
+    @Column("icon")
+    private String icon;
+
+    /**
      * 对话状态
      */
     @Column("status")

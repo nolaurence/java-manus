@@ -19,5 +19,6 @@ public class SessionSummary {
     private LocalDateTime lastMessageTime;
     private String lastMessage;
     private String title;
+    private String icon;
     private String status;
 }

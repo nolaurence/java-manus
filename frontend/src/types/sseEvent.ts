@@ -38,6 +38,7 @@ export interface DoneEventData {
 export interface TitleEventData {
   timestamp: number;
   title: string;
+  icon?: string;
 }
 
 export interface PlanEventData {

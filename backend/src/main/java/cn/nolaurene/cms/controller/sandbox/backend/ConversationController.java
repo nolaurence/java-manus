@@ -58,6 +58,7 @@ public class ConversationController {
                         .sessionId(info.getSessionId())
                         .userId(info.getUserId())
                         .title(info.getTitle())
+                        .icon(info.getIcon())
                         .status(info.getStatus())
                         .build())
                 .collect(Collectors.toList());
@@ -106,6 +107,7 @@ public class ConversationController {
                     .sessionId(dataObject.getSessionId())
                     .userId(dataObject.getUserId())
                     .title(dataObject.getTitle())
+                    .icon(dataObject.getIcon())
                     .build());
         }
         return Response.error("Conversation not found", null);

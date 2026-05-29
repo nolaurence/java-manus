@@ -406,6 +406,9 @@ public class ConversationHistoryService {
             if (conversationInfo.getTitle() != null) {
                 newDataObject.setTitle(conversationInfo.getTitle());
             }
+            if (conversationInfo.getIcon() != null) {
+                newDataObject.setIcon(conversationInfo.getIcon());
+            }
             if (conversationInfo.getStatus() != null) {
                 newDataObject.setStatus(conversationInfo.getStatus());
             }
@@ -421,6 +424,7 @@ public class ConversationHistoryService {
         ConversationInfoDO newDataObject = new ConversationInfoDO();
         newDataObject.setSessionId(conversationInfo.getSessionId());
         newDataObject.setTitle(conversationInfo.getTitle());
+        newDataObject.setIcon(conversationInfo.getIcon());
         newDataObject.setStatus(conversationInfo.getStatus());
         newDataObject.setUserId(conversationInfo.getUserId());
         newDataObject.setGmtCreate(new Date());

@@ -1,11 +1,66 @@
 import React, {useState, useEffect} from 'react';
 import {useStyles} from '@/assets/panel';
-import {PanelLeft, Plus, Search, Ellipsis, MessageSquare} from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  Bot,
+  Bug,
+  Calendar,
+  ClipboardList,
+  Cloud,
+  Code2,
+  Database,
+  Ellipsis,
+  FileText,
+  Folder,
+  Globe,
+  Image as ImageIcon,
+  Mail,
+  MessageSquare,
+  Palette,
+  PanelLeft,
+  Plus,
+  Search,
+  Settings,
+  Shield,
+  Sparkles,
+  Terminal,
+  Video,
+  Wrench,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import { history } from 'umi';
 import {useNavigate} from 'react-router';
 import {currentUser} from '@/services/api/login';
 import {fetchUserSessions, type SessionSummary} from '@/services/api/sandbox';
 
+const conversationIcons: Record<string, LucideIcon> = {
+  MessageSquare,
+  Code2,
+  Globe,
+  Database,
+  FileText,
+  Terminal,
+  Search,
+  Settings,
+  Bot,
+  Bug,
+  Wrench,
+  Palette,
+  BarChart3,
+  Calendar,
+  Mail,
+  Image: ImageIcon,
+  Video,
+  Shield,
+  Zap,
+  BookOpen,
+  Cloud,
+  Folder,
+  ClipboardList,
+  Sparkles,
+};
 
 interface PanelProps {
   panelWidth?: number;
@@ -210,50 +265,53 @@ const Panel: React.FC<PanelProps> = ({panelWidth = 300, isOpen = false, setIsOpe
               </div>
             )}
             {!loading &&
-              sessions.map((s) => (
-                <div
-                  key={s.sessionId}
-                  className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
-                  onClick={() =>
-                    history.push(`/chat/${encodeURIComponent(s.sessionId)}`)
-                  }
-                >
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
-                    {s.status && s.status !== 'idle' && s.status !== 'completed' ? (
-                      <span className="relative flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
-                      </span>
-                    ) : (
-                      <MessageSquare size={20} />
-                    )}
-                  </div>
+              sessions.map((s) => {
+                const ConversationIcon = conversationIcons[s.icon || ''] || MessageSquare;
+                return (
                   <div
-                    className="flex-1 min-w-0 flex gap-[4px] items-center text-[14px] text-[var(--text-primary)]"
-                    style={{ opacity: 1, width: 'auto' }}
+                    key={s.sessionId}
+                    className="flex items-center rounded-[10px] clickable cursor-pointer transition-colors w-full gap-[12px] h-[36px] hover:bg-[var(--fill-tsp-white-light)] pointer-events-auto ps-[9px] pe-[2px] group"
+                    onClick={() =>
+                      history.push(`/chat/${encodeURIComponent(s.sessionId)}`)
+                    }
                   >
-                    <span
-                      className="truncate"
-                      title={s.title || s.lastMessage || s.sessionId}
-                    >
-                      {s.title || s.lastMessage || s.sessionId}
-                    </span>
-                  </div>
-                  <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 text-[var(--icon-secondary)]">
+                      {s.status && s.status !== 'idle' && s.status !== 'completed' ? (
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                        </span>
+                      ) : (
+                        <ConversationIcon size={20} />
+                      )}
+                    </div>
                     <div
-                      className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--fill-tsp-white-dark)]"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
+                      className="flex-1 min-w-0 flex gap-[4px] items-center text-[14px] text-[var(--text-primary)]"
+                      style={{ opacity: 1, width: 'auto' }}
                     >
-                      <Ellipsis
-                        size={18}
-                        className="text-[var(--icon-secondary)]"
-                      />
+                      <span
+                        className="truncate"
+                        title={s.title || s.lastMessage || s.sessionId}
+                      >
+                        {s.title || s.lastMessage || s.sessionId}
+                      </span>
+                    </div>
+                    <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div
+                        className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--fill-tsp-white-dark)]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                      >
+                        <Ellipsis
+                          size={18}
+                          className="text-[var(--icon-secondary)]"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
 

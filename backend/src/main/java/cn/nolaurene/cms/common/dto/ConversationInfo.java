@@ -12,4 +12,6 @@ public class ConversationInfo {
     private String sessionId;
 
     private String title;
+
+    private String icon;
 }

@@ -47,6 +47,7 @@ export interface SessionSummary {
   lastMessageTime?: string;
   lastMessage?: string;
   title?: string;
+  icon?: string;
   status?: string;
 }
 
@@ -86,9 +87,9 @@ export async function fetchSessionMessages(sessionId: string): Promise<Conversat
   return res.data || [];
 }
 
-export async function fetchConversationTitle(sessionId: string): Promise<{sessionId: string; userId?: string; title: string} | null> {
+export async function fetchConversationTitle(sessionId: string): Promise<{sessionId: string; userId?: string; title: string; icon?: string} | null> {
   try {
-    const res = await request<API.Response<{sessionId: string; userId?: string; title: string}>>(`/conversations/title`, {
+    const res = await request<API.Response<{sessionId: string; userId?: string; title: string; icon?: string}>>(`/conversations/title`, {
       method: 'GET',
       params: { sessionId },
     });

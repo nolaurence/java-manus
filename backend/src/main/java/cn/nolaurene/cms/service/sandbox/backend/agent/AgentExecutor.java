@@ -35,7 +35,6 @@ import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.model.chat.ChatModel;
-import io.mybatis.mapper.example.Example;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.ToolExecutionResult;
@@ -90,6 +89,13 @@ public class AgentExecutor {
     private static final int KEEP_RECENT_TOKENS = 20_000;
     private static final int CONTEXT_COMPACT_THRESHOLD_PERCENT = 90;
     private static final int COMPACTED_CONTEXT_MAX_CHARS = 60_000;
+    private static final String DEFAULT_CONVERSATION_ICON = "MessageSquare";
+    private static final Set<String> ALLOWED_CONVERSATION_ICONS = Set.of(
+            "MessageSquare", "Code2", "Globe", "Database", "FileText", "Terminal",
+            "Search", "Settings", "Bot", "Bug", "Wrench", "Palette", "BarChart3",
+            "Calendar", "Mail", "Image", "Video", "Shield", "Zap", "BookOpen",
+            "Cloud", "Folder", "ClipboardList", "Sparkles"
+    );
     private static final ThreadPoolExecutor executor = new ThreadPoolExecutor(
             5,
             20,
@@ -242,11 +248,13 @@ public class AgentExecutor {
                         addMessageToMemory(new ChatMessage(ChatMessage.Role.assistant, SSEEventType.PLAN, JSON.toJSONString(plan)));
 
                         // 写入 plan title 到 conversation_info
-                        syncConversationInfo(plan.getTitle(), AgentStatus.PLANNING);
+                        String icon = buildConversationBrief(plan.getTitle()).icon;
+                        syncConversationInfo(plan.getTitle(), icon, AgentStatus.PLANNING);
 
                         // 发送 title SSE 事件给前端
                         TitleEventData titleEvent = new TitleEventData();
                         titleEvent.setTitle(plan.getTitle());
+                        titleEvent.setIcon(icon);
                         titleEvent.setTimestamp(System.currentTimeMillis());
                         sendOrForwardMessage(emitter, SSEEventType.TITLE.getType(), titleEvent);
 
@@ -395,8 +403,9 @@ public class AgentExecutor {
         }
 
         addMessageToMemory(new ChatMessage(ChatMessage.Role.user, input));
-        syncConversationInfo(buildConversationTitle(input), AgentStatus.EXECUTING);
-        sendTitleEvent(buildConversationTitle(input), emitter);
+        ConversationBrief conversationBrief = buildConversationBrief(input);
+        syncConversationInfo(conversationBrief.title, conversationBrief.icon, AgentStatus.EXECUTING);
+        sendTitleEvent(conversationBrief.title, conversationBrief.icon, emitter);
 
         try {
             List<dev.langchain4j.data.message.ChatMessage> messages = buildSkillBasedInitialMessages();
@@ -990,11 +999,42 @@ public class AgentExecutor {
         return "tool";
     }
 
-    private void sendTitleEvent(String title, SseEmitter emitter) {
+    private void sendTitleEvent(String title, String icon, SseEmitter emitter) {
         TitleEventData titleEvent = new TitleEventData();
         titleEvent.setTitle(title);
+        titleEvent.setIcon(icon);
         titleEvent.setTimestamp(System.currentTimeMillis());
         sendOrForwardMessage(emitter, SSEEventType.TITLE.getType(), titleEvent);
+    }
+
+    private ConversationBrief buildConversationBrief(String input) {
+        String fallbackTitle = buildConversationTitle(input);
+        if (chatModel == null || StringUtils.isBlank(input)) {
+            return new ConversationBrief(fallbackTitle, DEFAULT_CONVERSATION_ICON);
+        }
+
+        try {
+            String iconCandidates = String.join(", ", ALLOWED_CONVERSATION_ICONS);
+            String prompt = "Summarize this conversation starter into a short chat title and choose one lucide-react icon.\n"
+                    + "Return strict JSON only, no markdown.\n"
+                    + "Schema: {\"title\":\"short title under 40 chars\",\"icon\":\"one icon name\"}\n"
+                    + "Allowed icon names: " + iconCandidates + "\n\n"
+                    + "Conversation starter:\n" + StringUtils.abbreviate(input, 2_000);
+
+            ChatResponse response = chatModel.chat(
+                    dev.langchain4j.model.chat.request.ChatRequest.builder()
+                            .messages(List.of(UserMessage.from(prompt)))
+                            .build());
+
+            String raw = response.aiMessage() == null ? "" : response.aiMessage().text();
+            JSONObject json = JSON.parseObject(extractJsonObject(raw));
+            String title = sanitizeConversationTitle(json.getString("title"), fallbackTitle);
+            String icon = normalizeConversationIcon(json.getString("icon"));
+            return new ConversationBrief(title, icon);
+        } catch (Exception e) {
+            log.warn("failed to build conversation title/icon, using fallback", e);
+            return new ConversationBrief(fallbackTitle, DEFAULT_CONVERSATION_ICON);
+        }
     }
 
     private String buildConversationTitle(String input) {
@@ -1003,6 +1043,42 @@ public class AgentExecutor {
             return "New Chat";
         }
         return title.length() > 40 ? title.substring(0, 40) + "..." : title;
+    }
+
+    private String sanitizeConversationTitle(String title, String fallbackTitle) {
+        String normalized = StringUtils.normalizeSpace(title);
+        if (StringUtils.isBlank(normalized)) {
+            return fallbackTitle;
+        }
+        return normalized.length() > 40 ? normalized.substring(0, 40) + "..." : normalized;
+    }
+
+    private String normalizeConversationIcon(String icon) {
+        String normalized = StringUtils.trimToEmpty(icon);
+        if (ALLOWED_CONVERSATION_ICONS.contains(normalized)) {
+            return normalized;
+        }
+        return DEFAULT_CONVERSATION_ICON;
+    }
+
+    private String extractJsonObject(String raw) {
+        String text = StringUtils.trimToEmpty(raw);
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return text.substring(start, end + 1);
+        }
+        return text;
+    }
+
+    private static class ConversationBrief {
+        private final String title;
+        private final String icon;
+
+        private ConversationBrief(String title, String icon) {
+            this.title = title;
+            this.icon = icon;
+        }
     }
 
     private Long parseUserId(String userId) {
@@ -1143,6 +1219,10 @@ public class AgentExecutor {
     }
 
     private void syncConversationInfo(String title, AgentStatus status) {
+        syncConversationInfo(title, null, status);
+    }
+
+    private void syncConversationInfo(String title, String icon, AgentStatus status) {
         if (conversationHistoryService == null || conversationSessionId == null) return;
         try {
             ConversationInfoDO info = new ConversationInfoDO();
@@ -1152,6 +1232,9 @@ public class AgentExecutor {
             info.setUserId(userId);
             if (title != null) {
                 info.setTitle(title);
+            }
+            if (icon != null) {
+                info.setIcon(icon);
             }
             if (status != null) {
                 info.setStatus(status.getCode());
