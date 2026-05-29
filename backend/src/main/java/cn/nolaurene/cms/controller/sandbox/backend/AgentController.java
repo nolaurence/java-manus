@@ -63,6 +63,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class AgentController {
 
     private static final int MAX_RETRIES = 3;
+    private static final long MCP_RETRY_BASE_DELAY_MS = 200L;
 
     @Value("${sandbox.backend.max-loop}")
     private int maxLoop;
@@ -440,7 +441,7 @@ public class AgentController {
                     .name("file_read")
                     .arguments(JSON.toJSONString(arguments))
                     .build();
-            ToolExecutionResult toolResult = nativeMcpClient.executeTool(toolRequest);
+            ToolExecutionResult toolResult = executeMcpToolWithRetry(nativeMcpClient, toolRequest, agentId, "file_read");
 
             // Check for errors
             if (toolResult.isError()) {
@@ -457,7 +458,11 @@ public class AgentController {
 
             return Response.success(response);
         } catch (Exception e) {
-            log.error("Error viewing file for agent: {}", agentId, e);
+            if (isTransientMcpTransportException(e)) {
+                log.warn("Transient MCP transport error viewing file for agent {}: {}", agentId, e.getMessage());
+            } else {
+                log.error("Error viewing file for agent: {}", agentId, e);
+            }
             return Response.error("Error viewing file: " + e.getMessage(), null);
         }
     }
@@ -497,7 +502,7 @@ public class AgentController {
                     .name("shell_view")
                     .arguments(JSON.toJSONString(arguments))
                     .build();
-            ToolExecutionResult toolResult = nativeMcpClient.executeTool(toolRequest);
+            ToolExecutionResult toolResult = executeMcpToolWithRetry(nativeMcpClient, toolRequest, agentId, "shell_view");
 
             // Check for errors
             if (toolResult.isError()) {
@@ -515,9 +520,68 @@ public class AgentController {
 
             return Response.success(response);
         } catch (Exception e) {
-            log.error("Error viewing shell session for agent: {}", agentId, e);
+            if (isTransientMcpTransportException(e)) {
+                log.warn("Transient MCP transport error viewing shell session for agent {}: {}", agentId, e.getMessage());
+            } else {
+                log.error("Error viewing shell session for agent: {}", agentId, e);
+            }
             return Response.error("Error viewing shell session: " + e.getMessage(), null);
         }
+    }
+
+    private ToolExecutionResult executeMcpToolWithRetry(
+            McpClient mcpClient,
+            ToolExecutionRequest request,
+            String agentId,
+            String toolName
+    ) throws Exception {
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                return mcpClient.executeTool(request);
+            } catch (Exception e) {
+                lastException = e;
+                boolean shouldRetry = isTransientMcpTransportException(e) && attempt < MAX_RETRIES;
+                if (!shouldRetry) {
+                    throw e;
+                }
+
+                log.warn("Transient MCP transport error calling {} for agent {}, retry {}/{}: {}",
+                        toolName, agentId, attempt + 1, MAX_RETRIES, e.getMessage());
+                sleepBeforeMcpRetry(attempt);
+            }
+        }
+
+        throw lastException != null ? lastException : new IllegalStateException("Unknown MCP tool execution failure");
+    }
+
+    private void sleepBeforeMcpRetry(int attempt) throws InterruptedException {
+        try {
+            Thread.sleep(MCP_RETRY_BASE_DELAY_MS * attempt);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
+        }
+    }
+
+    private boolean isTransientMcpTransportException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String className = current.getClass().getName();
+            String message = current.getMessage();
+            if (StringUtils.containsIgnoreCase(className, "IOException")
+                    || StringUtils.containsIgnoreCase(className, "EOFException")
+                    || StringUtils.containsIgnoreCase(message, "unexpected end of stream")
+                    || StringUtils.containsIgnoreCase(message, "EOFException")
+                    || StringUtils.containsIgnoreCase(message, "Connection reset")
+                    || StringUtils.containsIgnoreCase(message, "Broken pipe")
+                    || StringUtils.containsIgnoreCase(message, "SocketTimeoutException")
+                    || StringUtils.containsIgnoreCase(message, "timeout")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private boolean startMcpServer(String agentId) {
