@@ -182,6 +182,11 @@ public class ExecutionSubAgent {
                 response = chatModel.chat(request);
             }
             AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] round={} text={} thinking={} toolCalls={}",
+                    round,
+                    StringUtils.abbreviate(aiMessage.text(), 200),
+                    StringUtils.abbreviate(aiMessage.thinking(), 200),
+                    aiMessage.hasToolExecutionRequests() ? aiMessage.toolExecutionRequests().size() : 0);
             sendThinkingMessageEvent(aiMessage, agent, emitterOpt);
 
             // Add AI message to conversation
@@ -216,11 +221,14 @@ public class ExecutionSubAgent {
                     }
 
                     // Report tool event to frontend via SSE
-                    reportToolEvent(toolName, finalArguments, agent, emitterOpt);
+                    Long toolMessageId = reportToolEvent(toolName, finalArguments, agent, emitterOpt);
 
                     // Execute tool via MCP Client directly
                     String observation = executeToolWithRetry(toolName, finalToolRequest, agent);
                     log.info("[ExecutionSubAgent] Round {} - Tool {} result: {}", round, toolName, observation);
+                    if (toolMessageId != null) {
+                        conversationHistoryService.updateToolResult(toolMessageId, observation);
+                    }
 
                     // Add tool result to messages
                     messages.add(ToolExecutionResultMessage.from(toolRequest, observation));
@@ -378,6 +386,11 @@ public class ExecutionSubAgent {
                 response = chatModel.chat(request);
             }
             AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] round={} text={} thinking={} toolCalls={}",
+                    round,
+                    StringUtils.abbreviate(aiMessage.text(), 200),
+                    StringUtils.abbreviate(aiMessage.thinking(), 200),
+                    aiMessage.hasToolExecutionRequests() ? aiMessage.toolExecutionRequests().size() : 0);
             sendThinkingMessageEvent(aiMessage, agent, emitterOpt);
             String aiText = aiMessage.text();
             log.info("[ExecutionSubAgent] Skill Round {} - LLM response: {}", round, aiText);
@@ -420,10 +433,13 @@ public class ExecutionSubAgent {
                         finalArguments = finalToolRequest.arguments();
                     }
 
-                    reportToolEvent(toolName, finalArguments, agent, emitterOpt);
+                    Long toolMessageId = reportToolEvent(toolName, finalArguments, agent, emitterOpt);
 
                     String observation = executeToolWithRetry(toolName, finalToolRequest, agent);
                     log.info("[ExecutionSubAgent] Skill Round {} - Tool {} result: {}", round, toolName, observation);
+                    if (toolMessageId != null) {
+                        conversationHistoryService.updateToolResult(toolMessageId, observation);
+                    }
 
                     messages.add(ToolExecutionResultMessage.from(toolRequest, observation));
                 }
@@ -492,10 +508,13 @@ public class ExecutionSubAgent {
 
                 JSONObject skillArgs = new JSONObject();
                 skillArgs.put("command", command);
-                reportToolEvent("shell_skill_execute", skillArgs.toJSONString(), agent, emitterOpt);
+                Long toolMessageId = reportToolEvent("shell_skill_execute", skillArgs.toJSONString(), agent, emitterOpt);
 
                 String observation = executeSkillCommand(selectedSkillId, sessionId, command, agent);
                 log.info("[ExecutionSubAgent] Skill command result: {}", observation);
+                if (toolMessageId != null) {
+                    conversationHistoryService.updateToolResult(toolMessageId, observation);
+                }
 
                 messages.add(UserMessage.from("Command output:\n" + observation));
 
@@ -695,7 +714,9 @@ public class ExecutionSubAgent {
 
         try {
             ChatResponse response = chatModel.chat(request);
-            String selectedSkillId = response.aiMessage().text().trim();
+            AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] selectSkill text={}", StringUtils.abbreviate(aiMessage.text(), 200));
+            String selectedSkillId = aiMessage.text().trim();
 
             // Clean up response
             if (selectedSkillId.startsWith("```") && selectedSkillId.endsWith("```")) {
@@ -942,6 +963,9 @@ public class ExecutionSubAgent {
         try {
             ChatResponse checkResponse = chatModel.chat(checkRequest);
             AiMessage checkAiMessage = checkResponse.aiMessage();
+            log.info("[LLM Response] checkStepCompletion text={} toolCalls={}",
+                    StringUtils.abbreviate(checkAiMessage.text(), 200),
+                    checkAiMessage.hasToolExecutionRequests() ? checkAiMessage.toolExecutionRequests().size() : 0);
             String responseText = checkAiMessage.text();
 
             if (responseText != null && responseText.startsWith("COMPLETED:")) {
@@ -971,6 +995,7 @@ public class ExecutionSubAgent {
                         .messages(compactedMessages)
                         .build());
                 AiMessage checkAiMessage = checkResponse.aiMessage();
+                log.info("[LLM Response] checkStepCompletion retry text={}", StringUtils.abbreviate(checkAiMessage.text(), 200));
                 String responseText = checkAiMessage.text();
                 if (responseText != null && responseText.startsWith("COMPLETED:")) {
                     messages.clear();
@@ -1054,6 +1079,9 @@ public class ExecutionSubAgent {
             long thinkTime = System.currentTimeMillis() - startTime;
 
             AiMessage aiMessage = response.aiMessage();
+            log.info("[LLM Response] deepThinking text={} thinking={}",
+                    StringUtils.abbreviate(aiMessage.text(), 200),
+                    StringUtils.abbreviate(aiMessage.thinking(), 200));
             String thinkingContent = aiMessage.text();
 
             if (StringUtils.isNotBlank(thinkingContent)) {
@@ -1317,8 +1345,9 @@ public class ExecutionSubAgent {
 
     /**
      * Report tool execution event to SSE and persistence.
+     * Returns the persisted message ID so the caller can update with the result later.
      */
-    private void reportToolEvent(String toolName, String arguments, Agent agent, SseEmitter emitter) {
+    private Long reportToolEvent(String toolName, String arguments, Agent agent, SseEmitter emitter) {
         String toolType;
         if (toolName.startsWith("browser")) {
             toolType = "browser";
@@ -1350,7 +1379,7 @@ public class ExecutionSubAgent {
         }
 
         // Persist
-        conversationHistoryService.saveAssistantMessageWithId(
+        return conversationHistoryService.saveAssistantMessageWithId(
                 JSON.toJSONString(toolEventData), SSEEventType.TOOL,
                 agent.getUserId(), agent.getAgentId());
     }

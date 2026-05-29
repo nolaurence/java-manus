@@ -43,7 +43,8 @@ public class ChatMemory {
                 .filter(msg -> msg.getRole() != ChatMessage.Role.tool)
                 .filter(msg -> msg.getEventType() == SSEEventType.MESSAGE
                         || msg.getEventType() == SSEEventType.PLAN
-                        || msg.getEventType() == SSEEventType.STEP)
+                        || msg.getEventType() == SSEEventType.STEP
+                        || msg.getEventType() == SSEEventType.TOOL)
                 .map(ChatMessage::toLangchain4j)
                 .collect(Collectors.toList());
     }

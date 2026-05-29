@@ -65,6 +65,34 @@ public class ConversationHistoryService {
     }
 
     /**
+     * Update tool result in conversation history after execution completes.
+     * Parses the existing JSON content, adds the result field, and updates the record.
+     */
+    public void updateToolResult(Long messageId, String result) {
+        if (messageId == null || result == null) {
+            return;
+        }
+        try {
+            ConversationHistoryDO existing = conversationHistoryTkMapper.selectByPrimaryKey(messageId);
+            if (existing == null) {
+                log.warn("updateToolResult: message not found, id={}", messageId);
+                return;
+            }
+            String content = existing.getContent();
+            if (StringUtils.isBlank(content)) {
+                return;
+            }
+            JSONObject json = JSON.parseObject(content);
+            json.put("result", result);
+            existing.setContent(json.toJSONString());
+            conversationHistoryTkMapper.updateByPrimaryKeySelective(existing);
+            log.info("updateToolResult: updated tool result for message id={}", messageId);
+        } catch (Exception e) {
+            log.warn("failed to update tool result, messageId={}", messageId, e);
+        }
+    }
+
+    /**
      * 保存对话历史
      */
     @Transactional

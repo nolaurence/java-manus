@@ -431,6 +431,11 @@ public class AgentExecutor {
                     response = chatModel.chat(request);
                 }
                 AiMessage aiMessage = response.aiMessage();
+                log.info("[LLM Response] round={} text={} thinking={} toolCalls={}",
+                        round,
+                        StringUtils.abbreviate(aiMessage.text(), 200),
+                        StringUtils.abbreviate(aiMessage.thinking(), 200),
+                        aiMessage.hasToolExecutionRequests() ? aiMessage.toolExecutionRequests().size() : 0);
                 messages.add(aiMessage);
                 syncRespondThinking(aiMessage, emitter);
 
@@ -563,11 +568,14 @@ public class AgentExecutor {
             finalArguments = finalToolRequest.arguments();
         }
 
-        reportToolEvent(toolName, finalArguments, emitter);
+        Long toolMessageId = reportToolEvent(toolName, finalArguments, emitter);
         String observation = skillToolProvider.isSkillTool(toolName)
                 ? executeSkillTool(toolName, finalToolRequest)
                 : executeMcpToolWithRetry(toolName, finalToolRequest);
         log.info("[SKILL LOOP] tool {} result: {}", toolName, observation);
+        if (toolMessageId != null) {
+            conversationHistoryService.updateToolResult(toolMessageId, observation);
+        }
         return ToolExecutionResultMessage.from(toolRequest, observation);
     }
 
@@ -825,7 +833,7 @@ public class AgentExecutor {
         }
     }
 
-    private void reportToolEvent(String toolName, String arguments, SseEmitter emitter) {
+    private Long reportToolEvent(String toolName, String arguments, SseEmitter emitter) {
         ToolEventData toolEventData = new ToolEventData();
         toolEventData.setTimestamp(System.currentTimeMillis());
         toolEventData.setName(resolveToolType(toolName));
@@ -843,6 +851,7 @@ public class AgentExecutor {
         if (toolMessageId != null) {
             currentStepToolIds.add(toolMessageId);
         }
+        return toolMessageId;
     }
 
     private String resolveToolType(String toolName) {

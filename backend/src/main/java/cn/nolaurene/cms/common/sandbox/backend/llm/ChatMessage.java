@@ -51,6 +51,16 @@ public class ChatMessage {
             case user:
                 return UserMessage.from(content != null ? content : "");
             case assistant:
+                if (eventType == SSEEventType.TOOL) {
+                    cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData toolData =
+                            com.alibaba.fastjson.JSON.parseObject(content, cn.nolaurene.cms.common.sandbox.backend.model.data.ToolEventData.class);
+                    String result = toolData.getResult();
+                    if (result == null || result.isEmpty()) {
+                        result = "(no result)";
+                    }
+                    String toolDesc = "[Tool] " + toolData.getFunction() + "\nResult: " + result;
+                    return UserMessage.from(toolDesc);
+                }
                 AiMessage.Builder builder = AiMessage.builder()
                         .text(content != null ? content : "");
                 if (thinking != null && !thinking.isEmpty()) {
