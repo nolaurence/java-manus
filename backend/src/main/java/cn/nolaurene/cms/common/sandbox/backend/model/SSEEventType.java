@@ -12,6 +12,7 @@ public enum SSEEventType {
     DONE("DONE"),
     TITLE("title"),
     PLAN("plan"),
+    COMPACT("compact"),
     CONTEXT("context");
 
     private final String type;

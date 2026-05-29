@@ -44,7 +44,8 @@ public class ChatMemory {
                 .filter(msg -> msg.getEventType() == SSEEventType.MESSAGE
                         || msg.getEventType() == SSEEventType.PLAN
                         || msg.getEventType() == SSEEventType.STEP
-                        || msg.getEventType() == SSEEventType.TOOL)
+                        || msg.getEventType() == SSEEventType.TOOL
+                        || msg.getEventType() == SSEEventType.COMPACT)
                 .map(ChatMessage::toLangchain4j)
                 .collect(Collectors.toList());
     }
