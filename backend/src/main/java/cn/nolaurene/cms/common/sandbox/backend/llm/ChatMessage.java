@@ -4,7 +4,6 @@ package cn.nolaurene.cms.common.sandbox.backend.llm;
 import cn.nolaurene.cms.common.sandbox.backend.model.SSEEventType;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import lombok.Getter;
 import lombok.Setter;
@@ -59,11 +58,11 @@ public class ChatMessage {
                         result = "(no result)";
                     }
                     String toolDesc = "[Tool] " + toolData.getFunction() + "\nResult: " + result;
-                    return UserMessage.from(toolDesc);
+                    return AiMessage.builder().text(toolDesc).build();
                 }
                 if (eventType == SSEEventType.COMPACT) {
                     // Compaction summary is already formatted as a summary text
-                    return UserMessage.from(content != null ? content : "");
+                    return AiMessage.builder().text(content != null ? content : "").build();
                 }
                 AiMessage.Builder builder = AiMessage.builder()
                         .text(content != null ? content : "");
