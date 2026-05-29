@@ -1264,10 +1264,14 @@ public class AgentExecutor {
 
     private void ensureMemory() {
         if (memory.isEmpty()) {
-            Example<ConversationHistoryDO> example = new Example<>();
             List<ConversationResponse> sessionConversations = conversationHistoryService.getSessionConversations(agent.getAgentId());
+            int restoreStartIndex = findLatestCompactIndex(sessionConversations);
 
-            sessionConversations.forEach(conversation -> {
+            for (int i = restoreStartIndex; i < sessionConversations.size(); i++) {
+                ConversationResponse conversation = sessionConversations.get(i);
+                if (conversation.getEventType() == SSEEventType.CONTEXT) {
+                    continue;
+                }
                 switch(conversation.getMessageType()) {
                     case USER:
                         memory.add(new ChatMessage(ChatMessage.Role.user, conversation.getEventType(), JSON.toJSONString(conversation.getContent())));
@@ -1278,8 +1282,17 @@ public class AgentExecutor {
                     default:
                         break;
                 }
-            });
+            }
         }
+    }
+
+    private int findLatestCompactIndex(List<ConversationResponse> conversations) {
+        for (int i = conversations.size() - 1; i >= 0; i--) {
+            if (conversations.get(i).getEventType() == SSEEventType.COMPACT) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     private void addMessageToMemory(ChatMessage message) {

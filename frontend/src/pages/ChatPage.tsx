@@ -352,7 +352,6 @@ const ChatComponent: React.FC = () => {
       setPlan(undefined);
       setIsShowPlanPanel(false);
     }
-    setContextUsage(undefined);
     setIsLoading(true);
 
     try {
