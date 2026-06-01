@@ -1,7 +1,34 @@
 export type SSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'plan' | 'context';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | PlanEventData | ContextEventData;
+  event: SSEEventName;
+  data: SSEEventData;
 }
+
+export type SSEEventName =
+  | 'tool'
+  | 'step'
+  | 'message'
+  | 'error'
+  | 'done'
+  | 'title'
+  | 'plan'
+  | 'context'
+  | 'compact'
+  | 'heartbeat'
+  | 'RESUMED'
+  | 'TASK_ALREADY_FINISHED'
+  | 'TASK_ALREADY_FAILED'
+  | 'TASK_FINISHED_BG';
+
+export type SSEEventData =
+  | ToolEventData
+  | StepEventData
+  | MessageEventData
+  | ErrorEventData
+  | DoneEventData
+  | TitleEventData
+  | PlanEventData
+  | ContextEventData
+  | Record<string, unknown>;
 
 export interface ToolEventData {
   timestamp: number;

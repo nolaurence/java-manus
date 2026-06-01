@@ -1,6 +1,6 @@
 import EventSource from 'react-native-sse';
 import { BASE_URL } from '@/constants/config';
-import { SSEEvent } from '@/types/sseEvent';
+import { SSEEvent, SSEEventName } from '@/types/sseEvent';
 
 export type SSEMessageHandler = (event: SSEEvent) => void;
 export type SSEErrorHandler = (error: Error) => void;
@@ -23,7 +23,7 @@ const ALL_EVENT_TYPES = [
   'TASK_ALREADY_FINISHED',
   'TASK_ALREADY_FAILED',
   'TASK_FINISHED_BG',
-];
+] as const satisfies readonly SSEEventName[];
 
 /**
  * 使用 react-native-sse 建立 SSE 连接
@@ -53,7 +53,7 @@ export function createSSEConnection(
 
   // 监听所有可能的事件类型
   ALL_EVENT_TYPES.forEach((eventType) => {
-    es.addEventListener(eventType, (event: any) => {
+    es.addEventListener(eventType as any, (event: any) => {
       try {
         // react-native-sse 的事件结构: { type, data, id, message }
         const eventName = event.type || eventType;

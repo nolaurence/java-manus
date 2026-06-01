@@ -280,10 +280,11 @@ export function handleSSEEvent(
       } else if (data.status === 'completed') {
         // 更新最后一个 running 的 step
         for (let i = newMessages.length - 1; i >= 0; i--) {
-          if (newMessages[i].type === 'step') {
-            const stepContent = { ...newMessages[i].content } as StepContent;
+          const message = newMessages[i];
+          if (message.type === 'step') {
+            const stepContent: StepContent = { ...message.content };
             stepContent.status = 'completed';
-            newMessages[i] = { ...newMessages[i], content: stepContent };
+            newMessages[i] = { ...message, content: stepContent };
             break;
           }
         }
