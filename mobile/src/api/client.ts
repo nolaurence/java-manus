@@ -2,6 +2,13 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL, API_TIMEOUT } from '@/constants/config';
 
+const COOKIE_KEY = 'JSESSIONID';
+let sessionCookie = '';
+
+AsyncStorage.getItem(COOKIE_KEY).then((val) => {
+  if (val) sessionCookie = val;
+});
+
 const client = axios.create({
   baseURL: BASE_URL,
   timeout: API_TIMEOUT,
@@ -10,20 +17,29 @@ const client = axios.create({
   },
 });
 
-// 请求拦截器
 client.interceptors.request.use(
   async (config) => {
-    // 可以在这里添加认证token等
+    if (sessionCookie) {
+      config.headers['Cookie'] = `JSESSIONID=${sessionCookie}`;
+    }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// 响应拦截器
 client.interceptors.response.use(
   (response) => {
+    const setCookie = response.headers['set-cookie'];
+    if (setCookie) {
+      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+      for (const cookie of cookies) {
+        const match = cookie.match(/JSESSIONID=([^;]+)/);
+        if (match) {
+          sessionCookie = match[1];
+          AsyncStorage.setItem(COOKIE_KEY, match[1]);
+        }
+      }
+    }
     return response.data;
   },
   (error) => {
