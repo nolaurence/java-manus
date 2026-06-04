@@ -6,6 +6,8 @@ import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxLease;
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxPoolService;
 import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
@@ -18,7 +20,6 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -46,11 +47,16 @@ public class AgentSession {
     @Setter
     private TaskStatus sessionStatus = TaskStatus.PENDING;
 
-    @Value("${sandbox.backend.worker-mcp-url}")
-    private String workerNativeMcpUrl;
-
     @Autowired
     private SkillToolProvider skillToolProvider;
+
+    @Autowired
+    private SandboxPoolService sandboxPoolService;
+
+    @Getter
+    private SandboxLease sandboxLease;
+
+    private McpHeartbeatService mcpHeartbeatService;
 
     private AgentExecutor executor;
 
@@ -62,61 +68,68 @@ public class AgentSession {
     public AgentSession() {
     }
 
-    public void initialize(Agent agent, String workerUrl, String sseEndpoint,
+    public void initialize(Agent agent, SandboxLease sandboxLease, String sseEndpoint,
                            AgentExecutorFactory agentExecutorFactory,
                            McpHeartbeatService mcpHeartbeatService) {
         this.agent = agent;
+        this.sandboxLease = sandboxLease;
+        this.mcpHeartbeatService = mcpHeartbeatService;
         this.agent.setPlanner(new Planner());
         this.agent.setExecutor(new Executor());
 
-        // start langchain4j MCP clients
-        McpClient browserMcpClient = startLangchain4jMcpClient(workerUrl, sseEndpoint, "BrowserMCP");
-        agent.setBrowserMcpClient(browserMcpClient);
+        try {
+            // start langchain4j MCP clients
+            McpClient browserMcpClient = startLangchain4jMcpClient(sandboxLease.getWorkerUrl(), sseEndpoint, "BrowserMCP");
+            agent.setBrowserMcpClient(browserMcpClient);
 
-        // add to heartbeat service
-        if (mcpHeartbeatService != null) {
-            mcpHeartbeatService.addClient(browserMcpClient);
+            // add to heartbeat service
+            if (mcpHeartbeatService != null) {
+                mcpHeartbeatService.addClient(browserMcpClient);
+            }
+
+            // verify browser tools available
+            List<ToolSpecification> browserTools = browserMcpClient.listTools();
+            if (browserTools == null || browserTools.isEmpty()) {
+                log.error("No tools found in Browser MCP server at {}", sandboxLease.getWorkerUrl());
+                throw new IllegalStateException("No tools found in Browser MCP server");
+            }
+            log.info("Browser MCP tools discovered: {}", browserTools.size());
+
+            // start native mcp client (for file and shell tool)
+            McpClient nativeMcpClient = startLangchain4jMcpClient(sandboxLease.getWorkerMcpUrl(), "/mcp/message/sse", "NativeMCP");
+            agent.setNativeMcpClient(nativeMcpClient);
+
+            List<ToolSpecification> nativeTools = nativeMcpClient.listTools();
+            if (nativeTools == null || nativeTools.isEmpty()) {
+                log.error("No tools found in Native MCP server at {}", sandboxLease.getWorkerMcpUrl());
+                throw new IllegalStateException("No tools found in Native MCP server");
+            }
+            log.info("Native MCP tools discovered: {}", nativeTools.size());
+
+            // create McpToolProvider that aggregates both MCP clients
+            McpToolProvider toolProvider = McpToolProvider.builder()
+                    .mcpClients(browserMcpClient, nativeMcpClient)
+                    .build();
+            agent.setToolProvider(toolProvider);
+
+            // collect all tool specifications
+            List<ToolSpecification> allTools = new ArrayList<>(browserTools);
+            allTools.addAll(nativeTools);
+            // Load Skill tools for the current user and add to tool specifications
+            List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()));
+            allTools.addAll(skillTools);
+            log.info("Skill tools discovered: {}", skillTools.size());
+
+            agent.setToolSpecifications(allTools);
+            log.info("Total tools available (MCP + Skills): {}", allTools.size());
+
+            ToolRegistry registry = new ToolRegistry();
+            registry.register(new CalculatorTool());
+            this.executor = agentExecutorFactory.createAgentExecutor(agent);
+        } catch (RuntimeException e) {
+            releaseResources();
+            throw e;
         }
-
-        // verify browser tools available
-        List<ToolSpecification> browserTools = browserMcpClient.listTools();
-        if (browserTools == null || browserTools.isEmpty()) {
-            log.error("No tools found in Browser MCP server at {}", workerUrl);
-            throw new IllegalStateException("No tools found in Browser MCP server");
-        }
-        log.info("Browser MCP tools discovered: {}", browserTools.size());
-
-        // start native mcp client (for file and shell tool)
-        McpClient nativeMcpClient = startLangchain4jMcpClient(workerNativeMcpUrl, "/mcp/message/sse", "NativeMCP");
-        agent.setNativeMcpClient(nativeMcpClient);
-
-        List<ToolSpecification> nativeTools = nativeMcpClient.listTools();
-        if (nativeTools == null || nativeTools.isEmpty()) {
-            log.error("No tools found in Native MCP server at {}", workerNativeMcpUrl);
-            throw new IllegalStateException("No tools found in Native MCP server");
-        }
-        log.info("Native MCP tools discovered: {}", nativeTools.size());
-
-        // create McpToolProvider that aggregates both MCP clients
-        McpToolProvider toolProvider = McpToolProvider.builder()
-                .mcpClients(browserMcpClient, nativeMcpClient)
-                .build();
-        agent.setToolProvider(toolProvider);
-
-        // collect all tool specifications
-        List<ToolSpecification> allTools = new ArrayList<>(browserTools);
-        allTools.addAll(nativeTools);
-        // Load Skill tools for the current user and add to tool specifications
-        List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()));
-        allTools.addAll(skillTools);
-        log.info("Skill tools discovered: {}", skillTools.size());
-
-        agent.setToolSpecifications(allTools);
-        log.info("Total tools available (MCP + Skills): {}", allTools.size());
-
-        ToolRegistry registry = new ToolRegistry();
-        registry.register(new CalculatorTool());
-        this.executor = agentExecutorFactory.createAgentExecutor(agent);
     }
 
     private Long parseUserId(String userId) {
@@ -128,6 +141,30 @@ public class AgentSession {
         } catch (NumberFormatException e) {
             log.warn("Invalid userId for skill loading: {}", userId);
             return null;
+        }
+    }
+
+    public void releaseResources() {
+        if (agent != null) {
+            closeMcpClient(agent.getBrowserMcpClient(), "BrowserMCP");
+            closeMcpClient(agent.getNativeMcpClient(), "NativeMCP");
+            sandboxPoolService.release(agent.getAgentId());
+        }
+    }
+
+    private void closeMcpClient(McpClient client, String clientName) {
+        if (client == null) {
+            return;
+        }
+        if (mcpHeartbeatService != null) {
+            mcpHeartbeatService.removeClient(client);
+        }
+        if (client instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) client).close();
+            } catch (Exception e) {
+                log.warn("Failed to close {} client", clientName, e);
+            }
         }
     }
 

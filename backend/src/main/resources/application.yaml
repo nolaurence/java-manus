@@ -60,6 +60,15 @@ sandbox:
     worker-ops-url: http://worker:7002
     worker-vnc-url: ws://worker:5902
     sse-endpoint: /sse
+    # 沙箱池配置；未配置 instances 时会自动使用上面的 worker-* 作为 default 沙箱。
+    instances:
+      - id: default
+        worker-url: http://worker:7500
+        worker-mcp-url: http://worker:7002
+        worker-stream-url: http://worker:7002
+        worker-ops-url: http://worker:7002
+        worker-vnc-url: ws://worker:5902
+        max-sessions: 1
   worker:
     #    baseDirectory: /app
     playwright-mcp-version: 0.0.39

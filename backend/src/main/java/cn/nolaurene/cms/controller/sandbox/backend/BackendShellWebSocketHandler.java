@@ -1,6 +1,6 @@
 package cn.nolaurene.cms.controller.sandbox.backend;
 
-import org.springframework.beans.factory.annotation.Value;
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxUrlResolver;
 import org.springframework.stereotype.Component;
 import org.springframework.util.concurrent.ListenableFuture;
 import org.springframework.web.socket.*;
@@ -13,10 +13,13 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class BackendShellWebSocketHandler implements WebSocketHandler {
 
-    @Value("${sandbox.backend.worker-ops-url}")
-    private String workerOpsUrl;
+    private final SandboxUrlResolver sandboxUrlResolver;
 
     private final ConcurrentHashMap<String, WebSocketSession> workerSessions = new ConcurrentHashMap<>();
+
+    public BackendShellWebSocketHandler(SandboxUrlResolver sandboxUrlResolver) {
+        this.sandboxUrlResolver = sandboxUrlResolver;
+    }
 
 
     @Override
@@ -66,6 +69,7 @@ public class BackendShellWebSocketHandler implements WebSocketHandler {
 
         return workerSessions.computeIfAbsent(sessionKey, key -> {
             try {
+                String workerOpsUrl = sandboxUrlResolver.workerOpsUrl(workerId);
                 String workerWsUrl = "ws://" + workerOpsUrl.replace("http://", "").replace("https://", "") + "/worker/shell/wss";
                 WebSocketClient client = new StandardWebSocketClient();
                 ListenableFuture<WebSocketSession> future = client.doHandshake(
