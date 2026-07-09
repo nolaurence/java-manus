@@ -1,12 +1,10 @@
 package cn.nolaurene.cms.service.sandbox.backend.vnc;
 
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxUrlResolver;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
-import org.springframework.web.util.UriComponentsBuilder;
-
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
@@ -21,8 +19,11 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class VncWebSocketHandler implements WebSocketHandler {
 
-    @Value("${sandbox.backend.worker-vnc-url:ws://worker:5902}")
-    private String workerVncUrl;
+    private final SandboxUrlResolver sandboxUrlResolver;
+
+    public VncWebSocketHandler(SandboxUrlResolver sandboxUrlResolver) {
+        this.sandboxUrlResolver = sandboxUrlResolver;
+    }
 
     // 存储前端连接与 worker 连接的映射
     private final Map<String, WebSocketSession> frontendSessions = new ConcurrentHashMap<>();
@@ -102,7 +103,7 @@ public class VncWebSocketHandler implements WebSocketHandler {
             client.setUserProperties(Map.of(
                 "org.apache.tomcat.websocket.IO_TIMEOUT_MS", "300000"
             ));
-            client.doHandshake(workerHandler, workerVncUrl).get(10, TimeUnit.SECONDS);
+            client.doHandshake(workerHandler, sandboxUrlResolver.workerVncUrl(customSessionId)).get(10, TimeUnit.SECONDS);
             frontendSessions.put(sessionId, frontendSession);
             
             log.info("VNC 代理连接建立成功: sessionId={}", logSessionId);

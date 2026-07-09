@@ -120,6 +120,16 @@ export async function createAgent(): Promise<Agent> {
   return response.data;
 }
 
+export async function releaseAgent(agentId: string): Promise<boolean> {
+  const response = await request<API.Response<boolean>>(`/agents/${agentId}`, {method: 'DELETE'});
+  if (!response || !response.success) {
+    console.error("Failed to release agent");
+    return Promise.reject(response?.message || "Failed to release agent");
+  }
+  // @ts-ignore
+  return response.data;
+}
+
 export const getVNCUrl = (agentId: string): string => {
   // Convert http to ws, https to wss
   const wsBaseUrl = "wss://localhost:8000";

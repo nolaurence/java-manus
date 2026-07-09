@@ -2,12 +2,12 @@ package cn.nolaurene.cms.controller.sandbox.backend;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxUrlResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,8 +29,11 @@ public class BrowserStreamProxyController {
 
     private final HttpClient httpClient = HttpClientBuilder.create().build();
 
-    @Value("${sandbox.backend.worker-stream-url}")
-    private String workerHost;
+    private final SandboxUrlResolver sandboxUrlResolver;
+
+    public BrowserStreamProxyController(SandboxUrlResolver sandboxUrlResolver) {
+        this.sandboxUrlResolver = sandboxUrlResolver;
+    }
 
     // HLS M3U8 文件的 MIME 类型
     private static final String APPLICATION_X_MPEGURL = "application/vnd.apple.mpegurl";
@@ -40,7 +43,7 @@ public class BrowserStreamProxyController {
     @GetMapping("/{streamId}.m3u8")
     public ResponseEntity<StreamingResponseBody> proxyHlsMaster(@PathVariable String streamId) {
 
-        String url = workerHost + "/worker/stream/" + streamId + ".m3u8";
+        String url = sandboxUrlResolver.workerStreamUrl(streamId) + "/worker/stream/" + streamId + ".m3u8";
         HttpGet httpGet = new HttpGet(url);
 
         String resultCode = "";
@@ -83,7 +86,7 @@ public class BrowserStreamProxyController {
     public ResponseEntity<StreamingResponseBody> proxyHlsSegment(
             @PathVariable String streamId,
             @PathVariable String index) {
-        String url = workerHost + "/worker/stream/" + streamId + "_" + index + ".ts";
+        String url = sandboxUrlResolver.workerStreamUrl(streamId) + "/worker/stream/" + streamId + "_" + index + ".ts";
 
         HttpGet httpGet = new HttpGet(url);
         String resultCode = "";
@@ -124,7 +127,7 @@ public class BrowserStreamProxyController {
     @Operation(summary = "代理启动流媒体")
     @GetMapping("/start/{streamId}")
     public ResponseEntity<StreamingResponseBody> proxyStartStream(@PathVariable String streamId) {
-        String url = workerHost + "/worker/stream/start/" + streamId;
+        String url = sandboxUrlResolver.workerStreamUrl(streamId) + "/worker/stream/start/" + streamId;
         HttpGet httpGet = new HttpGet(url);
 
         String resultCode = "";
@@ -165,7 +168,7 @@ public class BrowserStreamProxyController {
     @Operation(summary = "代理停止流媒体")
     @GetMapping("/stop/{streamId}")
     public ResponseEntity<StreamingResponseBody> proxyStopStream(@PathVariable String streamId) {
-        String url = workerHost + "/worker/stream/stop/" + streamId;
+        String url = sandboxUrlResolver.workerStreamUrl(streamId) + "/worker/stream/stop/" + streamId;
 
         HttpGet httpGet = new HttpGet(url);
         String resultCode = "";

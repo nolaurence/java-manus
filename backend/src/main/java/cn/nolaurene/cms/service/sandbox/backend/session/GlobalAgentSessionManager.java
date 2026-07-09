@@ -4,6 +4,7 @@ import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,22 +19,15 @@ public class GlobalAgentSessionManager {
     private final ConcurrentHashMap<String, AgentSession> localSessions = new ConcurrentHashMap<>();
 
     public boolean createSession(String agentId, AgentSession session) {
-        if (localSessions.containsKey(agentId)) {
-            // 如果会话已存在，返回已有的agent
-            return false;
-        }
         // 将新创建的agent存入本地会话
-        localSessions.put(agentId, session);
-
-        return true;
+        return localSessions.putIfAbsent(agentId, session) == null;
     }
 
     public boolean removeSession(String agentId) {
-        if (!localSessions.containsKey(agentId)) {
-            return true;
+        AgentSession removed = localSessions.remove(agentId);
+        if (removed != null) {
+            removed.releaseResources();
         }
-
-        localSessions.remove(agentId);
         return true; // 成功删除会话
     }
 
@@ -43,6 +37,11 @@ public class GlobalAgentSessionManager {
 
     public List<String> getAllSessionIds() {
         return new ArrayList<>(localSessions.keySet());
+    }
+
+    @PreDestroy
+    public void releaseAllSessions() {
+        new ArrayList<>(localSessions.keySet()).forEach(this::removeSession);
     }
 
     // TODO：分布式情况下存储session

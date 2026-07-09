@@ -22,6 +22,8 @@ import cn.nolaurene.cms.service.sandbox.backend.agent.AgentSession;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
 import cn.nolaurene.cms.service.sandbox.backend.SseMessageForwardService;
 import cn.nolaurene.cms.service.sandbox.backend.session.GlobalAgentSessionManager;
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxLease;
+import cn.nolaurene.cms.service.sandbox.backend.sandbox.SandboxPoolService;
 import com.alibaba.fastjson2.JSON;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.mcp.client.McpClient;
@@ -121,6 +123,9 @@ public class AgentController {
     @Resource
     private SseMessageForwardService sseMessageForwardService;
 
+    @Resource
+    private SandboxPoolService sandboxPoolService;
+
     @PostConstruct
     public void initThreadPool() {
         executor = new ThreadPoolExecutor(
@@ -162,6 +167,7 @@ public class AgentController {
         }
 
         // 重试三次
+        Exception lastCreateException = null;
         for (int i = 0; i < MAX_RETRIES; i++) {
             Agent agent = new Agent();
             agent.setUserId(null != currentUserInfo ? currentUserInfo.getUserid().toString() : "anonymous");
@@ -174,9 +180,10 @@ public class AgentController {
             agent.setLlmApiKey(apiKey);
             agent.setLlmModelName(modelName);
 
-            AgentSession agentSession = agentSessionFactory.createAgentSession(agent, workerUrl, sseEndpoint);
-
+            SandboxLease sandboxLease = null;
             try {
+                sandboxLease = sandboxPoolService.acquire(agentId);
+                AgentSession agentSession = agentSessionFactory.createAgentSession(agent, sandboxLease, sseEndpoint);
                 boolean result = globalAgentSessionManager.createSession(agentId, agentSession);
                 if (result) {
                     String currentIp = agentSessionServerService.getCurrentServerIp();
@@ -188,12 +195,29 @@ public class AgentController {
                     agentInfo.setMessage(agent.getMessage());
                     return Response.success(agentInfo);
                 }
+                agentSession.releaseResources();
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                lastCreateException = e;
+                if (sandboxLease != null) {
+                    sandboxPoolService.release(agentId);
+                }
+                log.error("创建Agent失败: agentId={}, attempt={}/{}", agentId, i + 1, MAX_RETRIES, e);
             }
         }
 
-        return Response.error("Failed to create agent after 3 attempts.", null);
+        String errorMessage = lastCreateException == null ? "Failed to create agent after 3 attempts." : lastCreateException.getMessage();
+        return Response.error(errorMessage, null);
+    }
+
+    @DeleteMapping("/{agentId}")
+    public Response<Boolean> releaseAgent(@PathVariable String agentId, HttpServletRequest httpServletRequest) {
+        User currentUserInfo = userLoginService.getCurrentUserInfo(httpServletRequest);
+        if (null == currentUserInfo) {
+            return Response.error("未登录", false);
+        }
+        globalAgentSessionManager.removeSession(agentId);
+        agentSessionServerService.deleteByAgentId(agentId);
+        return Response.success(true);
     }
 
     @PostMapping("/{agentId}/chat")
