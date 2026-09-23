@@ -380,6 +380,11 @@ public class AgentController {
                 if (event.getMessageType() != ConversationHistoryDO.MessageType.ASSISTANT || event.getEventType() == null) {
                     continue;
                 }
+                // Internal Copilot transcript snapshots are persistence
+                // records, not user-visible SSE events.
+                if (isCopilotTranscriptSnapshot(event)) {
+                    continue;
+                }
                 sseEmitter.send(SseEmitter.event()
                         .name(event.getEventType().getType())
                         .data(event.getContent())
@@ -388,6 +393,18 @@ public class AgentController {
             log.info("SSE replay completed: agentId={}, afterId={}, count={}", agentId, afterId, missedEvents.size());
         } catch (Exception e) {
             log.warn("SSE replay failed: agentId={}, afterId={}", agentId, afterId, e);
+        }
+    }
+
+    private boolean isCopilotTranscriptSnapshot(ConversationResponse event) {
+        if (event == null || StringUtils.isBlank(event.getMetadata())) {
+            return false;
+        }
+        try {
+            com.alibaba.fastjson2.JSONObject metadata = JSON.parseObject(event.getMetadata());
+            return metadata != null && metadata.getBooleanValue("copilotTranscript");
+        } catch (Exception ignored) {
+            return false;
         }
     }
 

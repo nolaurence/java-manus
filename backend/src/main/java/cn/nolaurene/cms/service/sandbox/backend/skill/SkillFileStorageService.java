@@ -59,7 +59,8 @@ public class SkillFileStorageService {
      * @return 保存的文件路径
      */
     public String saveUploadedZip(String skillId, byte[] zipData) throws IOException {
-        Path zipPath = uploadedPath.resolve(skillId + ".zip");
+        Path zipPath = resolveUploadedZipPath(skillId);
+        Files.createDirectories(zipPath.getParent());
         Files.write(zipPath, zipData);
         log.info("Saved uploaded zip for skill {}: {}", skillId, zipPath);
         return zipPath.toString();
@@ -72,35 +73,42 @@ public class SkillFileStorageService {
      * @return 解压后的目录路径
      */
     public String extractSkillZip(String skillId) throws IOException {
-        Path zipPath = uploadedPath.resolve(skillId + ".zip");
+        Path zipPath = resolveUploadedZipPath(skillId);
         if (!Files.exists(zipPath)) {
             throw new FileNotFoundException("Zip file not found for skill: " + skillId);
         }
 
         // 创建临时解压目录
         String tempId = UUID.randomUUID().toString();
-        Path tempExtractPath = tempPath.resolve(tempId);
+        Path tempExtractPath = tempPath.toAbsolutePath().normalize().resolve(tempId).normalize();
         Files.createDirectories(tempExtractPath);
 
         // 解压文件
-        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipPath))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                Path entryPath = tempExtractPath.resolve(entry.getName());
+        try {
+            try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipPath))) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    String entryName = entry.getName();
+                    Path entryPath = tempExtractPath.resolve(entryName == null ? "" : entryName)
+                            .normalize();
 
-                // 安全检查：防止zip slip攻击
-                if (!entryPath.normalize().startsWith(tempExtractPath.normalize())) {
-                    throw new IOException("Invalid zip entry: " + entry.getName());
-                }
+                    // 安全检查：防止zip slip攻击
+                    if (entryName == null || !entryPath.startsWith(tempExtractPath)) {
+                        throw new IOException("Invalid zip entry: " + entryName);
+                    }
 
-                if (entry.isDirectory()) {
-                    Files.createDirectories(entryPath);
-                } else {
-                    Files.createDirectories(entryPath.getParent());
-                    Files.copy(zis, entryPath, StandardCopyOption.REPLACE_EXISTING);
+                    if (entry.isDirectory()) {
+                        Files.createDirectories(entryPath);
+                    } else {
+                        Files.createDirectories(entryPath.getParent());
+                        Files.copy(zis, entryPath, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    zis.closeEntry();
                 }
-                zis.closeEntry();
             }
+        } catch (IOException | RuntimeException error) {
+            deleteDirectory(tempExtractPath);
+            throw error;
         }
 
         log.info("Extracted skill {} to temp directory: {}", skillId, tempExtractPath);
@@ -118,8 +126,14 @@ public class SkillFileStorageService {
         if (StringUtils.isBlank(skillId)) {
             throw new IllegalArgumentException("skillId is required");
         }
-        // 直接使用 skillId 作为目录名
-        return extractedPath.resolve(skillId);
+        // Keep all skill paths below the configured root.  Skill IDs may contain
+        // a namespace separator (for example author/name), but never escape the
+        // extracted directory.
+        Path resolved = extractedPath.resolve(skillId).normalize();
+        if (!resolved.startsWith(extractedPath.normalize())) {
+            throw new IllegalArgumentException("skillId resolves outside the skill storage root");
+        }
+        return resolved;
     }
 
     /**
@@ -130,7 +144,14 @@ public class SkillFileStorageService {
      * @return 正式目录路径
      */
     public String moveToExtracted(String skillId, String tempExtractPath) throws IOException {
-        Path sourcePath = Paths.get(tempExtractPath);
+        if (StringUtils.isBlank(tempExtractPath)) {
+            throw new IllegalArgumentException("tempExtractPath is required");
+        }
+        Path tempRoot = tempPath.toAbsolutePath().normalize();
+        Path sourcePath = Paths.get(tempExtractPath).toAbsolutePath().normalize();
+        if (sourcePath.equals(tempRoot) || !sourcePath.startsWith(tempRoot)) {
+            throw new IllegalArgumentException("tempExtractPath resolves outside the temp root");
+        }
         Path targetPath = resolveSkillPath(skillId);
 
         // 删除已存在的目录
@@ -175,12 +196,32 @@ public class SkillFileStorageService {
      */
     public String getSkillFilePath(String skillId, String relativePath) {
         try {
-            Path filePath = resolveSkillPath(skillId).resolve(relativePath);
-            if (Files.exists(filePath)) {
-                return filePath.toString();
+            if (StringUtils.isBlank(relativePath)) {
+                return null;
+            }
+            Path skillRoot = resolveSkillPath(skillId).toAbsolutePath().normalize();
+            Path extractedRoot = extractedPath.toAbsolutePath().normalize();
+            Path filePath = skillRoot.resolve(relativePath).normalize();
+            if (!filePath.startsWith(skillRoot)
+                    || !filePath.startsWith(extractedRoot)
+                    || !Files.exists(filePath)) {
+                return null;
+            }
+            // Resolve symlinks before returning a path to a caller that may
+            // execute or expose the file.
+            Path realExtractedRoot = extractedRoot.toRealPath();
+            Path realSkillRoot = skillRoot.toRealPath();
+            if (!realSkillRoot.startsWith(realExtractedRoot)) {
+                return null;
+            }
+            Path realPath = filePath.toRealPath();
+            if (realPath.startsWith(realSkillRoot)) {
+                return realPath.toString();
             }
         } catch (IllegalArgumentException e) {
             log.warn("Invalid skillId format: {}", skillId);
+        } catch (IOException e) {
+            log.warn("Failed to resolve skill file: {}/{}", skillId, relativePath, e);
         }
         return null;
     }
@@ -208,9 +249,28 @@ public class SkillFileStorageService {
 
     public String readTempSkillFile(String tempExtractPath) {
         try {
-            return new String(Files.readAllBytes(Paths.get(tempExtractPath + "/SKILL.md")), StandardCharsets.UTF_8);
+            if (StringUtils.isBlank(tempExtractPath)) {
+                return null;
+            }
+            Path tempRoot = tempPath.toAbsolutePath().normalize();
+            Path candidateRoot = Paths.get(tempExtractPath).toAbsolutePath().normalize();
+            if (candidateRoot.equals(tempRoot) || !candidateRoot.startsWith(tempRoot)
+                    || !Files.isDirectory(candidateRoot) || Files.isSymbolicLink(candidateRoot)) {
+                return null;
+            }
+            Path skillFile = candidateRoot.resolve("SKILL.md").normalize();
+            if (!skillFile.getParent().equals(candidateRoot)
+                    || !Files.isRegularFile(skillFile) || Files.isSymbolicLink(skillFile)) {
+                return null;
+            }
+            Path realRoot = candidateRoot.toRealPath();
+            Path realFile = skillFile.toRealPath();
+            if (!realFile.getParent().equals(realRoot)) {
+                return null;
+            }
+            return Files.readString(realFile, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            log.error("Failed to read skill file: {}", tempExtractPath + "/SKILL.md", e);
+            log.error("Failed to read temporary skill file: {}", tempExtractPath, e);
             return null;
         }
     }
@@ -229,7 +289,7 @@ public class SkillFileStorageService {
             }
 
             // 删除上传的zip
-            Path zipPath = uploadedPath.resolve(skillId + ".zip");
+            Path zipPath = resolveUploadedZipPath(skillId);
             if (Files.exists(zipPath)) {
                 Files.delete(zipPath);
             }
@@ -462,10 +522,16 @@ public class SkillFileStorageService {
      * @return 格式化的文件内容字符串，文件不存在或读取失败时返回空字符串
      */
     public String formatSupportFile(String skillId, String relativePath) {
-        Path skillPath = resolveSkillPath(skillId);
-        StringBuilder sb = new StringBuilder();
-        appendFileContent(sb, skillPath, relativePath);
-        return sb.toString();
+        String filePath = getSkillFilePath(skillId, relativePath);
+        if (filePath == null) {
+            return "";
+        }
+        try {
+            return Files.readString(Paths.get(filePath), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.warn("Failed to read support file {}/{}", skillId, relativePath, e);
+            return "";
+        }
     }
 
     /**
@@ -480,5 +546,107 @@ public class SkillFileStorageService {
      */
     public String getExtractedPath() {
         return extractedPath.toString();
+    }
+
+    /**
+     * Create a Copilot-compatible skill root containing only the selected
+     * skills.  Copilot discovers skills from immediate child directories, while
+     * the historical storage layout is shared and may contain skills belonging
+     * to other users, so a per-session view is materialized here.
+     *
+     * @return an absolute temporary parent directory suitable for
+     *         {@code SessionConfig#setSkillDirectories}
+     */
+    public synchronized String createCopilotSkillDirectory(Collection<String> skillIds) throws IOException {
+        Path sessionRoot = tempPath.toAbsolutePath().normalize()
+                .resolve("copilot-" + UUID.randomUUID());
+        Files.createDirectories(sessionRoot);
+        if (skillIds == null) {
+            return sessionRoot.toString();
+        }
+
+        Set<String> usedNames = new HashSet<>();
+        for (String skillId : skillIds) {
+            if (StringUtils.isBlank(skillId)) {
+                continue;
+            }
+            Path source = resolveSkillPath(skillId);
+            Path skillFile = source.resolve("SKILL.md");
+            if (!Files.isDirectory(source) || !Files.isRegularFile(skillFile)
+                    || Files.isSymbolicLink(source) || Files.isSymbolicLink(skillFile)) {
+                log.warn("Skipping skill without SKILL.md: {}", skillId);
+                continue;
+            }
+
+            Path extractedRoot = extractedPath.toAbsolutePath().normalize().toRealPath();
+            Path realSource = source.toRealPath();
+            if (!realSource.startsWith(extractedRoot)) {
+                log.warn("Skipping skill outside extracted root: {}", skillId);
+                continue;
+            }
+
+            String childName = source.getFileName().toString();
+            if (!usedNames.add(childName)) {
+                childName = childName + "-" + Integer.toHexString(skillId.hashCode());
+                usedNames.add(childName);
+            }
+            Path target = sessionRoot.resolve(childName);
+            try {
+                copyDirectory(source, target);
+            } catch (IOException error) {
+                deleteDirectory(target);
+                log.warn("Skipping unsafe Copilot skill {}: {}", skillId, error.getMessage());
+            }
+        }
+        return sessionRoot.toString();
+    }
+
+    /** Remove a temporary Copilot skill view after its session is closed. */
+    public void deleteCopilotSkillDirectory(String path) {
+        if (StringUtils.isBlank(path)) {
+            return;
+        }
+        try {
+            Path candidate = Paths.get(path).toAbsolutePath().normalize();
+            Path tempRoot = tempPath == null ? null : tempPath.toAbsolutePath().normalize();
+            if (tempRoot != null && candidate.getParent() != null
+                    && candidate.getParent().equals(tempRoot)
+                    && candidate.getFileName().toString().startsWith("copilot-")) {
+                deleteDirectory(candidate);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to delete Copilot skill directory {}", path, e);
+        }
+    }
+
+    private void copyDirectory(Path source, Path target) throws IOException {
+        try (Stream<Path> paths = Files.walk(source)) {
+            for (Path path : paths.collect(Collectors.toList())) {
+                if (Files.isSymbolicLink(path)) {
+                    throw new IOException("Symbolic links are not allowed in Copilot skills: " + path);
+                }
+                Path relative = source.relativize(path);
+                Path destination = target.resolve(relative);
+                if (Files.isDirectory(path)) {
+                    Files.createDirectories(destination);
+                } else {
+                    Files.createDirectories(destination.getParent());
+                    Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING,
+                            StandardCopyOption.COPY_ATTRIBUTES);
+                }
+            }
+        }
+    }
+
+    private Path resolveUploadedZipPath(String skillId) {
+        if (StringUtils.isBlank(skillId)) {
+            throw new IllegalArgumentException("skillId is required");
+        }
+        Path root = uploadedPath.toAbsolutePath().normalize();
+        Path resolved = root.resolve(skillId + ".zip").normalize();
+        if (!resolved.startsWith(root)) {
+            throw new IllegalArgumentException("skillId resolves outside the upload root");
+        }
+        return resolved;
     }
 }

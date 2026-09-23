@@ -31,6 +31,20 @@ server:
 maintenance:
   env: prod
 
+# Pure-Java Copilot-compatible agent runtime.  This is intentionally a local
+# protocol implementation; it does not load the official Copilot SDK/CLI.
+copilot:
+  loop:
+    enabled: true
+    max-turns: 30
+    model-timeout-ms: 300000
+    tool-timeout-ms: 300000
+    max-transcript-messages: 1000
+    allow-tools: true
+  skills:
+    disabled: ""
+    directories: ""
+
 #springdoc:
 #  swagger-ui:
 #    path: /swagger-ui.html
@@ -77,4 +91,3 @@ logging:
     io.modelcontextprotocol: debug
 
 # disable thymeleaf autoconfig
-

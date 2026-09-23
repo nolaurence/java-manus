@@ -38,6 +38,9 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ConversationHistoryService {
 
+    /** Metadata marker for the opaque, restart-safe Copilot transcript blob. */
+    private static final String COPILOT_TRANSCRIPT_MARKER = "copilotTranscript";
+
     @Resource
     private ConversationHistoryMapper conversationHistoryMapper;
 
@@ -270,6 +273,24 @@ public class ConversationHistoryService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Return immutable insertion order for transcript recovery. Tool result
+     * updates change {@code gmt_modified}; using that column can move an old
+     * tool audit record across a Copilot snapshot boundary.
+     */
+    public List<ConversationResponse> getSessionConversationsForReplay(String sessionId) {
+        log.debug("获取指定会话的回放历史: sessionId={}", sessionId);
+        Example<ConversationHistoryDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(ConversationHistoryDO::getSessionId, sessionId)
+                .andEqualTo(ConversationHistoryDO::getIsDeleted, false);
+        example.orderBy(ConversationHistoryDO::getId, Example.Order.ASC);
+        return conversationHistoryTkMapper.selectByExample(example)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
     public List<ConversationResponse> getSessionConversationsAfterId(String sessionId, Long afterId) {
         log.debug("获取会话增量历史: sessionId={}, afterId={}", sessionId, afterId);
         Example<ConversationHistoryDO> example = new Example<>();
@@ -465,6 +486,15 @@ public class ConversationHistoryService {
         } else {
             messageTimeStamp = conversation.getGmtCreate().atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
         }
+
+        // Transcript snapshots are deliberately opaque JSON arrays rather
+        // than UI ContextEventData. Preserve the raw string so the executor
+        // can restore the normalized assistant/tool-call pairing after a restart.
+        if (isCopilotTranscriptSnapshot(conversation)) {
+            response.setContent(conversation.getContent());
+            response.setEventType(SSEEventType.CONTEXT);
+            return response;
+        }
         switch(SSEEventType.fromType(conversation.getEventType())) {
             case MESSAGE:
                 MessageEventData messageEventData = new MessageEventData();
@@ -533,5 +563,17 @@ public class ConversationHistoryService {
                 log.error("[ConversationHistoryService#convertToResponse] Unimplemented type conversion: {}", conversation.getEventType());
         }
         return response;
+    }
+
+    private boolean isCopilotTranscriptSnapshot(ConversationHistoryDO conversation) {
+        if (conversation == null || StringUtils.isBlank(conversation.getMetadata())) {
+            return false;
+        }
+        try {
+            JSONObject metadata = JSON.parseObject(conversation.getMetadata());
+            return metadata != null && metadata.getBooleanValue(COPILOT_TRANSCRIPT_MARKER);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 }

@@ -9,6 +9,7 @@ import cn.nolaurene.cms.dal.mapper.ConversationInfoMapper;
 import cn.nolaurene.cms.common.vo.User;
 import cn.nolaurene.cms.service.UserLoginService;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
+import com.alibaba.fastjson2.JSON;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -77,7 +79,11 @@ public class ConversationController {
         if (currentUser == null) {
             return Response.error("未登录", Collections.emptyList());
         }
-        List<ConversationResponse> messages = conversationHistoryService.getSessionConversations(sessionId);
+        List<ConversationResponse> messages = new ArrayList<>(
+                conversationHistoryService.getSessionConversations(sessionId));
+        // Copilot transcript snapshots are internal resume records and should
+        // never be rendered as conversation messages.
+        messages.removeIf(this::isCopilotTranscriptSnapshot);
         String currentUserId = String.valueOf(currentUser.getUserid());
         boolean hasForeignMessage = messages.stream()
                 .anyMatch(message -> StringUtils.isNotBlank(message.getUserId()) && !currentUserId.equals(message.getUserId()));
@@ -85,6 +91,18 @@ public class ConversationController {
             return Response.error("无权访问该会话", Collections.emptyList());
         }
         return Response.success(messages);
+    }
+
+    private boolean isCopilotTranscriptSnapshot(ConversationResponse message) {
+        if (message == null || StringUtils.isBlank(message.getMetadata())) {
+            return false;
+        }
+        try {
+            com.alibaba.fastjson2.JSONObject metadata = JSON.parseObject(message.getMetadata());
+            return metadata != null && metadata.getBooleanValue("copilotTranscript");
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     @GetMapping("/title")

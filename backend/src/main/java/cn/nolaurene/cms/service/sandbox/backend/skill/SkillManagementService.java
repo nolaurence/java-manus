@@ -9,6 +9,7 @@ import cn.nolaurene.cms.dal.mapper.SkillInfoMapper;
 import cn.nolaurene.cms.dal.mapper.UserSkillStatusMapper;
 import cn.nolaurene.cms.exception.skill.SkillAlreadyExistsException;
 import cn.nolaurene.cms.exception.skill.SkillNotFoundException;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotSkillLoader;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
 import io.mybatis.mapper.example.Example;
@@ -184,131 +185,99 @@ public class SkillManagementService {
     private SkillParseResult parseSkillMd(String content) {
         SkillParseResult result = new SkillParseResult();
 
-        if (content == null || content.isEmpty()) {
+        if (StringUtils.isBlank(content)) {
             return result;
         }
 
-        // 提取YAML frontmatter
-        if (content.startsWith("---")) {
-            int endIndex = content.indexOf("---", 3);
-            if (endIndex > 0) {
-                String frontmatter = content.substring(3, endIndex).trim();
+        Map<String, String> yaml = CopilotSkillLoader.parseFrontmatter(content);
+        result.setName(yaml.get("name"));
+        result.setDescription(yaml.get("description"));
+        result.setVersion(StringUtils.defaultIfBlank(yaml.get("version"), "1.0.0"));
+        result.setLicense(yaml.get("license"));
+        result.setCompatibility(yaml.get("compatibility"));
 
-                // 解析YAML
-                Map<String, Object> yaml = parseYaml(frontmatter);
-
-                result.setName((String) yaml.get("name"));
-                result.setDescription((String) yaml.get("description"));
-                result.setVersion((String) yaml.getOrDefault("version", "1.0.0"));
-                result.setLicense((String) yaml.get("license"));
-                result.setCompatibility((String) yaml.get("compatibility"));
-
-                // 解析metadata
-                Object metadataObj = yaml.get("metadata");
-                Map<String, String> metadata = new HashMap<>();
-                if (metadataObj instanceof Map) {
-                    ((Map<?, ?>) metadataObj).forEach((k, v) -> metadata.put(String.valueOf(k), String.valueOf(v)));
-                }
-                result.setMetadata(metadata);
-
-                // 根据 Agent Skills 规范，author 应该在 metadata 中
-                // 先从 metadata 中读取 author，如果不存在则使用默认值
-                String author = metadata.get("author");
-                if (author == null || author.isEmpty()) {
-                    author = "anonymous";
-                }
-                result.setAuthor(author);
-
-                // 解析allowed-tools (YAML中可能是 allowed-tools 或 allowedTools)
-                Object allowedToolsObj = yaml.get("allowed-tools");
-                if (allowedToolsObj == null) {
-                    allowedToolsObj = yaml.get("allowedTools");
-                }
-                if (allowedToolsObj != null) {
-                    result.setAllowedTools(String.valueOf(allowedToolsObj));
-                }
-            }
+        Map<String, String> metadata = parseMetadata(content, yaml.get("metadata"));
+        // Some older uploaded skills put author at the top level. Keep reading
+        // it for backwards compatibility while writing the standard metadata
+        // shape for newly registered skills.
+        if (!metadata.containsKey("author") && StringUtils.isNotBlank(yaml.get("author"))) {
+            metadata.put("author", yaml.get("author"));
         }
+        result.setMetadata(metadata);
+        result.setAuthor(StringUtils.defaultIfBlank(metadata.get("author"), "anonymous"));
+
+        String allowedTools = yaml.get("allowed-tools");
+        if (StringUtils.isBlank(allowedTools)) {
+            allowedTools = yaml.get("allowedTools");
+        }
+        result.setAllowedTools(allowedTools);
 
         return result;
     }
 
-    /**
-     * 简单YAML解析
-     */
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseYaml(String yaml) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        String[] lines = yaml.split("\n");
-
-        for (String line : lines) {
-            if (StringUtils.isBlank(line)) {
-                continue;
-            }
-
-            String trimmed = line.trim();
-
-            // 跳过注释
-            if (trimmed.startsWith("#")) {
-                continue;
-            }
-
-            // 解析键值对
-            if (trimmed.contains(":")) {
-                int colonIndex = trimmed.indexOf(":");
-                String key = trimmed.substring(0, colonIndex).trim();
-                String value = trimmed.substring(colonIndex + 1).trim();
-
-                if (StringUtils.isNotBlank(value)) {
-                    // 解析值
-                    result.put(key, parseYamlValue(value));
+    private Map<String, String> parseMetadata(String content, String inlineValue) {
+        Map<String, String> metadata = new LinkedHashMap<>();
+        if (StringUtils.isNotBlank(inlineValue)) {
+            String value = inlineValue.trim();
+            if (value.startsWith("{") && value.endsWith("}")) {
+                String inner = value.substring(1, value.length() - 1);
+                for (String entry : inner.split(",")) {
+                    int colon = entry.indexOf(':');
+                    if (colon > 0) {
+                        metadata.put(entry.substring(0, colon).trim(),
+                                entry.substring(colon + 1).trim());
+                    }
                 }
             }
         }
-
-        return result;
-    }
-
-    /**
-     * 解析YAML值
-     */
-    private Object parseYamlValue(String value) {
-        // 移除引号
-        if ((value.startsWith("\"") && value.endsWith("\"")) ||
-            (value.startsWith("'") && value.endsWith("'"))) {
-            return value.substring(1, value.length() - 1);
+        if (!metadata.isEmpty() || StringUtils.isBlank(content)) {
+            return metadata;
         }
 
-        // 数组格式 [a, b, c]
-        if (value.startsWith("[") && value.endsWith("]")) {
-            String inner = value.substring(1, value.length() - 1).trim();
-            if (StringUtils.isBlank(inner)) {
-                return new ArrayList<>();
+        String normalized = content.replace("\r\n", "\n").replace('\r', '\n');
+        if (normalized.startsWith("\uFEFF")) {
+            normalized = normalized.substring(1);
+        }
+        String[] lines = normalized.split("\n", -1);
+        if (lines.length == 0 || !"---".equals(lines[0].trim())) {
+            return metadata;
+        }
+        int frontmatterEnd = -1;
+        for (int index = 1; index < lines.length; index++) {
+            String marker = lines[index].trim();
+            if ("---".equals(marker) || "...".equals(marker)) {
+                frontmatterEnd = index;
+                break;
             }
-            String[] items = inner.split(",\\s*");
-            return Arrays.asList(items);
         }
-
-        // 布尔值
-        if ("true".equalsIgnoreCase(value)) {
-            return true;
+        if (frontmatterEnd < 0) {
+            return metadata;
         }
-        if ("false".equalsIgnoreCase(value)) {
-            return false;
-        }
-
-        // 数字
-        try {
-            if (value.contains(".")) {
-                return Double.parseDouble(value);
-            } else {
-                return Long.parseLong(value);
+        boolean inMetadata = false;
+        int metadataIndent = -1;
+        for (int lineIndex = 0; lineIndex < frontmatterEnd; lineIndex++) {
+            String line = lines[lineIndex];
+            if (!inMetadata) {
+                if (line.equals(line.stripLeading()) && line.trim().startsWith("metadata:")) {
+                    inMetadata = true;
+                    metadataIndent = line.length() - line.stripLeading().length();
+                }
+                continue;
             }
-        } catch (NumberFormatException e) {
-            // 不是数字，返回字符串
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            int indent = line.length() - line.stripLeading().length();
+            if (indent <= metadataIndent) {
+                break;
+            }
+            String item = line.trim();
+            int colon = item.indexOf(':');
+            if (colon > 0) {
+                metadata.put(item.substring(0, colon).trim(), item.substring(colon + 1).trim());
+            }
         }
-
-        return value;
+        return metadata;
     }
 
     /**

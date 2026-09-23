@@ -2,11 +2,9 @@ package cn.nolaurene.cms.service.sandbox.backend.agent;
 
 import cn.nolaurene.cms.common.sandbox.backend.model.Agent;
 import cn.nolaurene.cms.service.sandbox.backend.McpHeartbeatService;
-import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
+import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
 import cn.nolaurene.cms.service.sandbox.backend.message.TaskStatus;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
-import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
-import cn.nolaurene.cms.service.sandbox.backend.tool.CalculatorTool;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.client.DefaultMcpClient;
 import dev.langchain4j.mcp.client.McpClient;
@@ -106,16 +104,19 @@ public class AgentSession {
         // collect all tool specifications
         List<ToolSpecification> allTools = new ArrayList<>(browserTools);
         allTools.addAll(nativeTools);
-        // Load Skill tools for the current user and add to tool specifications
-        List<ToolSpecification> skillTools = skillToolProvider.getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()));
-        allTools.addAll(skillTools);
-        log.info("Skill tools discovered: {}", skillTools.size());
-
+        // Keep the legacy skill specifications available to plan-mode and the
+        // compatibility executor.  The Copilot loop explicitly filters these
+        // synthetic `skill_*` declarations and loads the same skills as
+        // SKILL.md prompt modules instead.
+        if (skillToolProvider != null) {
+            List<ToolSpecification> skillTools = skillToolProvider
+                    .getSkillToolSpecificationsForUser(parseUserId(agent.getUserId()));
+            allTools.addAll(skillTools);
+            log.info("Legacy skill tools discovered: {}", skillTools.size());
+        }
         agent.setToolSpecifications(allTools);
-        log.info("Total tools available (MCP + Skills): {}", allTools.size());
+        log.info("Total tool declarations available (MCP + legacy skills): {}", allTools.size());
 
-        ToolRegistry registry = new ToolRegistry();
-        registry.register(new CalculatorTool());
         this.executor = agentExecutorFactory.createAgentExecutor(agent);
     }
 
@@ -125,7 +126,7 @@ public class AgentSession {
         }
         try {
             return Long.valueOf(userId);
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException error) {
             log.warn("Invalid userId for skill loading: {}", userId);
             return null;
         }
@@ -191,9 +192,23 @@ public class AgentSession {
             } else {
                 executor.skillBasedAgentLoop(input, emitter);
             }
-            this.sessionStatus = TaskStatus.COMPLETED;
+            this.sessionStatus = executor.wasLastCopilotRunAborted()
+                    ? TaskStatus.CANCELLED
+                    : executor.wasLastCopilotRunReachedLimit()
+                    ? TaskStatus.LIMIT_REACHED
+                    : TaskStatus.COMPLETED;
             log.info("AgentSession execution completed.");
-            if (!frontendConnected.get() && currentSseEmitter != null) {
+            if ((this.sessionStatus == TaskStatus.CANCELLED
+                    || this.sessionStatus == TaskStatus.LIMIT_REACHED)
+                    && frontendConnected.get() && currentSseEmitter != null) {
+                try {
+                    currentSseEmitter.complete();
+                } catch (Exception error) {
+                    log.debug("Could not close cancelled SSE connection.", error);
+                }
+            }
+            if (!frontendConnected.get() && currentSseEmitter != null
+                    && this.sessionStatus == TaskStatus.COMPLETED) {
                 try {
                     currentSseEmitter.send(SseEmitter.event().name("TASK_FINISHED_BG").data("Execution completed in background."));
                 } catch (IOException e) {
@@ -257,6 +272,22 @@ public class AgentSession {
                 log.error("Failed to send failure status on resume", e);
             }
             this.currentSseEmitter = null;
+        } else if (this.sessionStatus == TaskStatus.CANCELLED) {
+            try {
+                emitter.send(SseEmitter.event().name("TASK_CANCELLED").data("Execution was cancelled."));
+                emitter.complete();
+            } catch (IOException e) {
+                log.error("Failed to send cancellation status on resume", e);
+            }
+            this.currentSseEmitter = null;
+        } else if (this.sessionStatus == TaskStatus.LIMIT_REACHED) {
+            try {
+                emitter.send(SseEmitter.event().name("TASK_LIMIT_REACHED").data("Execution reached the configured turn limit."));
+                emitter.complete();
+            } catch (IOException e) {
+                log.error("Failed to send limit status on resume", e);
+            }
+            this.currentSseEmitter = null;
         }
     }
 
@@ -283,6 +314,13 @@ public class AgentSession {
 
     public boolean isFrontendConnected() {
         return frontendConnected.get();
+    }
+
+    /** Cancel the active in-process Copilot loop, if one is running. */
+    public void abort() {
+        if (executor != null) {
+            executor.abortCopilotLoop();
+        }
     }
 
     public void sendMessage(String eventName, Object data) {

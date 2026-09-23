@@ -309,4 +309,39 @@ public class SkillToolProvider {
         log.info("Loaded {} skill tool specifications for user {}", specs.size(), userId);
         return specs;
     }
+
+    /**
+     * Return the IDs enabled for a user.  Copilot consumes skills as
+     * SKILL.md directories rather than callable pseudo-tools, so this method is
+     * the canonical bridge for session configuration.
+     */
+    public List<String> getEnabledSkillIdsForUser(Long userId) {
+        if (userId == null) {
+            return new ArrayList<>();
+        }
+        Example<UserSkillStatusDO> statusExample = new Example<>();
+        statusExample.createCriteria()
+                .andEqualTo(UserSkillStatusDO::getUserId, userId)
+                .andEqualTo(UserSkillStatusDO::getStatus, 1);
+        return userSkillStatusMapper.selectByExample(statusExample).stream()
+                .map(UserSkillStatusDO::getSkillId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    /** Return active skill IDs for diagnostics and disabled-skill filtering. */
+    public List<String> getActiveSkillIds() {
+        Example<SkillInfoDO> example = new Example<>();
+        example.createCriteria()
+                .andEqualTo(SkillInfoDO::getStatus, 1)
+                .andEqualTo(SkillInfoDO::getIsDelete, false);
+        return skillInfoMapper.selectByExample(example).stream()
+                .map(SkillInfoDO::getSkillId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
 }

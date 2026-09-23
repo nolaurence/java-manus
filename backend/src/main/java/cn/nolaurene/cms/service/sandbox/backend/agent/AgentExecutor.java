@@ -14,6 +14,17 @@ import cn.nolaurene.cms.service.sandbox.backend.message.Step;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillExecutionEngine;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillFileStorageService;
 import cn.nolaurene.cms.service.sandbox.backend.skill.SkillToolProvider;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotAgentEvent;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotAgentLoop;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotLoopConfig;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotLoopResult;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotSkillDescriptor;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotSkillLoader;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotSkillCatalog;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotToolAdapter;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotToolDefinition;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotToolRegistry;
+import cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotToolResult;
 import cn.nolaurene.cms.service.sandbox.backend.utils.ReActParser;
 import cn.nolaurene.cms.service.sandbox.backend.ToolRegistry;
 import cn.nolaurene.cms.service.sandbox.backend.message.ConversationHistoryService;
@@ -24,6 +35,7 @@ import cn.nolaurene.cms.dal.entity.ConversationInfoDO;
 import cn.nolaurene.cms.dal.entity.AgentSessionServerDO;
 import cn.nolaurene.cms.service.AgentSessionServerService;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -89,6 +101,7 @@ public class AgentExecutor {
     private static final int KEEP_RECENT_TOKENS = 20_000;
     private static final int CONTEXT_COMPACT_THRESHOLD_PERCENT = 90;
     private static final int COMPACTED_CONTEXT_MAX_CHARS = 60_000;
+    private static final String COPILOT_TRANSCRIPT_MARKER = "copilotTranscript";
     private static final String DEFAULT_CONVERSATION_ICON = "MessageSquare";
     private static final Set<String> ALLOWED_CONVERSATION_ICONS = Set.of(
             "MessageSquare", "Code2", "Globe", "Database", "FileText", "Terminal",
@@ -107,6 +120,18 @@ public class AgentExecutor {
     private final AtomicBoolean frontendConnected = new AtomicBoolean(true);
     private volatile SseEmitter currentSseEmitter = null;
     private final List<Long> currentStepToolIds = new ArrayList<>();
+    private final Map<String, Long> copilotToolMessageIds = new HashMap<>();
+    /** Canonical LangChain transcript retained for subsequent Copilot turns. */
+    private final List<dev.langchain4j.data.message.ChatMessage> copilotTranscript = new ArrayList<>();
+    /** Records written after the last persisted transcript snapshot. */
+    private final List<dev.langchain4j.data.message.ChatMessage> copilotRecoveryMessages = new ArrayList<>();
+    private volatile CopilotAgentLoop activeCopilotLoop;
+    private volatile boolean lastCopilotRunAborted;
+    private volatile boolean lastCopilotRunReachedLimit;
+    /** Covers abort requests that arrive while the loop is still being built. */
+    private final AtomicBoolean copilotAbortRequested = new AtomicBoolean(false);
+    private final AtomicBoolean copilotRunActive = new AtomicBoolean(false);
+    private final Object copilotAbortLock = new Object();
 
     private String localServerIp = "127.0.0.1";
 
@@ -133,6 +158,33 @@ public class AgentExecutor {
     @Resource
     private SkillFileStorageService skillFileStorageService;
 
+    @Resource
+    private CopilotSkillCatalog copilotSkillCatalog;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.loop.enabled:true}")
+    private boolean copilotLoopEnabled = true;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.loop.max-turns:30}")
+    private int copilotMaxTurns = 30;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.loop.tool-timeout-ms:300000}")
+    private long copilotToolTimeoutMs = 300_000L;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.loop.model-timeout-ms:300000}")
+    private long copilotModelTimeoutMs = 300_000L;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.loop.max-transcript-messages:1000}")
+    private int copilotMaxTranscriptMessages = 1_000;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.loop.allow-tools:true}")
+    private boolean copilotAllowTools = true;
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.skills.disabled:}")
+    private String copilotDisabledSkills = "";
+
+    @org.springframework.beans.factory.annotation.Value("${copilot.skills.directories:}")
+    private String copilotSkillDirectories = "";
+
     public AgentExecutor() {
         this.MAX_ROUNDS = 30;
         try {
@@ -147,6 +199,15 @@ public class AgentExecutor {
         this.chatModel = chatModel;
         this.MAX_ROUNDS = agent.getMaxLoop();
         this.agent = agent;
+        this.copilotTranscript.clear();
+        this.copilotRecoveryMessages.clear();
+        this.copilotToolMessageIds.clear();
+        this.lastCopilotRunAborted = false;
+        this.lastCopilotRunReachedLimit = false;
+        synchronized (copilotAbortLock) {
+            this.copilotAbortRequested.set(false);
+            this.copilotRunActive.set(false);
+        }
         this.conversationUserId = agent.getUserId();
         this.conversationSessionId = agent.getAgentId();
     }
@@ -200,6 +261,8 @@ public class AgentExecutor {
     }
 
     public void planAct(String input, SseEmitter emitter) {
+        this.lastCopilotRunAborted = false;
+        this.lastCopilotRunReachedLimit = false;
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
 
@@ -389,7 +452,409 @@ public class AgentExecutor {
         }
     }
 
+    /**
+     * Run the in-process Copilot-style loop.  The old prompt-driven loop is
+     * retained as an explicit fallback for deployments that disable the new
+     * runtime, but is no longer the default path.
+     */
     public void skillBasedAgentLoop(String input, SseEmitter emitter) {
+        if (copilotLoopEnabled) {
+            runCopilotAgentLoop(input, emitter);
+            return;
+        }
+        legacySkillBasedAgentLoop(input, emitter);
+    }
+
+    /** Execute one turn through the in-process Copilot-compatible loop. */
+    private void runCopilotAgentLoop(String input, SseEmitter emitter) {
+        synchronized (copilotAbortLock) {
+            copilotRunActive.set(true);
+            copilotAbortRequested.set(false);
+        }
+        this.currentSseEmitter = emitter;
+        this.frontendConnected.set(true);
+        this.lastCopilotRunAborted = false;
+        this.lastCopilotRunReachedLimit = false;
+        String stagedSkillRoot = null;
+        CopilotToolRegistry copilotTools = null;
+        try {
+            setupSseEmitterListeners(emitter);
+            ensureMemory();
+
+            if (StringUtils.isBlank(input)) {
+                sendCopilotDone(emitter);
+                syncAgentStatusToConversationInfo(AgentStatus.COMPLETED);
+                return;
+            }
+
+            // Title generation must not consume an extra model turn: the Copilot
+            // loop owns every model call for this user request.
+            ConversationBrief conversationBrief = new ConversationBrief(
+                    buildConversationTitle(input), DEFAULT_CONVERSATION_ICON);
+            syncConversationInfo(conversationBrief.title, conversationBrief.icon, AgentStatus.EXECUTING);
+            sendTitleEvent(conversationBrief.title, conversationBrief.icon, emitter);
+            saveUserMessage(input);
+
+            copilotToolMessageIds.clear();
+            copilotTools = buildCopilotToolRegistry();
+            List<dev.langchain4j.data.message.ChatMessage> initialMessages =
+                    buildCopilotInitialMessages();
+            // Persist the user message above, but keep a non-persisting copy in
+            // the in-memory transcript so the next request sees this turn. The
+            // loop appends the same prompt to its private request transcript.
+            rememberCopilotUserMessage(input);
+            // Write a turn-start snapshot as soon as the user message is
+            // durable. If the process dies before the first model response,
+            // resume still has the new prompt instead of only the prior turn.
+            copilotTranscript.clear();
+            int initialTranscriptStart = initialMessages.isEmpty()
+                    || !(initialMessages.get(0) instanceof SystemMessage) ? 0 : 1;
+            copilotTranscript.addAll(initialMessages.subList(initialTranscriptStart, initialMessages.size()));
+            copilotTranscript.add(UserMessage.from(input));
+            saveCopilotTranscriptSnapshot();
+            // The skill view is materialized while constructing the prompt and
+            // kept alive until the model finishes so relative support files are
+            // stable for tool handlers.
+            stagedSkillRoot = lastCopilotSkillRoot;
+
+            CopilotLoopConfig loopConfig = new CopilotLoopConfig()
+                    .setMaxTurns(Math.max(1, copilotMaxTurns > 0 ? copilotMaxTurns : MAX_ROUNDS))
+                    .setModelTimeoutMillis(Math.max(1L, copilotModelTimeoutMs))
+                    .setToolTimeoutMillis(Math.max(1L, copilotToolTimeoutMs))
+                    .setMaxTranscriptMessages(Math.max(4, copilotMaxTranscriptMessages))
+                    .setInvocationContext(buildCopilotInvocationContext(stagedSkillRoot))
+                    .setPermissionHandler((invocation, definition) ->
+                            copilotAllowTools || definition.skipPermission()
+                                    ? cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotPermissionDecision.ALLOW
+                                    : cn.nolaurene.cms.service.sandbox.backend.copilot.CopilotPermissionDecision.DENY);
+            CopilotAgentLoop loop = new CopilotAgentLoop(
+                    chatModel,
+                    copilotTools,
+                    loopConfig,
+                    agent == null ? conversationSessionId : agent.getAgentId(),
+                    event -> handleCopilotEvent(event, emitter));
+            boolean abortBeforeRun;
+            synchronized (copilotAbortLock) {
+                activeCopilotLoop = loop;
+                // An abort may arrive during tool/skill discovery before the
+                // loop has a cancellation handle. Consume it immediately
+                // after publishing the handle so no request is lost.
+                abortBeforeRun = copilotAbortRequested.getAndSet(false);
+            }
+            if (abortBeforeRun) {
+                loop.abort();
+            }
+
+            try {
+                CopilotLoopResult result = loop.run(input, initialMessages);
+                lastCopilotRunAborted = result.isAborted();
+                lastCopilotRunReachedLimit = result.isReachedLimit();
+                rememberCopilotTranscript(result.getMessages());
+                saveCopilotTranscriptSnapshot();
+                if (result.isAborted()) {
+                    sendCopilotAborted(emitter);
+                    syncAgentStatusToConversationInfo(AgentStatus.IDLE);
+                    return;
+                }
+                if (result.isReachedLimit()) {
+                    sendCopilotLimit(emitter, result.getFinalText());
+                    syncAgentStatusToConversationInfo(AgentStatus.IDLE);
+                    return;
+                }
+                String finalText = result.getFinalText();
+                if (StringUtils.isBlank(finalText)) {
+                    finalText = "Task completed.";
+                    syncRespondContent(finalText, emitter);
+                    saveAssistantMessage(finalText, SSEEventType.MESSAGE);
+                }
+                sendCopilotDone(emitter);
+                syncAgentStatusToConversationInfo(AgentStatus.COMPLETED);
+            } catch (CopilotAgentLoop.CopilotAgentLoopException error) {
+                rememberCopilotTranscript(error.getMessages());
+                saveCopilotTranscriptSnapshot();
+                throw error;
+            }
+        } catch (Exception error) {
+            log.error("[COPILOT LOOP] execution failed", error);
+            ErrorEventData errorData = new ErrorEventData();
+            errorData.setTimestamp(System.currentTimeMillis());
+            errorData.setError("执行失败: " + StringUtils.defaultIfBlank(error.getMessage(), error.getClass().getSimpleName()));
+            sendOrForwardMessage(emitter, SSEEventType.ERROR.getType(), errorData);
+            syncAgentStatusToConversationInfo(AgentStatus.IDLE);
+            // Do not swallow the failure.  AgentSession must observe the
+            // exception and mark the session FAILED instead of COMPLETED.
+            throw error instanceof RuntimeException
+                    ? (RuntimeException) error
+                    : new IllegalStateException("Copilot loop failed", error);
+        } finally {
+            String cleanupSkillRoot = stagedSkillRoot != null ? stagedSkillRoot : lastCopilotSkillRoot;
+            Runnable skillCleanup = () -> {
+                if (cleanupSkillRoot != null && skillFileStorageService != null) {
+                    skillFileStorageService.deleteCopilotSkillDirectory(cleanupSkillRoot);
+                }
+            };
+            if (copilotTools != null) {
+                copilotTools.cancelOutstanding(
+                        Math.min(Math.max(1L, copilotToolTimeoutMs), 5_000L), skillCleanup);
+            } else {
+                skillCleanup.run();
+            }
+            lastCopilotSkillRoot = null;
+            synchronized (copilotAbortLock) {
+                activeCopilotLoop = null;
+                copilotRunActive.set(false);
+                copilotAbortRequested.set(false);
+            }
+        }
+    }
+
+    /** Request cancellation of the currently running Copilot-style turn. */
+    public void abortCopilotLoop() {
+        CopilotAgentLoop loop;
+        synchronized (copilotAbortLock) {
+            if (!copilotRunActive.get()) {
+                // A stale abort while idle must not cancel the next prompt.
+                copilotAbortRequested.set(false);
+                return;
+            }
+            copilotAbortRequested.set(true);
+            loop = activeCopilotLoop;
+        }
+        if (loop != null) {
+            loop.abort();
+        }
+    }
+
+    public boolean wasLastCopilotRunAborted() {
+        return lastCopilotRunAborted;
+    }
+
+    public boolean wasLastCopilotRunReachedLimit() {
+        return lastCopilotRunReachedLimit;
+    }
+
+    private volatile String lastCopilotSkillRoot;
+
+    private Map<String, Object> buildCopilotInvocationContext(String stagedSkillRoot) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("agentId", agent == null ? null : agent.getAgentId());
+        context.put("userId", agent == null ? conversationUserId : agent.getUserId());
+        context.put("sessionId", conversationSessionId);
+        if (StringUtils.isNotBlank(stagedSkillRoot)) {
+            context.put("workingDirectory", stagedSkillRoot);
+        }
+        return context;
+    }
+
+    private CopilotToolRegistry buildCopilotToolRegistry() {
+        CopilotToolRegistry registry = new CopilotToolRegistry();
+        if (tools != null) {
+            for (CopilotToolDefinition definition : tools.toCopilotToolDefinitions()) {
+                registry.registerIfAbsent(definition);
+            }
+        }
+        if (agent != null && agent.getVanillaTools() != null) {
+            for (cn.nolaurene.cms.service.sandbox.backend.tool.Tool tool : agent.getVanillaTools()) {
+                if (tool != null) {
+                    registry.registerIfAbsent(CopilotToolAdapter.fromTool(tool));
+                }
+            }
+        }
+
+        if (agent != null && agent.getToolSpecifications() != null) {
+            for (ToolSpecification specification : agent.getToolSpecifications()) {
+                if (specification == null || StringUtils.isBlank(specification.name())
+                        || specification.name().startsWith(SkillToolProvider.SKILL_TOOL_PREFIX)
+                        || (skillToolProvider != null && skillToolProvider.isSkillTool(specification.name()))) {
+                    continue;
+                }
+                CopilotToolDefinition definition = CopilotToolAdapter.fromToolSpecificationWithInvocation(
+                        specification,
+                        invocation -> {
+                            ToolExecutionRequest request = ToolExecutionRequest.builder()
+                                    .id(StringUtils.defaultIfBlank(invocation.getToolCallId(), UUID.randomUUID().toString()))
+                                    .name(specification.name())
+                                    .arguments(JSON.toJSONString(invocation.getArguments() == null
+                                            ? Map.of() : invocation.getArguments()))
+                                    .build();
+                            ToolExecutionRequest finalRequest = request;
+                            if (specification.name().startsWith("shell_")) {
+                                finalRequest = injectAgentIdForShellTool(request, agent.getAgentId());
+                            }
+                            return java.util.concurrent.CompletableFuture.completedFuture(
+                                    executeMcpToolForCopilot(specification.name(), finalRequest));
+                        });
+                if (!registry.registerIfAbsent(definition)) {
+                    log.warn("Ignoring duplicate Copilot tool definition: {}", specification.name());
+                }
+            }
+        }
+        return registry;
+    }
+
+    private List<dev.langchain4j.data.message.ChatMessage> buildCopilotInitialMessages() throws IOException {
+        List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
+        String system = loadPrompt("prompts/system.jinja");
+        StringBuilder prompt = new StringBuilder(system);
+        prompt.append("\n\n<agent_loop>\n")
+                .append("Continue by calling tools when more information or actions are needed. ")
+                .append("After each tool result, reassess the task. Stop only when the answer is complete.\n")
+                .append("Tool arguments must be JSON objects matching their schemas.\n")
+                .append("</agent_loop>\n");
+
+        String userId = agent == null ? conversationUserId : agent.getUserId();
+        Long parsedUserId = parseUserId(userId);
+        List<String> enabledSkillIds = skillToolProvider == null
+                ? List.of()
+                : skillToolProvider.getEnabledSkillIdsForUser(parsedUserId);
+        Set<String> disabledSkills = parseCsv(copilotDisabledSkills);
+        lastCopilotSkillRoot = null;
+        if ((!enabledSkillIds.isEmpty() && skillFileStorageService != null)
+                || StringUtils.isNotBlank(copilotSkillDirectories)) {
+            try {
+                List<java.nio.file.Path> skillRoots = new ArrayList<>();
+                if (!enabledSkillIds.isEmpty() && skillFileStorageService != null && copilotSkillCatalog != null) {
+                    CopilotSkillCatalog.Selection selection = copilotSkillCatalog.prepare(
+                            parsedUserId, disabledSkills);
+                    lastCopilotSkillRoot = selection.getRoot();
+                    skillRoots.add(java.nio.file.Paths.get(lastCopilotSkillRoot));
+                } else if (!enabledSkillIds.isEmpty() && skillFileStorageService != null) {
+                    lastCopilotSkillRoot = skillFileStorageService.createCopilotSkillDirectory(enabledSkillIds);
+                    skillRoots.add(java.nio.file.Paths.get(lastCopilotSkillRoot));
+                }
+                for (String configuredDirectory : parseCsv(copilotSkillDirectories)) {
+                    skillRoots.add(java.nio.file.Paths.get(configuredDirectory));
+                }
+                List<CopilotSkillDescriptor> skills = new CopilotSkillLoader(skillRoots, disabledSkills).load();
+                if (!skills.isEmpty()) {
+                    prompt.append("\n<skills>\n");
+                    for (CopilotSkillDescriptor skill : skills) {
+                        prompt.append("<skill name=\"")
+                                .append(escapeXml(skill.name()))
+                                .append("\" description=\"")
+                                .append(escapeXml(skill.description()))
+                                .append("\">\n")
+                                .append(skill.body())
+                                .append("\n</skill>\n");
+                    }
+                    prompt.append("</skills>\n");
+                }
+            } catch (Exception error) {
+                log.warn("[COPILOT LOOP] failed to load skills", error);
+            }
+        }
+        messages.add(SystemMessage.from(prompt.toString()));
+        if (copilotTranscript.isEmpty()) {
+            // Legacy history contains UI-only TOOL/STEP/PLAN records.  They
+            // are not Copilot protocol messages and cannot be replayed as
+            // assistant/tool pairs, so only ordinary user/assistant messages
+            // (plus compaction summaries) enter a fresh Copilot transcript.
+            messages.addAll(buildCopilotHistoryMessages());
+        } else {
+            messages.addAll(copilotTranscript);
+            messages.addAll(copilotRecoveryMessages);
+        }
+        return messages;
+    }
+
+    private List<dev.langchain4j.data.message.ChatMessage> buildCopilotHistoryMessages() {
+        List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
+        for (ChatMessage message : memory.getHistory()) {
+            if (message == null || message.getRole() == ChatMessage.Role.tool) {
+                continue;
+            }
+            SSEEventType eventType = message.getEventType();
+            if (eventType != null
+                    && eventType != SSEEventType.MESSAGE
+                    && eventType != SSEEventType.COMPACT) {
+                continue;
+            }
+            // Reasoning is streamed as a UI event and is persisted separately;
+            // replaying it as a normal assistant turn duplicates context.
+            if (message.getRole() == ChatMessage.Role.assistant
+                    && StringUtils.startsWith(message.getContent(), "**Deep Thinking:**")) {
+                continue;
+            }
+            messages.add(message.toLangchain4j());
+        }
+        return messages;
+    }
+
+    private void handleCopilotEvent(CopilotAgentEvent event, SseEmitter emitter) {
+        if (event == null) return;
+        switch (event.getType()) {
+            case ASSISTANT_REASONING:
+                syncRespondReasoning(event.getContent(), emitter);
+                break;
+            case ASSISTANT_MESSAGE_DELTA:
+                syncRespondContent(event.getContent(), emitter);
+                break;
+            case ASSISTANT_MESSAGE:
+                if (StringUtils.isNotBlank(event.getContent())) {
+                    saveAssistantMessage(event.getContent(), SSEEventType.MESSAGE);
+                }
+                break;
+            case TOOL_EXECUTION_START:
+                String args = JSON.toJSONString(event.getArguments() == null ? Map.of() : event.getArguments());
+                Long id = reportToolEvent(event.getToolName(), args, emitter);
+                if (id != null && event.getToolCallId() != null) {
+                    copilotToolMessageIds.put(event.getToolCallId(), id);
+                }
+                break;
+            case TOOL_PERMISSION_REQUEST:
+                sendOrForwardMessage(emitter, event.getType().getWireName(), event.toMap());
+                break;
+            case TOOL_EXECUTION_COMPLETE:
+                Long messageId = copilotToolMessageIds.remove(event.getToolCallId());
+                Object modelText = event.getData().get("modelText");
+                String result = modelText != null
+                        ? String.valueOf(modelText)
+                        : event.getError() != null
+                        ? "Tool error: " + event.getError()
+                        : String.valueOf(event.getResult() == null ? "" : event.getResult());
+                if (messageId != null && conversationHistoryService != null) {
+                    conversationHistoryService.updateToolResult(messageId, result);
+                }
+                break;
+            case SESSION_ERROR:
+                ErrorEventData errorData = new ErrorEventData();
+                errorData.setTimestamp(System.currentTimeMillis());
+                errorData.setError(event.getError());
+                sendOrForwardMessage(emitter, SSEEventType.ERROR.getType(), errorData);
+                break;
+            case SESSION_LIMIT:
+                sendOrForwardMessage(emitter, event.getType().getWireName(), event.toMap());
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void sendCopilotDone(SseEmitter emitter) {
+        DoneEventData done = new DoneEventData();
+        done.setTimestamp(System.currentTimeMillis());
+        sendOrForwardMessage(emitter, SSEEventType.DONE.getType(), done);
+    }
+
+    private void sendCopilotAborted(SseEmitter emitter) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("timestamp", System.currentTimeMillis());
+        data.put("aborted", true);
+        sendOrForwardMessage(emitter, "ABORTED", data);
+    }
+
+    private void sendCopilotLimit(SseEmitter emitter, String finalText) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("timestamp", System.currentTimeMillis());
+        data.put("limit", true);
+        if (StringUtils.isNotBlank(finalText)) {
+            data.put("message", finalText);
+        }
+        sendOrForwardMessage(emitter, "LIMIT_REACHED", data);
+    }
+
+    private void legacySkillBasedAgentLoop(String input, SseEmitter emitter) {
+        this.lastCopilotRunAborted = false;
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
 
@@ -601,16 +1066,35 @@ public class AgentExecutor {
     }
 
     private String executeMcpToolWithRetry(String toolName, ToolExecutionRequest request) {
+        return executeMcpToolOutcome(toolName, request).text;
+    }
+
+    /** Return a typed result for the Copilot registry so failures are not
+     * mistaken for successful string results. */
+    private CopilotToolResult executeMcpToolForCopilot(String toolName,
+                                                       ToolExecutionRequest request) {
+        McpToolOutcome outcome = executeMcpToolOutcome(toolName, request);
+        return outcome.success
+                ? CopilotToolResult.success(outcome.text)
+                : CopilotToolResult.error(outcome.text);
+    }
+
+    private McpToolOutcome executeMcpToolOutcome(String toolName, ToolExecutionRequest request) {
         McpClient mcpClient = selectMcpClient(toolName);
         if (mcpClient == null) {
-            return "No MCP client available for tool: " + toolName;
+            return McpToolOutcome.failure("No MCP client available for tool: " + toolName);
         }
 
         Exception lastException = null;
         for (int i = 0; i < MCP_TOOL_RETRY_TIMES; i++) {
             try {
                 ToolExecutionResult result = mcpClient.executeTool(request);
-                return result.resultText() != null ? result.resultText() : "(empty result)";
+                String resultText = result == null || result.resultText() == null
+                        ? "(empty result)" : result.resultText();
+                if (result != null && result.isError()) {
+                    return McpToolOutcome.failure(resultText);
+                }
+                return McpToolOutcome.success(resultText);
             } catch (Exception e) {
                 lastException = e;
                 log.warn("[SKILL LOOP] tool {} failed, attempt {}/{}: {}",
@@ -620,13 +1104,33 @@ public class AgentExecutor {
                         Thread.sleep(500);
                     } catch (InterruptedException interruptedException) {
                         Thread.currentThread().interrupt();
-                        return "Tool execution interrupted: " + interruptedException.getMessage();
+                            return McpToolOutcome.failure(
+                                    "Tool execution interrupted: " + interruptedException.getMessage());
                     }
                 }
             }
         }
 
-        return "Tool call error after retries: " + (lastException != null ? lastException.getMessage() : "unknown");
+        return McpToolOutcome.failure("Tool call error after retries: "
+                + (lastException != null ? lastException.getMessage() : "unknown"));
+    }
+
+    private static final class McpToolOutcome {
+        private final boolean success;
+        private final String text;
+
+        private McpToolOutcome(boolean success, String text) {
+            this.success = success;
+            this.text = text == null ? "" : text;
+        }
+
+        private static McpToolOutcome success(String text) {
+            return new McpToolOutcome(true, text);
+        }
+
+        private static McpToolOutcome failure(String text) {
+            return new McpToolOutcome(false, text);
+        }
     }
 
     private McpClient selectMcpClient(String toolName) {
@@ -1102,6 +1606,26 @@ public class AgentExecutor {
                 .replace("'", "&apos;");
     }
 
+    private Set<String> parseCsv(String value) {
+        if (StringUtils.isBlank(value)) {
+            return Set.of();
+        }
+        String normalized = value.trim();
+        // Spring may stringify a YAML list as "[a, b]" when this property is
+        // bound to a String. Accept both that representation and CSV input.
+        if (normalized.startsWith("[") && normalized.endsWith("]")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        return Arrays.stream(normalized.split(","))
+                .map(String::trim)
+                .map(item -> item.length() >= 2
+                        && ((item.startsWith("\"") && item.endsWith("\""))
+                        || (item.startsWith("'") && item.endsWith("'")))
+                        ? item.substring(1, item.length() - 1) : item)
+                .filter(StringUtils::isNotBlank)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
     public void resumeSseEmitter(SseEmitter emitter) {
         this.currentSseEmitter = emitter;
         this.frontendConnected.set(true);
@@ -1295,12 +1819,13 @@ public class AgentExecutor {
     }
 
     private Long saveAssistantMessageWithId(String content, SSEEventType eventType) {
+        // Keep the runtime transcript correct even when persistence is
+        // disabled in an embedded/test deployment.
+        memory.add(new ChatMessage(ChatMessage.Role.assistant, eventType, content));
         if (conversationHistoryService == null) {
             return null;
         }
         try {
-            memory.add(new ChatMessage(ChatMessage.Role.assistant, eventType, content));
-
             ConversationRequest req = new ConversationRequest();
             req.setUserId(conversationUserId);
             req.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
@@ -1346,27 +1871,87 @@ public class AgentExecutor {
     }
 
     private void ensureMemory() {
-        if (memory.isEmpty()) {
-            List<ConversationResponse> sessionConversations = conversationHistoryService.getSessionConversations(agent.getAgentId());
+        if (memory.isEmpty() && conversationHistoryService != null && agent != null) {
+            copilotRecoveryMessages.clear();
+            List<ConversationResponse> sessionConversations =
+                    conversationHistoryService.getSessionConversationsForReplay(agent.getAgentId());
+            // Keep compatibility with embedded hosts/mocks that only expose
+            // the historical conversation lookup method.
+            if (sessionConversations == null) {
+                sessionConversations = conversationHistoryService.getSessionConversations(agent.getAgentId());
+            }
+            if (sessionConversations == null) {
+                sessionConversations = List.of();
+            }
             int restoreStartIndex = findLatestCompactIndex(sessionConversations);
+            int transcriptSnapshotIndex = findLatestCopilotTranscriptIndex(sessionConversations);
+            if (transcriptSnapshotIndex >= 0) {
+                List<dev.langchain4j.data.message.ChatMessage> restored =
+                        deserializeCopilotTranscript(sessionConversations.get(transcriptSnapshotIndex).getContent());
+                if (!restored.isEmpty()) {
+                    copilotTranscript.clear();
+                    copilotTranscript.addAll(restored);
+                    restoreStartIndex = Math.max(restoreStartIndex, transcriptSnapshotIndex + 1);
+                }
+            }
 
             for (int i = restoreStartIndex; i < sessionConversations.size(); i++) {
                 ConversationResponse conversation = sessionConversations.get(i);
-                if (conversation.getEventType() == SSEEventType.CONTEXT) {
+                if (conversation.getEventType() == SSEEventType.CONTEXT
+                        || isCopilotTranscriptSnapshot(conversation)) {
                     continue;
                 }
                 switch(conversation.getMessageType()) {
                     case USER:
-                        memory.add(new ChatMessage(ChatMessage.Role.user, conversation.getEventType(), JSON.toJSONString(conversation.getContent())));
+                        String userContent = normalizedConversationContent(conversation.getContent());
+                        memory.add(new ChatMessage(ChatMessage.Role.user, conversation.getEventType(), userContent));
+                        if (transcriptSnapshotIndex >= 0 && i > transcriptSnapshotIndex
+                                && isCopilotRecoveryMessage(conversation)
+                                && StringUtils.isNotBlank(userContent)) {
+                            copilotRecoveryMessages.add(UserMessage.from(userContent));
+                        }
                         break;
                     case ASSISTANT:
-                        memory.add(new ChatMessage(ChatMessage.Role.assistant, conversation.getEventType(), JSON.toJSONString(conversation.getContent())));
+                        String assistantContent = normalizedConversationContent(conversation.getContent());
+                        memory.add(new ChatMessage(ChatMessage.Role.assistant, conversation.getEventType(), assistantContent));
+                        // A persisted assistant UI event contains only rendered
+                        // text. It does not carry the model's tool-call IDs or
+                        // arguments, so replaying it after a turn-start
+                        // snapshot could create an invalid assistant/tool pair.
+                        // The in-flight user prompt remains in the snapshot and
+                        // will be replayed from that safe boundary instead.
                         break;
                     default:
                         break;
                 }
             }
         }
+    }
+
+    /**
+     * Only records that can be represented as a plain Copilot transcript
+     * message may be recovered after a snapshot.  TOOL records are UI audit
+     * events whose JSON payload does not contain the assistant tool request;
+     * replaying them as AiMessage would produce an invalid provider history.
+     */
+    static boolean isCopilotRecoveryMessage(ConversationResponse conversation) {
+        if (conversation == null) {
+            return false;
+        }
+        SSEEventType eventType = conversation.getEventType();
+        if (eventType != null
+                && eventType != SSEEventType.MESSAGE
+                && eventType != SSEEventType.COMPACT) {
+            return false;
+        }
+        return conversation.getMessageType() != ConversationHistoryDO.MessageType.ASSISTANT;
+    }
+
+    private static String normalizedConversationContent(Object content) {
+        if (content == null) {
+            return "";
+        }
+        return content instanceof String ? (String) content : JSON.toJSONString(content);
     }
 
     private int findLatestCompactIndex(List<ConversationResponse> conversations) {
@@ -1382,12 +1967,183 @@ public class AgentExecutor {
         switch(message.getRole()) {
             case user:
                 saveUserMessage(message.getContent());
+                this.memory.add(message);
                 break;
             case assistant:
                 saveAssistantMessage(message.getContent(), message.getEventType());
                 break;
+            default:
+                break;
         }
-        this.memory.add(message);
+    }
+
+    private void rememberCopilotUserMessage(String content) {
+        if (StringUtils.isBlank(content)) {
+            return;
+        }
+        List<ChatMessage> history = memory.getHistory();
+        if (!history.isEmpty()) {
+            ChatMessage last = history.get(history.size() - 1);
+            if (last.getRole() == ChatMessage.Role.user
+                    && Objects.equals(last.getContent(), content)) {
+                return;
+            }
+        }
+        memory.add(new ChatMessage(ChatMessage.Role.user, SSEEventType.MESSAGE, content));
+    }
+
+    private void rememberCopilotTranscript(
+            List<dev.langchain4j.data.message.ChatMessage> messages) {
+        copilotTranscript.clear();
+        copilotRecoveryMessages.clear();
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        int start = messages.get(0) instanceof SystemMessage ? 1 : 0;
+        copilotTranscript.addAll(messages.subList(start, messages.size()));
+    }
+
+    /** Persist the normalized text/tool-call transcript for restart-safe resume. */
+    private void saveCopilotTranscriptSnapshot() {
+        if (conversationHistoryService == null || agent == null || copilotTranscript.isEmpty()) {
+            return;
+        }
+        try {
+            ConversationRequest request = new ConversationRequest();
+            request.setUserId(conversationUserId);
+            request.setSessionId(conversationSessionId != null ? conversationSessionId : agent.getAgentId());
+            request.setMessageType(ConversationHistoryDO.MessageType.ASSISTANT);
+            request.setEventType(SSEEventType.CONTEXT);
+            request.setContent(serializeCopilotTranscript(copilotTranscript));
+            request.setMetadata(JSON.toJSONString(Map.of(COPILOT_TRANSCRIPT_MARKER, true, "version", 1)));
+            conversationHistoryService.saveConversation(request);
+        } catch (Exception error) {
+            log.warn("failed to persist Copilot transcript snapshot", error);
+        }
+    }
+
+    private int findLatestCopilotTranscriptIndex(List<ConversationResponse> conversations) {
+        if (conversations == null) {
+            return -1;
+        }
+        for (int index = conversations.size() - 1; index >= 0; index--) {
+            if (isCopilotTranscriptSnapshot(conversations.get(index))) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isCopilotTranscriptSnapshot(ConversationResponse conversation) {
+        if (conversation == null || conversation.getEventType() != SSEEventType.CONTEXT
+                || StringUtils.isBlank(conversation.getMetadata())) {
+            return false;
+        }
+        try {
+            JSONObject metadata = JSON.parseObject(conversation.getMetadata());
+            return metadata != null && metadata.getBooleanValue(COPILOT_TRANSCRIPT_MARKER);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String serializeCopilotTranscript(
+            List<dev.langchain4j.data.message.ChatMessage> messages) {
+        List<Map<String, Object>> records = new ArrayList<>();
+        for (dev.langchain4j.data.message.ChatMessage message : messages) {
+            Map<String, Object> record = new LinkedHashMap<>();
+            if (message instanceof UserMessage) {
+                record.put("role", "user");
+                UserMessage user = (UserMessage) message;
+                record.put("content", user.hasSingleText() ? user.singleText() : user.toString());
+            } else if (message instanceof AiMessage) {
+                AiMessage assistant = (AiMessage) message;
+                record.put("role", "assistant");
+                record.put("content", StringUtils.defaultString(assistant.text()));
+                record.put("thinking", StringUtils.defaultString(assistant.thinking()));
+                List<Map<String, Object>> calls = new ArrayList<>();
+                if (assistant.hasToolExecutionRequests()) {
+                    for (ToolExecutionRequest request : assistant.toolExecutionRequests()) {
+                        Map<String, Object> call = new LinkedHashMap<>();
+                        call.put("id", request.id());
+                        call.put("name", request.name());
+                        call.put("arguments", request.arguments());
+                        calls.add(call);
+                    }
+                }
+                record.put("toolRequests", calls);
+            } else if (message instanceof ToolExecutionResultMessage) {
+                ToolExecutionResultMessage tool = (ToolExecutionResultMessage) message;
+                record.put("role", "tool");
+                record.put("id", tool.id());
+                record.put("name", tool.toolName());
+                record.put("content", tool.text());
+                record.put("isError", Boolean.TRUE.equals(tool.isError()));
+            } else {
+                continue;
+            }
+            records.add(record);
+        }
+        return JSON.toJSONString(records);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<dev.langchain4j.data.message.ChatMessage> deserializeCopilotTranscript(Object rawContent) {
+        if (rawContent == null) {
+            return List.of();
+        }
+        try {
+            JSONArray records = JSON.parseArray(String.valueOf(rawContent));
+            if (records == null) {
+                return List.of();
+            }
+            List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
+            for (Object value : records) {
+                if (!(value instanceof JSONObject)) {
+                    continue;
+                }
+                JSONObject record = (JSONObject) value;
+                String role = record.getString("role");
+                if ("user".equals(role)) {
+                    messages.add(UserMessage.from(StringUtils.defaultString(record.getString("content"))));
+                } else if ("assistant".equals(role)) {
+                    AiMessage.Builder builder = AiMessage.builder()
+                            .text(StringUtils.defaultString(record.getString("content")));
+                    String thinking = record.getString("thinking");
+                    if (StringUtils.isNotBlank(thinking)) {
+                        builder.thinking(thinking);
+                    }
+                    List<ToolExecutionRequest> calls = new ArrayList<>();
+                    JSONArray rawCalls = record.getJSONArray("toolRequests");
+                    if (rawCalls != null) {
+                        for (Object rawCall : rawCalls) {
+                            if (!(rawCall instanceof JSONObject)) continue;
+                            JSONObject call = (JSONObject) rawCall;
+                            calls.add(ToolExecutionRequest.builder()
+                                    .id(call.getString("id"))
+                                    .name(call.getString("name"))
+                                    .arguments(StringUtils.defaultIfBlank(call.getString("arguments"), "{}"))
+                                    .build());
+                        }
+                    }
+                    if (!calls.isEmpty()) {
+                        builder.toolExecutionRequests(calls);
+                    }
+                    messages.add(builder.build());
+                } else if ("tool".equals(role)) {
+                    messages.add(ToolExecutionResultMessage.builder()
+                            .id(record.getString("id"))
+                            .toolName(record.getString("name"))
+                            .text(StringUtils.defaultString(record.getString("content")))
+                            .isError(record.getBooleanValue("isError"))
+                            .build());
+                }
+            }
+            return messages;
+        } catch (Exception error) {
+            log.warn("failed to restore Copilot transcript snapshot", error);
+            return List.of();
+        }
     }
 
     private void compactMemory() {
